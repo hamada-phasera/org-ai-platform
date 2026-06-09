@@ -161,7 +161,8 @@ export default function ChatPage() {
 
     try {
       const token = useAuthStore.getState().token;
-      const apiBase = import.meta.env.VITE_API_URL || '/api';
+      // ベース URL は services/api.ts の単一ソースを使う（VITE_API_URL の重複定義を解消）
+      const apiBase = api.defaults.baseURL ?? '/api';
       const res = await fetch(`${apiBase}/chat/sessions/${id}/messages/stream`, {
         method: 'POST',
         headers: {
