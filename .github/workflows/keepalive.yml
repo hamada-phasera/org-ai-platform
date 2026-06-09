@@ -1,0 +1,42 @@
+# Render 無料枠サービス (api-gateway / ai-engine / n8n) のコールドスタート緩和。
+#
+# 無料枠は 1 サービス 750 インスタンス時間/月。3 サービスを 24h 常時稼働させると枠を超えるため、
+# 平日 JST 9:00-19:00 のみ ~12 分間隔で health を叩いて暖機する（月 ~220 時間/サービスで枠内）。
+# それ以外の時間はスリープを許容し、実行時は task-executor のリトライ + AI Engine フォールバックで吸収する。
+#
+# URL はリポジトリ Variables (Settings → Secrets and variables → Actions → Variables) で上書き可能。
+# 未設定時は docs/n8n-setup.md / DEPLOYMENT_RUNBOOK.md の既定 Render URL を使う。
+
+name: keepalive
+
+on:
+  schedule:
+    # UTC 00:00-10:59 = JST 09:00-19:59、平日 (月-金)、12 分間隔
+    - cron: '*/12 0-10 * * 1-5'
+  workflow_dispatch: {} # 手動でも叩けるように
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Warm Render services
+        env:
+          API_GATEWAY_URL: ${{ vars.API_GATEWAY_URL }}
+          AI_ENGINE_URL: ${{ vars.AI_ENGINE_URL }}
+          N8N_URL: ${{ vars.N8N_URL }}
+        run: |
+          : "${API_GATEWAY_URL:=https://org-ai-api-gateway.onrender.com}"
+          : "${AI_ENGINE_URL:=https://org-ai-ai-engine.onrender.com}"
+          : "${N8N_URL:=https://org-ai-n8n-web.onrender.com}"
+
+          ping() {
+            local name="$1" url="$2"
+            # Render コールドスタートは ~30-50s かかるため max-time を長めに、失敗しても他を止めない
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 60 "$url" || echo "000")
+            echo "[$name] $url -> $code"
+          }
+
+          ping "api-gateway" "${API_GATEWAY_URL%/}/health"
+          ping "ai-engine"   "${AI_ENGINE_URL%/}/health"
+          ping "n8n"         "${N8N_URL%/}/healthz"
+          echo "keepalive ping 完了（失敗しても warm 目的なので job は成功扱い）"
