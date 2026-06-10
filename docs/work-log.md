@@ -47,6 +47,23 @@
 - `CLAUDE.md`: スタック表 Groq→Anthropic / SQLite→PostgreSQL、env ブロック更新、エージェント機能 / n8n 稼働・有料化導線セクション追加。
 - `.env.example`: 調査時点で既に Anthropic 準拠（`GROQ_API_KEY` 不在）かつ権限の Read deny 対象のため変更なし。
 
+### Phase 7: テスト + デプロイ + 検証 ✅
+- `vitest run`（gateway）: 3 ファイル 10 件パス（既存 capability-resolver + 新規 builder/dispatch）。
+- Vercel **プレビュー**デプロイ（project `flow`、`org-ai-platform` から、`--prod` なし＝本番ドメイン非更新）: READY。
+  - URL: https://flow-n5a6ybcec-hamahiro1668s-projects.vercel.app （Vercel Deployment Protection(SSO) 有効＝チーム限定。匿名は 401。チームメンバーはブラウザで閲覧可）。
+- ローカル ブラウザ検証（vite dev + agent-browser）:
+  - `/` → `/login` リダイレクト（RequireAuth 動作）、ログイン画面描画 OK、ランタイムクラッシュ無し。
+  - `/agents`（未認証）→ `/login` リダイレクト（ルート登録＆ガード確認）。
+  - トークン注入後 `/agents` → ページ描画（ヘッダ「業務効率化エージェント」＋「エージェントを作成」＋新ナビ）。バックエンド未起動のため「読み込みに失敗しました」EmptyState（想定通り、クラッシュ無し）。
+  - 「エージェントを作成」→ CreateAgentModal 描画（AI提案チェック/名前/説明/部署/指示/作成ボタン disabled バリデーション）。
+
+### 残作業（このタスク範囲外・要承認）
+- **エンドツーエンドの agent 作成/実行**には Render のバックエンド再デプロイ＋マイグレーション適用が必要:
+  - gateway/ai-engine を本ブランチのコードで再デプロイ（Render は接続ブランチに push で自動デプロイ。`git push` は権限上 ask）。
+  - 起動時 `prisma migrate deploy` で `20260610000000_add_agent` を Neon に適用。
+  - n8n を使う場合は `N8N_API_KEY` を gateway env に設定（専用ワークフロー生成に必要）。未設定でも AI Engine フォールバックで動作。
+- 本タスクでは Vercel プレビュー（フロント）までを実施。フロントは描画検証済み、バックエンドは tsc/py_compile/unit テストで検証済み。
+
 ### 既知の制約 / メモ
 - ガバナンス統計 UI（旧 DashboardPage の棒グラフ）は移植せず破棄。`/api/agents/stats` エンドポイントは残置（将来 GovernancePage へ移植可能）。
 - vercel-plugin の posttooluse バリデータが n8n の "workflow" 命名や Node の setTimeout/fetch を Vercel Workflow DevKit と誤検出するが、本コードは n8n REST + Fastify/Node 実行であり全て false positive。意図的に無視。
