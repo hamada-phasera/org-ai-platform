@@ -30,6 +30,7 @@ model Organization {
   tasks          Task[]
   files          UploadedFile[]
   scheduledTasks ScheduledTask[]
+  agents         Agent[]
   createdAt      DateTime        @default(now())
 }
 
@@ -68,9 +69,13 @@ model Task {
   retryCount      Int          @default(0)
   lastError       String?
   executedAt      DateTime?
+  agentId         String?
+  agent           Agent?       @relation(fields: [agentId], references: [id])
   logs            TaskLog[]
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
+
+  @@index([orgId, agentId])
 }
 
 model TaskLog {
@@ -207,4 +212,47 @@ model ExecutionLog {
 
   @@index([orgId, createdAt])
   @@index([capabilityId])
+}
+
+enum AgentN8nStatus {
+  PENDING // n8n ワークフロー未作成（API 不達 / スキップ）
+  CREATED // 作成済みだが activate 未確認
+  ACTIVE // 作成 + activate 済み
+  FAILED // 生成を試みて失敗
+  FALLBACK_ONLY // 意図的に n8n ワークフローを持たない（常に AI Engine で実行）
+}
+
+enum AgentTrigger {
+  MANUAL
+  SCHEDULED
+}
+
+/// ユーザーがチャット / フォームから作成する再利用可能な「業務効率化エージェント」。
+/// DB の行が真実の源。n8n は best-effort の自動化レイヤーで、寝ていても AI Engine で実行される。
+model Agent {
+  id            String         @id @default(cuid())
+  orgId         String
+  org           Organization   @relation(fields: [orgId], references: [id])
+  name          String
+  description   String?
+  department    String         @default("GENERAL")
+  instructions  String // system プロンプト / ペルソナ
+  steps         Json? // 順序付き capability ステップ: [{ capabilityName, argTemplate }]
+  trigger       AgentTrigger   @default(MANUAL)
+  enabled       Boolean        @default(true)
+  // n8n linkage
+  n8nWorkflowId String?
+  webhookPath   String? // 例: "agent-<id>"
+  n8nStatus     AgentN8nStatus @default(PENDING)
+  // 表示用（保存エージェントを built-in と並べて描画するため）
+  icon          String?
+  color         String?
+  createdBy     String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  tasks Task[]
+
+  @@unique([orgId, name])
+  @@index([orgId, enabled])
 }

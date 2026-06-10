@@ -13,8 +13,9 @@ AIガバナンス機能（ログ監視・リスク検知）を補助機能とし
 | フロントエンド | React 18 + Vite + TypeScript | SPA、社長UI |
 | APIゲートウェイ | Node.js (Fastify) + TypeScript | 認証、ルーティング、WebSocket |
 | AI処理エンジン | Python 3.11+ (FastAPI) | エージェント実行、Intent分類、リスク検知、LLM呼び出し |
-| データベース | SQLite (Prisma) | 開発用ローカルDB |
-| LLM | Groq API (Llama3-70b) | 全部署統一、高速・低コスト |
+| データベース | PostgreSQL (Prisma) | 本番=Neon / ローカル=docker-compose |
+| LLM | Anthropic Claude | プラン別 (STARTER=Haiku / PRO=Sonnet / MAX=Opus)。LLMRouter経由 |
+| ワークフロー | n8n (セルフホスト) | 部署/capability/エージェントの実行基盤。Webhook起動＋AI Engineフォールバック |
 | 認証 | JWT自前実装 (bcryptjs + @fastify/jwt) | シンプル認証 |
 | ファイル保存 | ローカルファイルシステム | ./data/files/ |
 | インフラ | docker-compose | ローカル開発環境 |
@@ -50,13 +51,34 @@ org-ai-platform/
 ## 環境変数
 
 ```
-GROQ_API_KEY=         # Groq APIキー (必須)
+ANTHROPIC_API_KEY=    # Anthropic APIキー (必須、ai-engine の LLM 呼び出し)
 JWT_SECRET=           # JWT署名シークレット (必須、32文字以上推奨)
-DATABASE_URL=sqlite:///./data/app.db
-FRONTEND_URL=http://localhost:3000
+DATABASE_URL=postgresql://...   # Neon(本番) / docker-compose(ローカル)
+FRONTEND_URL=http://localhost:3000   # 本番はカンマ区切りで Vercel ドメインを含める (CORS)
 API_GATEWAY_URL=http://localhost:4000
 AI_ENGINE_URL=http://localhost:8000
+# n8n (任意。未設定なら AI Engine フォールバックで動作)
+N8N_CLOUD_URL=        # or N8N_URL。エージェント実行・ワークフロー生成の宛先
+N8N_API_KEY=          # n8n Public API キー。エージェント専用ワークフローの動的生成にも使用
+N8N_WEBHOOK_AUTH_TOKEN=org-ai-n8n-secret-token   # Webhook Header Auth
 ```
+
+## エージェント機能 (業務効率化エージェント)
+
+- ユーザーはチャット/フォームから再利用可能なエージェントを作成 (`POST /api/agents`)。
+- 作成時に n8n Public API で専用ワークフロー `agent-<id>` を **best-effort 生成** (`n8n-workflow-builder.ts`)。
+  n8n が落ちていても作成は成功し `n8nStatus=PENDING`、実行時は AI Engine `/llm/chat` にフォールバック。
+- 一覧 (`GET /api/agents`) から選択して再実行 (`POST /api/agents/:id/run`) → `Task` を作成し
+  `dispatchAgentTask` が n8n webhook（コールドスタート時はリトライ＋「n8n起動中…」ログ）→ フォールバックで実行。
+- フロント: `/agents` ページ (一覧/作成/実行)、`CreateAgentModal` / `AgentRunModal`。
+- DB が真実の源。n8n は自動化の加速レイヤーであって依存先ではない。
+
+## n8n 稼働とコールドスタート
+
+Render 無料枠は ~15分でスリープ・全サービス合計 750h/月の制約があり 3 サービスの 24h 常時稼働は不可。
+- 緩和: `.github/workflows/keepalive.yml` が平日 JST 9-19 のみ health を叩く（月 ~220h で枠内）。
+- 実行は常に AI Engine フォールバックで完了するため n8n スリープ中でも動く。
+- 安定性が必要なら有料化: Render Standard ($7/月/サービス, スリープ無し) または n8n Cloud（常時稼働・Postgres 90日削除問題も解消）。
 
 ## タスク実行順序
 

@@ -1,9 +1,7 @@
 export { GlassCard, GlassSurface } from './GlassCard';
 export { GlassButton } from './GlassButton';
 export { GlassInput } from './GlassInput';
-export { GlassPanel } from './GlassPanel';
 export { GlassBadge, DeptBadge } from './GlassBadge';
-export { GlassNav, GlassNavItem } from './GlassNav';
 export { AmbientBackground } from './AmbientBackground';
 export { EmptyState } from './EmptyState';
 export { ErrorState } from './ErrorState';

@@ -17,7 +17,7 @@ from app.orchestrator.intent_classifier import classify_intent
 from app.llm.router import llm_router, _resolve_model
 from app.governance.audit_logger import log_llm_call
 from app.governance.pii_screener import screen
-from app.planner import plan_capability
+from app.planner import plan_capability, plan_agent
 
 
 class PlanCapability(BaseModel):
@@ -43,6 +43,28 @@ class PlanResponse(BaseModel):
     inferred_name: Optional[str] = None
     pii_detected: bool = False
     pii_types: list[str] = []
+
+
+class PlanAgentRequest(BaseModel):
+    description: str
+    org_id: str
+    plan: str = "STARTER"
+    available_capabilities: list[PlanCapability] = []
+
+
+class AgentStep(BaseModel):
+    capabilityName: str
+    argTemplate: dict[str, Any] = {}
+
+
+class PlanAgentResponse(BaseModel):
+    name: Optional[str] = None
+    department: str = "GENERAL"
+    instructions: Optional[str] = None
+    steps: list[AgentStep] = []
+    trigger: str = "MANUAL"
+    confidence: float = 0.0
+    reasoning: str = ""
 
 app = FastAPI(title="AI Engine", version="1.0.0")
 
@@ -207,4 +229,38 @@ async def plan(request: PlanRequest) -> PlanResponse:
         inferred_name=result.get("inferred_name"),
         pii_detected=pii_result.detected,
         pii_types=list(pii_result.types) if pii_result.detected else [],
+    )
+
+
+@app.post("/plan/agent", response_model=PlanAgentResponse)
+async def plan_agent_endpoint(request: PlanAgentRequest) -> PlanAgentResponse:
+    """自由記述から再利用可能なエージェント定義を推論する (opt-in)。"""
+    pii_result = screen(request.description)
+    capabilities = [c.model_dump() for c in request.available_capabilities]
+    result = await plan_agent(
+        description=pii_result.text,
+        org_id=request.org_id,
+        plan=request.plan,
+        capabilities=capabilities,
+    )
+    asyncio.create_task(log_llm_call(
+        org_id=request.org_id,
+        department=result.get("department", "GENERAL"),
+        provider="anthropic",
+        model=_resolve_model(request.plan),
+        input_text=request.description,
+        output_text=json.dumps(result, ensure_ascii=False),
+        tokens=None,
+        latency_ms=None,
+        pii_detected=pii_result.detected,
+        pii_types=list(pii_result.types) if pii_result.detected else [],
+    ))
+    return PlanAgentResponse(
+        name=result.get("name"),
+        department=result.get("department", "GENERAL"),
+        instructions=result.get("instructions"),
+        steps=[AgentStep(**s) for s in result.get("steps", [])],
+        trigger=result.get("trigger", "MANUAL"),
+        confidence=result.get("confidence", 0.0),
+        reasoning=result.get("reasoning", ""),
     )

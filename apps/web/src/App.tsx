@@ -3,6 +3,7 @@ import { useAuthStore } from './store/authStore';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ChatPage from './pages/ChatPage';
+import AgentsPage from './pages/AgentsPage';
 import GovernancePage from './pages/GovernancePage';
 import TaskManagerPage from './pages/TaskManagerPage';
 import DeliverablesPage from './pages/DeliverablesPage';
@@ -37,6 +38,7 @@ export default function App() {
       >
         <Route path="chat" element={<ChatPage />} />
         <Route path="chat/:id" element={<ChatPage />} />
+        <Route path="agents" element={<AgentsPage />} />
         <Route path="governance" element={<GovernancePage />} />
         <Route path="tasks" element={<TaskManagerPage />} />
         <Route path="deliverables" element={<DeliverablesPage />} />

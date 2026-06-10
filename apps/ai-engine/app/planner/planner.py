@@ -4,9 +4,16 @@ import logging
 from typing import Any
 from app.models.llm import ChatMessage
 from app.llm.router import llm_router
-from app.planner.prompts import build_planner_system_prompt, build_planner_user_prompt
+from app.planner.prompts import (
+    build_planner_system_prompt,
+    build_planner_user_prompt,
+    build_agent_planner_system_prompt,
+    build_agent_planner_user_prompt,
+)
 
 logger = logging.getLogger(__name__)
+
+_VALID_DEPARTMENTS = {"SALES", "MARKETING", "ACCOUNTING", "ANALYTICS", "GENERAL"}
 
 
 async def plan_capability(
@@ -78,6 +85,70 @@ async def plan_capability(
         "args": args,
         "confidence": float(confidence),
         "reasoning": reasoning,
+    }
+
+
+async def plan_agent(
+    description: str,
+    org_id: str,
+    plan: str,
+    capabilities: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """自由記述から再利用可能なエージェント定義 (name/department/instructions/steps/trigger) を推論する。"""
+    messages = [
+        ChatMessage(role="system", content=build_agent_planner_system_prompt(capabilities)),
+        ChatMessage(role="user", content=build_agent_planner_user_prompt(description)),
+    ]
+    try:
+        response, _pii, _types = await llm_router.chat(
+            messages=messages,
+            department="GENERAL",
+            org_id=org_id,
+            plan=plan,
+            json_mode=True,
+        )
+    except Exception as e:
+        logger.exception("agent planner LLM call failed")
+        return {"instructions": None, "confidence": 0.0, "reasoning": f"LLM 呼び出し失敗: {e}"}
+
+    parsed = _safe_parse_json(response.content.strip())
+    if parsed is None:
+        return {
+            "instructions": None,
+            "confidence": 0.0,
+            "reasoning": f"LLM 出力の JSON パース失敗: {response.content[:120]}",
+        }
+
+    name = parsed.get("name") if isinstance(parsed.get("name"), str) else None
+    department = parsed.get("department")
+    if department not in _VALID_DEPARTMENTS:
+        department = "GENERAL"
+    instructions = parsed.get("instructions") if isinstance(parsed.get("instructions"), str) else None
+
+    # steps は登録済み name のみ許可
+    available_names = {c["name"] for c in capabilities}
+    steps: list[dict[str, Any]] = []
+    if isinstance(parsed.get("steps"), list):
+        for s in parsed["steps"]:
+            if isinstance(s, dict) and s.get("capabilityName") in available_names:
+                arg_template = s.get("argTemplate") if isinstance(s.get("argTemplate"), dict) else {}
+                steps.append({"capabilityName": s["capabilityName"], "argTemplate": arg_template})
+
+    trigger = parsed.get("trigger")
+    if trigger not in ("MANUAL", "SCHEDULED"):
+        trigger = "MANUAL"
+    confidence = parsed.get("confidence")
+    if not isinstance(confidence, (int, float)):
+        confidence = 0.5
+
+    return {
+        "name": name,
+        "department": department,
+        "instructions": instructions,
+        "steps": steps,
+        "trigger": trigger,
+        "confidence": float(confidence),
+        "reasoning": parsed.get("reasoning") if isinstance(parsed.get("reasoning"), str) else "",
     }
 
 

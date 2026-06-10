@@ -1,5 +1,5 @@
 import { motion, useReducedMotion } from 'framer-motion';
-import { ArrowLeft, Bell, Home, Package, Search, Sparkles } from 'lucide-react';
+import { ArrowLeft, Bot, Home, Package, Search, Shield, Sparkles } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useChatStore } from '../../store/chatStore';
 import { useFooterSearchStore } from '../../store/footerSearchStore';
@@ -34,6 +34,8 @@ export function BottomNav({ showBack, onBack }: BottomNavProps) {
   const isAiActive = onChat && !isAssistantActive;
   const isHomeActive = location.pathname === '/';
   const isDeliverablesActive = location.pathname.startsWith('/deliverables');
+  const isAgentsActive = location.pathname.startsWith('/agents');
+  const isGovernanceActive = location.pathname.startsWith('/governance');
 
   const goToAi = () => {
     setSelectedAgent(null);
@@ -93,6 +95,14 @@ export function BottomNav({ showBack, onBack }: BottomNavProps) {
                 />
 
                 <NavItem
+                  icon={<Bot size={20} />}
+                  active={isAgentsActive}
+                  tone={NAV_TONE}
+                  onClick={() => navigate('/agents')}
+                  reduceMotion={reduceMotion}
+                />
+
+                <NavItem
                   icon={<Package size={20} />}
                   active={isDeliverablesActive}
                   tone={NAV_TONE}
@@ -100,17 +110,13 @@ export function BottomNav({ showBack, onBack }: BottomNavProps) {
                   reduceMotion={reduceMotion}
                 />
 
-                <SmallIconBtn
-                  aria-label="通知"
+                <NavItem
+                  icon={<Shield size={20} />}
+                  active={isGovernanceActive}
+                  tone={NAV_TONE}
+                  onClick={() => navigate('/governance')}
                   reduceMotion={reduceMotion}
-                  className="relative h-10 w-10 flex-shrink-0"
-                >
-                  <Bell className="h-[18px] w-[18px]" />
-                  <span
-                    className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-danger"
-                    style={{ boxShadow: '0 0 6px rgba(239,68,68,0.5)' }}
-                  />
-                </SmallIconBtn>
+                />
 
                 <motion.button
                   type="button"
