@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "tsc --noCheck",
+    "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
     "test": "vitest run"
   },
