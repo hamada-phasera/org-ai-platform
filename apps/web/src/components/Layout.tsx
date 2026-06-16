@@ -24,7 +24,7 @@ export default function Layout() {
           </motion.div>
         </AnimatePresence>
       </main>
-      <BottomNav showBack onBack={() => navigate(-1)} />
+      <BottomNav showBack={location.pathname !== '/'} onBack={() => navigate(-1)} />
     </div>
   );
 }

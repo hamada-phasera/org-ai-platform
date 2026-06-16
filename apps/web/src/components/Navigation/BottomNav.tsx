@@ -1,11 +1,13 @@
 import { motion, useReducedMotion } from 'framer-motion';
-import { ArrowLeft, Bot, Home, Package, Search, Shield, Sparkles } from 'lucide-react';
+import { ArrowLeft, Bot, Home, Moon, Package, Search, Shield, Sparkles, Sun } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useChatStore } from '../../store/chatStore';
 import { useFooterSearchStore } from '../../store/footerSearchStore';
+import { useThemeStore } from '../../store/themeStore';
 import { FooterSearch } from './FooterSearch';
 
-const NAV_TONE = '#8fd8ff';
+const NAV_TONE = 'var(--accent)';
+const INACTIVE = 'var(--text-muted)';
 
 export interface BottomNavProps {
   showBack?: boolean;
@@ -16,22 +18,15 @@ export function BottomNav({ showBack, onBack }: BottomNavProps) {
   const reduceMotion = useReducedMotion();
   const navigate = useNavigate();
   const location = useLocation();
-  const {
-    selectedAgentId,
-    currentSessionId,
-    sessions,
-    setPendingDepartment,
-    setSelectedAgent,
-    setAutoCreateSession,
-  } =
+  const { currentSessionId, sessions, setPendingDepartment, setSelectedAgent, setAutoCreateSession } =
     useChatStore();
   const secretarySearchOpen = useFooterSearchStore((s) => s.secretarySearchOpen);
   const openSecretarySearch = useFooterSearchStore((s) => s.openSecretarySearch);
   const requestFooterSearchFocus = useFooterSearchStore((s) => s.requestFooterSearchFocus);
+  const theme = useThemeStore((s) => s.theme);
+  const toggleTheme = useThemeStore((s) => s.toggle);
 
   const onChat = location.pathname.startsWith('/chat');
-  const isAssistantActive = secretarySearchOpen || (onChat && selectedAgentId === 'assistant');
-  const isAiActive = onChat && !isAssistantActive;
   const isHomeActive = location.pathname === '/';
   const isDeliverablesActive = location.pathname.startsWith('/deliverables');
   const isAgentsActive = location.pathname.startsWith('/agents');
@@ -41,126 +36,61 @@ export function BottomNav({ showBack, onBack }: BottomNavProps) {
     setSelectedAgent(null);
     setPendingDepartment(null);
     setAutoCreateSession(false);
-    if (currentSessionId) {
-      navigate(`/chat/${currentSessionId}`);
-      return;
-    }
-    if (sessions[0]?.id) {
-      navigate(`/chat/${sessions[0].id}`);
-      return;
-    }
+    if (currentSessionId) return navigate(`/chat/${currentSessionId}`);
+    if (sessions[0]?.id) return navigate(`/chat/${sessions[0].id}`);
     navigate('/chat');
   };
 
   return (
     <footer className="relative z-30 flex-shrink-0 bg-transparent px-3 pb-4 pt-2">
-      <div className="mx-auto flex w-full max-w-xl items-center gap-2 bg-transparent">
-        <div className={reduceMotion ? 'rounded-full' : 'liquid-icon-shell'}>
-          <SmallIconBtn
-            onClick={showBack ? onBack : () => requestFooterSearchFocus()}
-            aria-label={showBack ? '戻る' : '検索'}
-            reduceMotion={reduceMotion}
-            className={
-              reduceMotion
-                ? 'border border-white/85 bg-white/82 shadow-elev-1 backdrop-blur-xl'
-                : 'liquid-icon-inner'
-            }
-          >
-            {showBack ? (
-              <ArrowLeft className="h-[18px] w-[18px]" />
-            ) : (
-              <Search className="h-[18px] w-[18px]" />
-            )}
-          </SmallIconBtn>
-        </div>
+      <div className="mx-auto flex w-full max-w-2xl items-center gap-2">
+        {/* left: back / search */}
+        <SmallIconBtn
+          onClick={showBack ? onBack : () => requestFooterSearchFocus()}
+          aria-label={showBack ? '戻る' : '検索'}
+          reduceMotion={reduceMotion}
+          className="liquid-icon-inner"
+        >
+          {showBack ? <ArrowLeft className="h-[18px] w-[18px]" /> : <Search className="h-[18px] w-[18px]" />}
+        </SmallIconBtn>
 
+        {/* center: nav pill */}
         <div className="min-w-0 flex-1">
           {secretarySearchOpen ? (
             <FooterSearch />
           ) : (
-            <div className={reduceMotion ? '' : 'liquid-pill-shell'}>
-              <div
-                className={
-                  reduceMotion
-                    ? 'flex h-[52px] items-center justify-between gap-1.5 rounded-full border border-white/88 bg-white/78 px-2.5 shadow-elev-2 backdrop-blur-xl'
-                    : 'liquid-pill-inner flex h-[52px] items-center justify-between gap-1.5 px-2.5'
-                }
+            <div className="liquid-pill-inner flex h-[52px] items-center justify-between gap-1 px-3">
+              <NavItem icon={<Home size={19} />} active={isHomeActive} onClick={() => navigate('/')} reduceMotion={reduceMotion} />
+              <NavItem icon={<Bot size={19} />} active={isAgentsActive} onClick={() => navigate('/agents')} reduceMotion={reduceMotion} />
+              <NavItem icon={<Package size={19} />} active={isDeliverablesActive} onClick={() => navigate('/deliverables')} reduceMotion={reduceMotion} />
+              <NavItem icon={<Shield size={19} />} active={isGovernanceActive} onClick={() => navigate('/governance')} reduceMotion={reduceMotion} />
+              <motion.button
+                type="button"
+                onClick={goToAi}
+                aria-label="AIチャット"
+                className="relative flex h-9 w-9 items-center justify-center rounded-full"
+                style={{ background: onChat ? 'var(--accent)' : 'var(--accent-soft)' }}
+                whileTap={reduceMotion ? undefined : { scale: 0.92 }}
               >
-                <NavItem
-                  icon={<Home size={20} />}
-                  active={isHomeActive}
-                  tone={NAV_TONE}
-                  onClick={() => navigate('/')}
-                  reduceMotion={reduceMotion}
-                />
-
-                <NavItem
-                  icon={<Bot size={20} />}
-                  active={isAgentsActive}
-                  tone={NAV_TONE}
-                  onClick={() => navigate('/agents')}
-                  reduceMotion={reduceMotion}
-                />
-
-                <NavItem
-                  icon={<Package size={20} />}
-                  active={isDeliverablesActive}
-                  tone={NAV_TONE}
-                  onClick={() => navigate('/deliverables')}
-                  reduceMotion={reduceMotion}
-                />
-
-                <NavItem
-                  icon={<Shield size={20} />}
-                  active={isGovernanceActive}
-                  tone={NAV_TONE}
-                  onClick={() => navigate('/governance')}
-                  reduceMotion={reduceMotion}
-                />
-
-                <motion.button
-                  type="button"
-                  onClick={goToAi}
-                  className="relative flex h-10 w-10 items-center justify-center rounded-full"
-                  whileTap={reduceMotion ? undefined : { scale: 0.92 }}
-                >
-                  <div
-                    className="relative flex h-10 w-10 items-center justify-center rounded-full"
-                    style={{
-                      background:
-                        'linear-gradient(145deg, rgba(255,255,255,0.9) 0%, rgba(248,248,252,0.84) 50%, rgba(241,242,248,0.76) 100%)',
-                      boxShadow: isAiActive
-                        ? '0 0 0 2px rgba(143,216,255,0.4), 0 4px 16px rgba(143,216,255,0.14)'
-                        : '0 2px 10px rgba(17,24,39,0.08)',
-                    }}
-                  >
-                    <Sparkles className="text-[#8fd8ff]" size={18} strokeWidth={2} />
-                  </div>
-                </motion.button>
-              </div>
+                <Sparkles size={17} strokeWidth={2} style={{ color: onChat ? '#fff' : 'var(--accent)' }} />
+              </motion.button>
             </div>
           )}
         </div>
 
+        {/* right: theme toggle + secretary */}
+        <SmallIconBtn onClick={toggleTheme} aria-label="テーマ切替" reduceMotion={reduceMotion} className="liquid-icon-inner">
+          {theme === 'dark' ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
+        </SmallIconBtn>
         <motion.button
           type="button"
           onClick={() => openSecretarySearch()}
-          className="relative flex h-10 w-10 items-center justify-center rounded-full"
+          aria-label="秘書AI"
+          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full liquid-icon-inner"
+          style={secretarySearchOpen ? { boxShadow: '0 0 0 2px var(--accent-glow)' } : undefined}
           whileTap={reduceMotion ? undefined : { scale: 0.92 }}
         >
-          <div
-            className={`h-10 w-10 overflow-hidden rounded-full border-2 transition-all ${
-              isAssistantActive
-                ? 'border-[#b7e8ff] shadow-[0_0_14px_rgba(143,216,255,0.24)]'
-                : 'border-white/82 shadow-sm'
-            }`}
-          >
-            <img
-              src="/characters/デザイナー.png"
-              alt="秘書AI"
-              className="h-full w-full object-cover"
-            />
-          </div>
+          <Sparkles size={18} style={{ color: 'var(--accent)' }} />
         </motion.button>
       </div>
     </footer>
@@ -187,7 +117,7 @@ function SmallIconBtn({
       type="button"
       aria-label={ariaLabel}
       onClick={onClick}
-      className={`flex h-10 w-10 items-center justify-center rounded-full text-[#a59b8c] transition-colors hover:text-primary ${className}`}
+      className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:text-primary ${className}`}
       whileTap={reduceMotion ? undefined : { scale: 0.9 }}
     >
       {children}
@@ -198,13 +128,11 @@ function SmallIconBtn({
 function NavItem({
   icon,
   active,
-  tone,
   onClick,
   reduceMotion,
 }: {
   icon: React.ReactNode;
   active: boolean;
-  tone: string;
   onClick: () => void;
   reduceMotion: boolean | null;
 }) {
@@ -212,15 +140,15 @@ function NavItem({
     <motion.button
       type="button"
       onClick={onClick}
-      className="relative flex h-10 w-10 items-center justify-center rounded-full"
+      className="relative flex h-10 w-10 items-center justify-center rounded-full transition-colors"
       whileTap={reduceMotion ? undefined : { scale: 0.92 }}
     >
-      <div style={{ color: active ? tone : '#a59b8c' }}>{icon}</div>
+      <div style={{ color: active ? NAV_TONE : INACTIVE }}>{icon}</div>
       {active && (
         <motion.div
           layoutId="bottomNavDot"
           className="absolute -bottom-0.5 h-1 w-1 rounded-full"
-          style={{ backgroundColor: tone }}
+          style={{ backgroundColor: NAV_TONE }}
           transition={{ type: 'spring', stiffness: 400, damping: 28 }}
         />
       )}

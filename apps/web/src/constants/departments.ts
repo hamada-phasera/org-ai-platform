@@ -7,11 +7,11 @@ export const DEPT_LABEL: Record<string, string> = {
 };
 
 export const DEPT_ACCENT: Record<string, string> = {
-  SALES: '#ffb5a7',
-  MARKETING: '#ffc6ff',
-  ACCOUNTING: '#ffd6a5',
-  ANALYTICS: '#9bf6ff',
-  GENERAL: '#8fd8ff',
+  SALES: '#4F46E5', // indigo
+  MARKETING: '#7C3AED', // violet
+  ACCOUNTING: '#0EA5E9', // sky
+  ANALYTICS: '#0D9488', // teal
+  GENERAL: '#475569', // slate
 };
 
 export const DEPARTMENTS = [

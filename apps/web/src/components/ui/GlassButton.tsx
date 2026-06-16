@@ -55,13 +55,8 @@ export const GlassButton = forwardRef<HTMLButtonElement, GlassButtonProps>(
       switch (variant) {
         case 'primary':
           return {
-            className:
-              'text-inverse font-semibold shadow-elev-2 hover:shadow-glow-primary',
-            style: {
-              background: toneColor
-                ? `linear-gradient(135deg, ${toneColor}F0 0%, ${toneColor} 50%, ${toneColor}D0 100%)`
-                : 'linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(255,214,165,0.9) 18%, rgba(202,255,191,0.88) 42%, rgba(155,246,255,0.88) 64%, rgba(189,178,255,0.9) 82%, rgba(255,198,255,0.92) 100%)',
-            },
+            className: 'text-inverse font-semibold shadow-elev-1 hover:shadow-elev-2',
+            style: { background: toneColor ?? 'var(--accent)' },
           };
         case 'secondary':
           return {
