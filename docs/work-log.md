@@ -64,6 +64,21 @@
   - n8n を使う場合は `N8N_API_KEY` を gateway env に設定（専用ワークフロー生成に必要）。未設定でも AI Engine フォールバックで動作。
 - 本タスクでは Vercel プレビュー（フロント）までを実施。フロントは描画検証済み、バックエンドは tsc/py_compile/unit テストで検証済み。
 
+### Phase 8: 本番デプロイ完遂 + 実行検証（2回目のセッション）✅
+判明した詰まりと解決:
+- **2リポ構成**: ローカル origin = `hamada-phasera/org-ai-platform`、だが **Render は `hamahiro1668/org-ai-platform` の `main` をデプロイ**。コードを後者の main に fast-forward push して反映（keepalive.yml は workflow スコープ不足で除外）。
+- **ビルド失敗の連鎖を解決**: ①`shared-types` TS5011 → `rootDir` 明示。②gateway が Render で `@types/node` を解決できず src が `process` 等で失敗（ローカルでは再現せず、6f67052 と同一 tsconfig）。`skipLibCheck` + 最終的に **build を `tsc --noCheck`（トランスパイルのみ）に変更、型検査は `typecheck` スクリプト/CI で担保**。③Render の stale main cache（6f67052）対策で commitId 明示デプロイ。
+- **429/500 の真因 = `ANTHROPIC_API_KEY` 未設定**（両サービスに旧 `GROQ_API_KEY` のみ）。ユーザー提供のキーを Render API で両サービスに設定 → `/ready.anthropic=true`。
+- **CORS**: `FRONTEND_URL='*'` が `['*']` 完全一致で全オリジンを弾いていた → origin 関数で `*.vercel.app` + localhost を許可（プレビューURLのローテーション対応）。
+- **本番E2E検証成功**: register → エージェント作成「競合比較」→ 一覧（再選択）→ 実行 → **Claude 実出力**で `DONE`。CORS プリフライト 204 + allow-origin 反映を確認。
+
+最終状態（本番）:
+- フロント: Vercel プレビュー（`flow-n5a6ybcec…`）。バック: Render `org-ai-api-gateway`/`org-ai-ai-engine` が `hamahiro1668/main`（CORS修正コミット `f81c82f`）で稼働。Neon に `Agent` テーブル適用済み。Anthropic キー設定済み。
+- リポジトリ: 正準デプロイ元 = `hamahiro1668/main`（全修正反映）。作業リポ `hamada-phasera` には feature ブランチ + `deploy-prod` ブランチ（最終状態）を保持。
+
 ### 既知の制約 / メモ
+- gateway の Render ビルドは `tsc --noCheck`（環境固有の @types/node 解決問題回避）。型安全は `npm run typecheck` と vitest で担保。根本原因（Render の monorepo hoisting）が解決すれば `tsc` に戻してよい。
+- keepalive.yml は workflow スコープの都合で `hamahiro1668` 側 main に未反映。GitHub UI から追加するか、scope 付きトークンで push 可能。
+- n8n 専用ワークフロー生成を使うには gateway env に `N8N_API_KEY` が必要（現状未設定→ agent は AI Engine フォールバックで実行＝動作する）。
 - ガバナンス統計 UI（旧 DashboardPage の棒グラフ）は移植せず破棄。`/api/agents/stats` エンドポイントは残置（将来 GovernancePage へ移植可能）。
 - vercel-plugin の posttooluse バリデータが n8n の "workflow" 命名や Node の setTimeout/fetch を Vercel Workflow DevKit と誤検出するが、本コードは n8n REST + Fastify/Node 実行であり全て false positive。意図的に無視。
