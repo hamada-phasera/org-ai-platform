@@ -19,9 +19,29 @@ import { prisma } from './utils/prisma';
 const app = Fastify({ logger: true });
 
 async function start(): Promise<void> {
-  const allowedOrigins = (process.env.FRONTEND_URL ?? 'http://localhost:3000').split(',');
+  // 明示許可リスト (FRONTEND_URL, カンマ区切り) + localhost + 任意の *.vercel.app を許可。
+  // Vercel のプレビュー URL はデプロイ毎に変わるため、env だけの完全一致では運用に耐えない。
+  const explicitOrigins = (process.env.FRONTEND_URL ?? 'http://localhost:3000')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s && s !== '*');
   await app.register(cors, {
-    origin: allowedOrigins,
+    origin: (origin, cb) => {
+      // 同一オリジン / 非ブラウザ (origin 無し) は許可
+      if (!origin) return cb(null, true);
+      let host = '';
+      try {
+        host = new URL(origin).hostname;
+      } catch {
+        return cb(null, false);
+      }
+      const ok =
+        explicitOrigins.includes(origin) ||
+        host === 'localhost' ||
+        host === '127.0.0.1' ||
+        host.endsWith('.vercel.app');
+      cb(null, ok);
+    },
     credentials: true,
   });
 
