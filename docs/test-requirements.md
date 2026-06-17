@@ -6,7 +6,7 @@
 
 | 項目 | 値 |
 |---|---|
-| フロント（プレビュー） | https://flow-gbdwiwljw-hamahiro1668s-projects.vercel.app （Vercelログイン要） |
+| フロント（**公開・友人共有用**） | **https://org-ai-platform.vercel.app** （誰でもアクセス可） |
 | API (gateway) | https://org-ai-api-gateway.onrender.com （無料枠＝初回アクセスは~30-50秒で起動） |
 | AI Engine | https://org-ai-ai-engine.onrender.com （Starter・常時稼働） |
 | n8n | https://org-ai-n8n-web.onrender.com （Starter・常時稼働） |
@@ -124,9 +124,8 @@
 
 ## 11. 外部テスター（友人）向けガイド
 
-> ⚠️ **共有の前提**: プレビューURLは Vercel 認証で**チーム限定**です。友人がアクセスするには次のいずれかが必要:
-> (a) その人を Vercel プロジェクト「flow」のメンバーに招待、(b) プレビューの Deployment Protection を一時的に解除して共有、(c) 本番ドメインへ昇格して公開。
-> → 共有方法が決まればこちらで設定します（公開＝外部から見える点に注意）。
+> ✅ **共有URL（本番公開済み）**: **https://org-ai-platform.vercel.app** — 誰でもアクセス可。友人にこのURLを送ればOK。
+> 注: 初回アクセスは gateway 起動のため最初のログイン/操作が数十秒かかることがあります（2回目以降は高速）。
 
 **はじめに（テスターへの案内文・そのままコピー可）**
 ```
