@@ -12,16 +12,27 @@ interface Props {
   onCreated: (agent: SavedAgent) => void;
   /** チャット等から渡される初期説明文（プリフィル用）。 */
   initialDescription?: string;
+  /** チャットのエージェント化提案からプリフィルする名前・指示・部署。 */
+  initialName?: string;
+  initialInstructions?: string;
+  initialDepartment?: string;
 }
 
 const ICONS = ['🤖', '📣', '📊', '📈', '🧮', '🛡️', '✨', '📝', '📧', '🔍'];
 
 /** 業務効率化エージェントの作成フォーム。手入力 or 説明文からの AI 提案（inferFromDescription）に対応。 */
-export function CreateAgentModal({ onClose, onCreated, initialDescription }: Props) {
-  const [name, setName] = useState('');
+export function CreateAgentModal({
+  onClose,
+  onCreated,
+  initialDescription,
+  initialName,
+  initialInstructions,
+  initialDepartment,
+}: Props) {
+  const [name, setName] = useState(initialName ?? '');
   const [description, setDescription] = useState(initialDescription ?? '');
-  const [department, setDepartment] = useState('GENERAL');
-  const [instructions, setInstructions] = useState('');
+  const [department, setDepartment] = useState(initialDepartment ?? 'GENERAL');
+  const [instructions, setInstructions] = useState(initialInstructions ?? '');
   const [trigger, setTrigger] = useState<'MANUAL' | 'SCHEDULED'>('MANUAL');
   const [icon, setIcon] = useState('🤖');
   const [useInfer, setUseInfer] = useState(false);

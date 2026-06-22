@@ -128,11 +128,13 @@ async def orchestrate_stream(request: OrchestateRequest) -> StreamingResponse:
     else:
         resolved_dept = await classify_intent(request.message)
 
-    # エージェントのシステムプロンプトを取得
+    # エージェントのシステムプロンプトを取得（セキュリティ核 + エージェント化提案を含む統一ビルダ経由）
     from app.orchestrator.orchestrator import _agents
+    from app.agents.base import _build_system_prompt, _wrap_user_message
     agent = _agents.get(resolved_dept, _agents["GENERAL"])
-    messages = [ChatMessage(role="system", content=agent.system_prompt)]
-    messages.append(ChatMessage(role="user", content=request.message))
+    system_content = _build_system_prompt(agent.system_prompt, getattr(agent, "security_extra", ""))
+    messages = [ChatMessage(role="system", content=system_content)]
+    messages.append(ChatMessage(role="user", content=_wrap_user_message(request.message)))
 
     # PII スクリーニング
     pii_detected = False

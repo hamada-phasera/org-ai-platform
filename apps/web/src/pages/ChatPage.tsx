@@ -13,6 +13,8 @@ import { humanizeTaskManagerError } from '../utils/humanizeLlmError';
 import { AgentSuggestions } from '../components/Chat/AgentSuggestions';
 import { InlineChatResult } from '../components/Chat/InlineChatResult';
 import { TaskProgressSidebar } from '../components/Chat/TaskProgressSidebar';
+import { AgentCtaCard, type AgentDraft } from '../components/Chat/AgentCtaCard';
+import { CreateAgentModal } from '../components/Agents/CreateAgentModal';
 import type { ChatSession, Message } from '@org-ai/shared-types';
 import { DEPT_LABEL, DEPT_ACCENT, DEPARTMENTS, DEPT_CHARACTER } from '../constants/departments';
 
@@ -52,6 +54,10 @@ export default function ChatPage() {
   const [attachedFiles, setAttachedFiles] = useState<{ id: string; name: string; mimeType: string }[]>([]);
   const [uploading, setUploading] = useState(false);
   const [showTaskSidebar, setShowTaskSidebar] = useState(false);
+  // 会話が定型業務に育ったときのエージェント化提案
+  const [agentSuggestion, setAgentSuggestion] = useState<{ afterMessageId: string; draft: AgentDraft } | null>(null);
+  const [suggestModalOpen, setSuggestModalOpen] = useState(false);
+  const [suggestDismissed, setSuggestDismissed] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastInputRef = useRef('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -72,6 +78,9 @@ export default function ChatPage() {
   useEffect(() => {
     if (id && id !== currentSessionId) {
       setCurrentSession(id);
+      setAgentSuggestion(null);
+      setSuggestModalOpen(false);
+      setSuggestDismissed(false);
       api.get<{ success: boolean; data: Message[] }>(`/chat/sessions/${id}/messages`)
         .then((res) => setMessages(res.data.data))
         .catch(() => null);
@@ -233,6 +242,21 @@ export default function ChatPage() {
           }]);
         } catch {
           // task creation is optional
+        }
+
+        // 会話が定型業務に育ったらエージェント化を提案（既に提案中/却下済みならスキップ）
+        if (!agentSuggestion && !suggestDismissed) {
+          const finalId = (finalAssistantMessage as Message).id;
+          api.post<{ success: boolean; data: { suggest: boolean; draft?: AgentDraft } }>(
+            `/chat/sessions/${id}/suggest`,
+            {},
+          )
+            .then((r) => {
+              if (r.data.data.suggest && r.data.data.draft) {
+                setAgentSuggestion({ afterMessageId: finalId, draft: r.data.data.draft });
+              }
+            })
+            .catch(() => null);
         }
       }
 
@@ -733,6 +757,17 @@ export default function ChatPage() {
                         </div>
                       ))
                     }
+
+                    {/* エージェント化の訴求カード（会話が定型業務に育ったとき） */}
+                    {msg.role === 'assistant' && agentSuggestion?.afterMessageId === msg.id && (
+                      <div className="ml-11 mt-3">
+                        <AgentCtaCard
+                          draft={agentSuggestion.draft}
+                          onCreate={() => setSuggestModalOpen(true)}
+                          onDismiss={() => { setAgentSuggestion(null); setSuggestDismissed(true); }}
+                        />
+                      </div>
+                    )}
                   </div>
                 ))}
 
@@ -916,6 +951,23 @@ export default function ChatPage() {
         onClose={() => setShowTaskSidebar(false)}
         inlineTasks={inlineTasks}
       />
+
+      {/* チャット発のエージェント化提案モーダル（ドラフトをプリフィル・毎回フレッシュにマウント） */}
+      <AnimatePresence>
+        {suggestModalOpen && agentSuggestion && (
+          <CreateAgentModal
+            initialName={agentSuggestion.draft.name}
+            initialInstructions={agentSuggestion.draft.instructions}
+            initialDepartment={agentSuggestion.draft.department}
+            onClose={() => setSuggestModalOpen(false)}
+            onCreated={() => {
+              setSuggestModalOpen(false);
+              setAgentSuggestion(null);
+              setSuggestDismissed(true);
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

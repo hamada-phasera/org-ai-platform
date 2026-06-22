@@ -375,4 +375,80 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     });
     return reply.send({ success: true, data: messages });
   });
+
+  /**
+   * 会話が「繰り返し使える定型業務」に育ったか判定し、エージェント化のドラフトを返す。
+   * 既存の AI Engine `/plan/agent` を会話全体に対して再利用する。過剰提案を避けるため
+   * ・ユーザー発話が 2 往復未満なら提案しない
+   * ・confidence が低い / name・instructions が欠けるなら提案しない。
+   * 失敗時は常に suggest:false（チャット体験を阻害しない）。
+   */
+  app.post('/sessions/:id/suggest', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const payload = request.user as { orgId: string };
+
+    const session = await prisma.chatSession.findUnique({ where: { id } });
+    if (!session || session.orgId !== payload.orgId) {
+      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'セッションが見つかりません' } });
+    }
+
+    const recent = await prisma.message.findMany({
+      where: { sessionId: id },
+      orderBy: { createdAt: 'desc' },
+      take: 8,
+    });
+    const ordered = recent.reverse();
+    const userTurns = ordered.filter((m) => m.role === 'user').length;
+    if (userTurns < 2) {
+      return reply.send({ success: true, data: { suggest: false } });
+    }
+
+    const org = await prisma.organization.findUnique({ where: { id: payload.orgId } });
+    const plan = org?.plan ?? 'STARTER';
+
+    const transcript = ordered
+      .map((m) => `${m.role === 'user' ? 'ユーザー' : 'AI'}: ${m.content.slice(0, 800)}`)
+      .join('\n');
+    const description =
+      '次のチャット会話の内容を、繰り返し使える業務エージェントとして設計してください。' +
+      '会話の目的・対象・手順を汲み取り、エージェントの名前・部署・指示(システムプロンプト)を日本語で提案してください。' +
+      `\n\n[会話]\n${transcript}`;
+
+    const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://ai-engine:8000';
+    try {
+      const res = await fetch(`${aiEngineUrl}/plan/agent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description, org_id: payload.orgId, plan, available_capabilities: [] }),
+        signal: AbortSignal.timeout(25000),
+      });
+      if (!res.ok) return reply.send({ success: true, data: { suggest: false } });
+      const draft = (await res.json()) as {
+        name?: string | null;
+        department?: string;
+        instructions?: string | null;
+        trigger?: string;
+        confidence?: number;
+        reasoning?: string;
+      };
+      const ok = !!draft.name && !!draft.instructions && (draft.confidence ?? 0) >= 0.6;
+      if (!ok) return reply.send({ success: true, data: { suggest: false } });
+      return reply.send({
+        success: true,
+        data: {
+          suggest: true,
+          kind: 'agent',
+          draft: {
+            name: draft.name,
+            department: draft.department ?? 'GENERAL',
+            instructions: draft.instructions,
+            trigger: draft.trigger === 'SCHEDULED' ? 'SCHEDULED' : 'MANUAL',
+            reasoning: draft.reasoning ?? '',
+          },
+        },
+      });
+    } catch {
+      return reply.send({ success: true, data: { suggest: false } });
+    }
+  });
 }
