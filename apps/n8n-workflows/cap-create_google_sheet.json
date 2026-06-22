@@ -1,0 +1,76 @@
+{
+  "name": "org-ai Cap create_google_sheet",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cap-create_google_sheet",
+        "responseMode": "responseNode",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "id": "trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "cap-create-google-sheet-trigger"
+    },
+    {
+      "parameters": {
+        "resource": "spreadsheet",
+        "operation": "create",
+        "title": "={{ $json.body.title || 'org-ai スプレッドシート' }}"
+      },
+      "id": "create-sheet",
+      "name": "Create Google Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [480, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "name": "Google Sheets OAuth2" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.spreadsheetId }}"
+        },
+        "sheetName": { "__rl": true, "mode": "name", "value": "Sheet1" },
+        "dataMode": "autoMapInputData",
+        "options": {}
+      },
+      "id": "fill-sheet",
+      "name": "Fill Rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [720, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "name": "Google Sheets OAuth2" }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'success', error_type: null, message: 'Googleスプレッドシートを作成しました', data: { spreadsheetId: $('Create Google Sheet').item.json.spreadsheetId, url: $('Create Google Sheet').item.json.spreadsheetUrl || ('https://docs.google.com/spreadsheets/d/' + $('Create Google Sheet').item.json.spreadsheetId) } }) }}",
+        "options": {}
+      },
+      "id": "respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [960, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Create Google Sheet", "type": "main", "index": 0 }]] },
+    "Create Google Sheet": { "main": [[{ "node": "Fill Rows", "type": "main", "index": 0 }]] },
+    "Fill Rows": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "saveManualExecutions": true },
+  "staticData": null,
+  "tags": ["org-ai", "capability", "google-workspace"]
+}

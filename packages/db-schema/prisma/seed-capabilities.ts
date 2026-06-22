@@ -95,21 +95,91 @@ const SEED: SeedCapability[] = [
   },
   {
     name: 'notify_slack',
-    displayName: 'Slack 通知',
-    description: '指定チャンネルへ Slack メッセージを送る。管理者通知 / 未対応要望通知に内部利用される。',
+    displayName: 'Slack 投稿',
+    description: '指定チャンネルへ Slack メッセージを投稿する。チャットで要件が固まった内容を成果物として投稿でき、管理者通知 / 未対応要望通知にも内部利用される。',
     department: 'GENERAL',
     inputSchema: {
       type: 'object',
       required: ['channel', 'text'],
       properties: {
-        channel: { type: 'string' },
-        text: { type: 'string' },
+        channel: { type: 'string', description: '#channel-name または チャンネル名' },
+        text: { type: 'string', description: '投稿本文' },
       },
       additionalProperties: false,
     },
     webhookPath: 'cap-notify_slack',
     status: 'NEEDS_AUTH',
     providers: ['slack'],
+  },
+  {
+    name: 'create_google_doc',
+    displayName: 'Googleドキュメント作成',
+    description: 'チャットで要件が固まった内容から Google ドキュメントを作成し、共有URLを返す。',
+    department: 'GENERAL',
+    inputSchema: {
+      type: 'object',
+      required: ['title', 'content'],
+      properties: {
+        title: { type: 'string', description: 'ドキュメントのタイトル' },
+        content: { type: 'string', description: '本文（プレーンテキスト / マークダウン）' },
+      },
+      additionalProperties: false,
+    },
+    webhookPath: 'cap-create_google_doc',
+    status: 'NEEDS_AUTH',
+    // provider 文字列は n8n の credential type (googleDocsOAuth2Api 等) に substring 一致させる
+    providers: ['googledocs'],
+  },
+  {
+    name: 'create_google_sheet',
+    displayName: 'Googleスプレッドシート作成',
+    description: 'チャットで固まった表データから Google スプレッドシートを作成し、共有URLを返す。',
+    department: 'ANALYTICS',
+    inputSchema: {
+      type: 'object',
+      required: ['title', 'headers', 'rows'],
+      properties: {
+        title: { type: 'string', description: 'シートのタイトル' },
+        headers: { type: 'array', items: { type: 'string' }, description: '列ヘッダー' },
+        rows: {
+          type: 'array',
+          items: { type: 'array', items: { type: 'string' } },
+          description: '行データ（各行は文字列配列）',
+        },
+      },
+      additionalProperties: false,
+    },
+    webhookPath: 'cap-create_google_sheet',
+    status: 'NEEDS_AUTH',
+    providers: ['googlesheets'],
+  },
+  {
+    name: 'create_google_slides',
+    displayName: 'Googleスライド作成',
+    description: 'チャットで固まった構成から Google スライド（プレゼン）を作成し、共有URLを返す。',
+    department: 'MARKETING',
+    inputSchema: {
+      type: 'object',
+      required: ['title', 'slides'],
+      properties: {
+        title: { type: 'string', description: 'プレゼンのタイトル' },
+        slides: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              content: { type: 'string' },
+            },
+          },
+          description: '各スライドの見出しと内容',
+        },
+      },
+      additionalProperties: false,
+    },
+    webhookPath: 'cap-create_google_slides',
+    status: 'NEEDS_AUTH',
+    providers: ['googleslides'],
   },
 ];
 

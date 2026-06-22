@@ -1,0 +1,73 @@
+{
+  "name": "org-ai Cap create_google_doc",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cap-create_google_doc",
+        "responseMode": "responseNode",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "id": "trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "cap-create-google-doc-trigger"
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "title": "={{ $json.body.title || 'org-ai ドキュメント' }}"
+      },
+      "id": "create-doc",
+      "name": "Create Google Doc",
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [480, 300],
+      "credentials": {
+        "googleDocsOAuth2Api": { "name": "Google Docs OAuth2" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentURL": "={{ $json.documentId || $json.id }}",
+        "actionsUi": {
+          "actionFields": [
+            { "action": "insert", "text": "={{ $('Webhook').item.json.body.content || '' }}" }
+          ]
+        }
+      },
+      "id": "insert-content",
+      "name": "Insert Content",
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [720, 300],
+      "credentials": {
+        "googleDocsOAuth2Api": { "name": "Google Docs OAuth2" }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'success', error_type: null, message: 'Googleドキュメントを作成しました', data: { documentId: $('Create Google Doc').item.json.documentId || $('Create Google Doc').item.json.id, url: 'https://docs.google.com/document/d/' + ($('Create Google Doc').item.json.documentId || $('Create Google Doc').item.json.id) + '/edit' } }) }}",
+        "options": {}
+      },
+      "id": "respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [960, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Create Google Doc", "type": "main", "index": 0 }]] },
+    "Create Google Doc": { "main": [[{ "node": "Insert Content", "type": "main", "index": 0 }]] },
+    "Insert Content": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "saveManualExecutions": true },
+  "staticData": null,
+  "tags": ["org-ai", "capability", "google-workspace"]
+}

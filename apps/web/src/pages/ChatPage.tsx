@@ -14,6 +14,7 @@ import { AgentSuggestions } from '../components/Chat/AgentSuggestions';
 import { InlineChatResult } from '../components/Chat/InlineChatResult';
 import { TaskProgressSidebar } from '../components/Chat/TaskProgressSidebar';
 import { AgentCtaCard, type AgentDraft } from '../components/Chat/AgentCtaCard';
+import { DeliverableBar, type DeliverableKind } from '../components/Chat/DeliverableBar';
 import { CreateAgentModal } from '../components/Agents/CreateAgentModal';
 import type { ChatSession, Message } from '@org-ai/shared-types';
 import { DEPT_LABEL, DEPT_ACCENT, DEPARTMENTS, DEPT_CHARACTER } from '../constants/departments';
@@ -32,6 +33,13 @@ interface InlineTask {
 function stripJsonBlocks(text: string): string {
   return text.replace(/```json\s*[\s\S]*?```/g, '').trim();
 }
+
+/** capability-resolver の ResolveOutcome（gateway と同形・成果物作成の応答判定用） */
+type ResolveOutcome =
+  | { outcome: 'EXECUTED'; capability: string; envelope: { status: string; error_type: string | null; message: string; data: unknown }; executionLogId: string }
+  | { outcome: 'NEEDS_AUTH'; capability: string; missing: string[] }
+  | { outcome: 'UNSUPPORTED'; inferredName: string | null; reasoning: string; gapId: string }
+  | { outcome: 'VALIDATION_ERROR'; capability: string; errors: string[] };
 
 export default function ChatPage() {
   const { id } = useParams<{ id?: string }>();
@@ -58,6 +66,8 @@ export default function ChatPage() {
   const [agentSuggestion, setAgentSuggestion] = useState<{ afterMessageId: string; draft: AgentDraft } | null>(null);
   const [suggestModalOpen, setSuggestModalOpen] = useState(false);
   const [suggestDismissed, setSuggestDismissed] = useState(false);
+  // チャット内容からの成果物生成（Google Doc/Sheet/Slides/Slack）
+  const [creatingDeliverable, setCreatingDeliverable] = useState<DeliverableKind | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastInputRef = useRef('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -422,6 +432,53 @@ export default function ChatPage() {
   const handleSuggestionSelect = (prompt: string) => {
     setInput(prompt);
     textareaRef.current?.focus();
+  };
+
+  // 直近のAI回答を成果物（Google Doc/Sheet/Slides/Slack）に変換する。
+  // resolver が会話内容から capability と引数を推論し、実行（未接続なら NEEDS_AUTH 案内）。
+  const KIND_PROMPT: Record<DeliverableKind, string> = {
+    doc: '次の内容を Google ドキュメントとして作成してください。',
+    sheet: '次の内容を Google スプレッドシート（表）として作成してください。',
+    slides: '次の内容を Google スライドとして作成してください。',
+    slack: '次の内容を Slack に投稿してください。',
+  };
+  const createDeliverable = async (kind: DeliverableKind) => {
+    if (creatingDeliverable || !id) return;
+    const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+    const source = lastAssistant?.content ?? lastInputRef.current;
+    if (!source.trim()) return;
+    setCreatingDeliverable(kind);
+    const rawInput = `${KIND_PROMPT[kind]}\n\n${source.slice(0, 6000)}`;
+    let resultText: string;
+    try {
+      const res = await api.post<{ success: boolean; data: ResolveOutcome }>('/capabilities/resolve', { rawInput });
+      const o = res.data.data;
+      if (o.outcome === 'EXECUTED') {
+        const url = (o.envelope?.data as { url?: string } | undefined)?.url;
+        resultText =
+          o.envelope?.status === 'success'
+            ? `✅ ${o.envelope.message}${url ? `\n${url}` : ''}`
+            : `⚠️ 作成に失敗しました：${o.envelope?.message ?? '不明なエラー'}`;
+      } else if (o.outcome === 'NEEDS_AUTH') {
+        resultText = `🔌 「${kind === 'slack' ? 'Slack' : 'Google'}」連携が未接続です（${o.missing.join(', ')}）。管理者が docs/oauth-setup.md の手順で n8n に OAuth を接続すると利用できます。`;
+      } else if (o.outcome === 'VALIDATION_ERROR') {
+        resultText = `⚠️ 成果物に必要な情報が不足しています：${o.errors.join(', ')}。もう少し具体的に内容を決めてから再度お試しください。`;
+      } else {
+        resultText = `この内容はまだ自動作成に対応していません。${'reasoning' in o && o.reasoning ? `（${o.reasoning}）` : ''}`;
+      }
+    } catch (e) {
+      resultText = humanizeTaskManagerError(e);
+    } finally {
+      setCreatingDeliverable(null);
+    }
+    addMessage({
+      id: `deliverable-${Date.now()}`,
+      sessionId: id,
+      role: 'assistant',
+      content: resultText,
+      department: null,
+      createdAt: new Date().toISOString(),
+    });
   };
 
   return (
@@ -826,6 +883,11 @@ export default function ChatPage() {
             {/* Input area - Claude style pill */}
             <div className="p-4 bg-transparent">
               <div className="max-w-3xl mx-auto">
+                {/* 成果物バー（AIが何か出力した後に表示） */}
+                {messages.some((m) => m.role === 'assistant') && (
+                  <DeliverableBar onCreate={createDeliverable} busy={creatingDeliverable} disabled={sending} />
+                )}
+
                 {/* Agent suggestions */}
                 <AgentSuggestions
                   agentId={selectedAgentId}
