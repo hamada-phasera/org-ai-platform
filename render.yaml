@@ -23,6 +23,13 @@ services:
         sync: false
       - key: AI_ENGINE_URL
         sync: false
+      # RAG: 埋め込みプロバイダ。未設定なら RAG は no-op（チャットは従来通り）。
+      - key: EMBEDDING_API_KEY
+        sync: false
+      - key: EMBEDDING_PROVIDER
+        value: voyage
+      - key: EMBEDDING_MODEL
+        value: voyage-3
       - key: N8N_CLOUD_URL
         sync: false
       - key: N8N_API_KEY
