@@ -2,10 +2,27 @@ from __future__ import annotations
 import time
 import os
 from typing import AsyncIterator, List
-from anthropic import AsyncAnthropic
-from tenacity import retry, stop_after_attempt, wait_exponential
+from anthropic import (
+    AsyncAnthropic,
+    APIStatusError,
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    RateLimitError,
+)
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.models.llm import ChatMessage, LLMResponse
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """レート制限(429)・過負荷(529)・一時的な接続/タイムアウト/5xx のみリトライ対象にする。
+    400 等の恒久的エラーは即時失敗させて無駄な待機を避ける。"""
+    if isinstance(exc, (RateLimitError, APIConnectionError, APITimeoutError, InternalServerError)):
+        return True
+    if isinstance(exc, APIStatusError):
+        return getattr(exc, "status_code", 0) in (408, 409, 429, 500, 502, 503, 529)
+    return False
 
 MODEL_HAIKU = "claude-haiku-4-5-20251001"
 MODEL_SONNET = "claude-sonnet-4-6"
@@ -35,7 +52,12 @@ class AnthropicProvider:
         api_key = os.environ.get("ANTHROPIC_API_KEY", "")
         self.client = AsyncAnthropic(api_key=api_key) if api_key else None
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=10))
+    @retry(
+        retry=retry_if_exception(_is_retryable),
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=1.5, min=2, max=30),
+        reraise=True,
+    )
     async def chat(
         self,
         messages: List[ChatMessage],
