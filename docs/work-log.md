@@ -141,3 +141,10 @@
 - 成果物（完了タスク）を **AIがビジネス重要度で high/mid/low に自動分類**（ai-engine `POST /rank` → gateway `POST /api/deliverables/rank`、json_mode）。クライアントにキャッシュ＋手動上書き（カードのバッジをクリックで高→中→低→AI値）。
 - `/deliverables` を **重要度順に自動ソート**、ヘッダーに「AIで重要度を再評価」「重要度順で共有」。共有＝重要度でグルーピングしたMarkdownリスト（出典リンク付き）をクリップボード＋`navigator.share`。
 - 本番E2E検証: 提案書=高 / 経費集計=中 / ランチ会案内=低 と妥当に分類（commit b3ba30d、Render+Vercel反映）。DB変更なし（重要度はクライアント保持）。
+
+### 2026-06-24 チェーン型エージェント（steps→実n8nノード）Doc先行
+- エージェントの `steps` を実 provider ノードへ展開する `buildChainedAgentWorkflowJson` を実装（`create_google_doc` 対応）。`create_google_doc` ステップ＋Google Docs OAuth接続済みなら、Webhook→AI Plan(/llm/chat)→Parse Args(Code, fence耐性)→Create Doc(folderId=root)→Insert Content→Callback の多段WFを生成・有効化。未対応/未接続は従来の軽量シェルにフォールバック（後方互換）。
+- ディスパッチャ: チェーン型は「{title,content}をJSONで出力」プロンプトの llmBody を組む（json_mode=false→Sonnet本文）。`agent.steps` を create/run 経路に流す。
+- 全httpRequest/Docノードに node-level retry（一時503/429/コールドスタート対策。最初のE2Eで AI Plan が ai-engine 再デプロイ中の503で停止→QUEUED滞留したため追加）。
+- **本番E2E成功**: doc-stepエージェント作成→チェーン型WF生成(ACTIVE)→/run→タスクDONE→`{docUrl, title}`（実Googleドキュメント生成）。commit b3482e7。
+- 残: Sheet/Slidesステップのノード展開、CreateAgentModalでのsteps可視化/編集。
