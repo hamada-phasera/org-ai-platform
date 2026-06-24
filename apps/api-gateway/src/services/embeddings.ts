@@ -32,32 +32,37 @@ export async function embedTexts(
   const cleaned = texts.map((t) => t.trim().slice(0, 8000)).filter((t) => t.length > 0);
   if (cleaned.length === 0) return null;
 
-  try {
-    if (PROVIDER === 'openai') {
-      const res = await fetch('https://api.openai.com/v1/embeddings', {
+  const url = PROVIDER === 'openai' ? 'https://api.openai.com/v1/embeddings' : 'https://api.voyageai.com/v1/embeddings';
+  const payload =
+    PROVIDER === 'openai'
+      ? { model: OPENAI_MODEL, input: cleaned, dimensions: EMBEDDING_DIM }
+      : { model: VOYAGE_MODEL, input: cleaned, input_type: inputType };
+
+  // レート制限(429)・一時的な5xxは指数バックオフで数回リトライ（埋め込みプロバイダの無料枠は 429 を返しやすい）
+  const MAX_ATTEMPTS = 4;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${API_KEY}` },
-        body: JSON.stringify({ model: OPENAI_MODEL, input: cleaned, dimensions: EMBEDDING_DIM }),
+        body: JSON.stringify(payload),
         signal: AbortSignal.timeout(30000),
       });
-      if (!res.ok) return null;
-      const json = (await res.json()) as EmbeddingResp;
-      return orderAndValidate(json.data, cleaned.length);
+      if (res.ok) {
+        const json = (await res.json()) as EmbeddingResp;
+        return orderAndValidate(json.data, cleaned.length);
+      }
+      // リトライ対象でなければ即終了
+      if (res.status !== 429 && res.status < 500) return null;
+    } catch {
+      // ネットワーク/タイムアウト → リトライ
     }
-
-    // Voyage AI（既定）
-    const res = await fetch('https://api.voyageai.com/v1/embeddings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${API_KEY}` },
-      body: JSON.stringify({ model: VOYAGE_MODEL, input: cleaned, input_type: inputType }),
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as EmbeddingResp;
-    return orderAndValidate(json.data, cleaned.length);
-  } catch {
-    return null;
+    if (attempt < MAX_ATTEMPTS - 1) {
+      const backoffMs = 800 * Math.pow(2, attempt); // 0.8s, 1.6s, 3.2s
+      await new Promise((r) => setTimeout(r, backoffMs));
+    }
   }
+  return null;
 }
 
 export async function embedQuery(text: string): Promise<number[] | null> {
