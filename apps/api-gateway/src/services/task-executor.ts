@@ -75,6 +75,7 @@ export async function triggerN8nWorkflowByPath(
   path: string,
   task: TriggerableTask,
   systemPrompt?: string,
+  agentSteps?: { capabilityName: string }[],
 ): Promise<boolean> {
   const org = await prisma.organization.findUnique({
     where: { id: task.orgId },
@@ -82,13 +83,19 @@ export async function triggerN8nWorkflowByPath(
   });
   const gatewayUrl = process.env.API_GATEWAY_URL ?? 'http://localhost:4000';
   const plan = org?.plan ?? 'STARTER';
-  // エージェント workflow は Code ノードを持たない（WAF 回避）ため、/llm/chat の
-  // リクエスト本文を gateway 側で組み立てて llmBody (JSON文字列) として渡す。
-  // n8n の AI Engine ノードはこれをそのまま /llm/chat へ転送する。
-  const llmBody = systemPrompt
+  // チェーン型エージェント（成果物ノードを持つ）の場合、AI には各ステップの引数を JSON で出させる。
+  // 例: create_google_doc → {"title","content"} を生成 → n8n の Parse Args が解釈して Doc ノードへ。
+  const wantsDoc = !!agentSteps?.some((s) => s.capabilityName === 'create_google_doc');
+  const systemForLlm =
+    wantsDoc && systemPrompt
+      ? `${systemPrompt}\n\n【出力形式】次の依頼に対し Google ドキュメントの内容を作成し、必ず次の JSON のみを出力すること（コードフェンスや説明文は付けない）: {"title":"ドキュメントのタイトル","content":"本文（マークダウン。見出し # と箇条書き - を使い具体的に）"}`
+      : systemPrompt;
+  // エージェント workflow は llmBody (JSON文字列) を gateway 側で組み立てて渡す。
+  // n8n の AI Engine ノードはこれをそのまま /llm/chat へ転送する（json_mode=false → 本文は Sonnet）。
+  const llmBody = systemForLlm
     ? JSON.stringify({
         messages: [
-          { role: 'system', content: systemPrompt },
+          { role: 'system', content: systemForLlm },
           { role: 'user', content: task.input },
         ],
         department: task.department,
@@ -244,6 +251,7 @@ export interface AgentRunContext {
   department: string;
   webhookPath?: string | null;
   n8nStatus?: string | null;
+  steps?: { capabilityName: string }[];
 }
 
 /** AI Engine /llm/chat にエージェントの system プロンプトを注入して直接実行する（n8n フォールバック）。 */
@@ -330,7 +338,7 @@ export async function dispatchAgentTask(
           });
           await sleep(delay);
         }
-        const ok = await triggerN8nWorkflowByPath(agent.webhookPath!, triggerTask, agent.instructions);
+        const ok = await triggerN8nWorkflowByPath(agent.webhookPath!, triggerTask, agent.instructions, agent.steps);
         if (ok) return; // 受理。完了は n8n コールバックが Task を DONE に更新する
       }
       await prisma.taskLog.create({

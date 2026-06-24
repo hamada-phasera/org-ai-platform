@@ -271,6 +271,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
         name: agent.name,
         department: agent.department,
         instructions: agent.instructions,
+        steps: (agent.steps as unknown as { capabilityName: string }[] | null) ?? undefined,
       });
       agent = await prisma.agent.update({
         where: { id: agent.id },
@@ -329,6 +330,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
         department: agent.department,
         webhookPath: agent.webhookPath,
         n8nStatus: agent.n8nStatus,
+        steps: (agent.steps as unknown as { capabilityName: string }[] | null) ?? undefined,
       },
     );
 

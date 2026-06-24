@@ -31,6 +31,25 @@ export interface AgentWorkflowInput {
   name: string;
   department: string;
   instructions: string;
+  /** 順序付き capability ステップ。対応 cap は実 provider ノードへ展開（チェーン型）。 */
+  steps?: { capabilityName: string; argTemplate?: Record<string, unknown> }[];
+}
+
+/** 実ノードに展開できる（チェーン型対応）capability。Doc 先行で順次拡張。 */
+export const CHAINED_STEP_CAPS = new Set(['create_google_doc']);
+
+/** steps から対応済み capability 名を順序保持・重複除去で抽出。 */
+export function agentSupportedSteps(steps?: { capabilityName: string }[]): string[] {
+  if (!steps) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const s of steps) {
+    if (CHAINED_STEP_CAPS.has(s.capabilityName) && !seen.has(s.capabilityName)) {
+      seen.add(s.capabilityName);
+      out.push(s.capabilityName);
+    }
+  }
+  return out;
 }
 
 export interface CreateAgentWorkflowResult {
@@ -147,6 +166,102 @@ export function buildAgentWorkflowJson(agent: AgentWorkflowInput): Record<string
   };
 }
 
+/** provider OAuth credential を type で検索（例: googleDocsOAuth2Api）。未接続なら null。 */
+async function findProviderCredential(type: string): Promise<{ id: string; name: string } | null> {
+  try {
+    const res = await n8nFetch('/api/v1/credentials');
+    if (!res.ok) return null;
+    const j = (await res.json()) as { data?: { id: string; name: string; type: string }[] };
+    const hit = (j.data ?? []).find((c) => c.type === type);
+    return hit ? { id: hit.id, name: hit.name } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** steps を実 provider ノードへ展開したチェーン型ワークフロー。
+ *  Webhook → AI Plan(/llm/chat) → Parse Args(Code, ```fence耐性) → [step nodes] → Callback。
+ *  AI Plan は gateway が組む llmBody（各 step の引数 JSON を要求）をそのまま /llm/chat へ転送する。
+ *  呼び出し側は対応 cred が揃っている step のみ creds に渡すこと（揃わない時は簡易シェルにフォールバック）。
+ */
+export function buildChainedAgentWorkflowJson(
+  agent: AgentWorkflowInput,
+  creds: { googleDocs?: { id: string; name: string } },
+): Record<string, unknown> {
+  const path = agentWebhookPath(agent.id);
+  const token = N8N_WEBHOOK_AUTH_TOKEN;
+  const parseCode =
+    "let raw=($('AI Plan').item.json.content)||'{}';\n" +
+    "raw=raw.replace(/```json/g,'').replace(/```/g,'').trim();\n" +
+    'let p={};\ntry{p=JSON.parse(raw);}catch(e){p={};}\n' +
+    'const doc=p.create_google_doc||p;\n' +
+    "return [{ json: { docTitle: doc.title||'(無題)', docContent: doc.content||'' } }];";
+
+  const nodes: Record<string, unknown>[] = [
+    {
+      parameters: { httpMethod: 'POST', path, responseMode: 'onReceived', authentication: 'headerAuth', options: {} },
+      id: 'trigger', name: 'Webhook', type: 'n8n-nodes-base.webhook', typeVersion: 2, position: [240, 300],
+    },
+    {
+      parameters: {
+        method: 'POST', url: '={{ $json.body.aiEngineUrl }}/llm/chat', sendHeaders: true,
+        headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] },
+        sendBody: true, contentType: 'raw', rawContentType: 'application/json', body: '={{ $json.body.llmBody }}', options: {},
+      },
+      id: 'ai', name: 'AI Plan', type: 'n8n-nodes-base.httpRequest', typeVersion: 4, position: [460, 300],
+    },
+    {
+      parameters: { jsCode: parseCode },
+      id: 'parse', name: 'Parse Args', type: 'n8n-nodes-base.code', typeVersion: 2, position: [670, 300],
+    },
+  ];
+  const conns: Record<string, unknown> = {
+    Webhook: { main: [[{ node: 'AI Plan', type: 'main', index: 0 }]] },
+    'AI Plan': { main: [[{ node: 'Parse Args', type: 'main', index: 0 }]] },
+  };
+  let prev = 'Parse Args';
+  let x = 880;
+  const supported = agentSupportedSteps(agent.steps);
+
+  if (supported.includes('create_google_doc') && creds.googleDocs) {
+    nodes.push({
+      parameters: { operation: 'create', title: "={{ $('Parse Args').item.json.docTitle }}", folderId: { __rl: true, mode: 'id', value: 'root' } },
+      id: 'gdoc-create', name: 'Create Doc', type: 'n8n-nodes-base.googleDocs', typeVersion: 2, position: [x, 300],
+      credentials: { googleDocsOAuth2Api: creds.googleDocs },
+    });
+    conns[prev] = { main: [[{ node: 'Create Doc', type: 'main', index: 0 }]] };
+    prev = 'Create Doc'; x += 210;
+    nodes.push({
+      parameters: { operation: 'update', documentURL: '={{ $json.documentId || $json.id }}', actionsUi: { actionFields: [{ action: 'insert', text: "={{ $('Parse Args').item.json.docContent }}" }] } },
+      id: 'gdoc-insert', name: 'Insert Content', type: 'n8n-nodes-base.googleDocs', typeVersion: 2, position: [x, 300],
+      credentials: { googleDocsOAuth2Api: creds.googleDocs },
+    });
+    conns[prev] = { main: [[{ node: 'Insert Content', type: 'main', index: 0 }]] };
+    prev = 'Insert Content'; x += 210;
+  }
+
+  nodes.push({
+    parameters: {
+      method: 'POST', url: "={{ $('Webhook').item.json.body.callbackUrl }}", sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }, { name: 'x-webhook-token', value: token }] },
+      sendBody: true,
+      bodyParameters: {
+        parameters: [
+          { name: 'taskId', value: "={{ $('Webhook').item.json.body.taskId }}" },
+          { name: 'status', value: 'DONE' },
+          { name: 'output', value: "={{ JSON.stringify({ docUrl: 'https://docs.google.com/document/d/' + ($('Create Doc').item.json.documentId || $('Create Doc').item.json.id) + '/edit', title: $('Parse Args').item.json.docTitle }) }}" },
+          { name: 'workflowId', value: '={{ $workflow.id }}' },
+        ],
+      },
+      options: { retry: { retry: { maxTries: 3 } } },
+    },
+    id: 'callback-done', name: 'Callback (Done)', type: 'n8n-nodes-base.httpRequest', typeVersion: 4, position: [x, 300],
+  });
+  conns[prev] = { main: [[{ node: 'Callback (Done)', type: 'main', index: 0 }]] };
+
+  return { name: agentWorkflowName(agent.id), nodes, connections: conns, settings: { executionOrder: 'v1', saveManualExecutions: true }, staticData: null };
+}
+
 /** Header Auth credential を作成または既存を返す（best-effort。一覧不可でも作成を試みる）。 */
 async function ensureHeaderAuthCredential(): Promise<{ id: string; name: string } | null> {
   let existing: { id: string; name: string; type: string }[] = [];
@@ -235,6 +350,16 @@ export async function deleteAgentWorkflow(id: string): Promise<void> {
   }
 }
 
+/** steps に対応 cap があり provider 資格情報が接続済みならチェーン型、無ければ簡易シェルを返す。 */
+async function resolveAgentWorkflow(agent: AgentWorkflowInput): Promise<Record<string, unknown>> {
+  const supported = agentSupportedSteps(agent.steps);
+  if (supported.includes('create_google_doc')) {
+    const googleDocs = await findProviderCredential('googleDocsOAuth2Api');
+    if (googleDocs) return buildChainedAgentWorkflowJson(agent, { googleDocs });
+  }
+  return buildAgentWorkflowJson(agent);
+}
+
 /** エージェントの専用ワークフローを生成 + 有効化する。
  *  N8N_API_KEY 未設定や n8n 不達のときは throw → 呼び出し側で n8nStatus=PENDING にする。
  */
@@ -243,7 +368,7 @@ export async function createAgentWorkflow(
 ): Promise<CreateAgentWorkflowResult> {
   if (!N8N_API_KEY) throw new Error('N8N_API_KEY not configured');
 
-  const wf = buildAgentWorkflowJson(agent);
+  const wf = await resolveAgentWorkflow(agent);
   const credential = await ensureHeaderAuthCredential();
   if (credential) attachCredentialToWebhookNodes(wf, credential);
 
@@ -259,7 +384,7 @@ export async function syncAgentWorkflow(
 ): Promise<boolean> {
   if (!N8N_API_KEY) return false;
   try {
-    const wf = buildAgentWorkflowJson(agent);
+    const wf = await resolveAgentWorkflow(agent);
     const credential = await ensureHeaderAuthCredential();
     if (credential) attachCredentialToWebhookNodes(wf, credential);
     await n8nUpdateWorkflow(workflowId, wf);
