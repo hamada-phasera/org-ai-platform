@@ -146,9 +146,13 @@ export async function retrieveContext(opts: {
 
   // 明示的に添付されたファイルは類似度に関わらず必ず含める。
   // （off-topic な質問でも「資料には記載がありません」と正しく答えられる＝ファイルが見えていない誤応答を防ぐ）
+  // 横断検索（添付なし）のしきい値は控えめ（0.3）。Voyage の日本語コサインは関連でも 0.3〜0.5 に収まりやすく、
+  // GROUNDING_INSTRUCTION が「資料に無い事は記載なしと言う」を担保するため、再現率を優先して取りこぼしを防ぐ。
   const hasExplicitFiles = !!(opts.fileIds && opts.fileIds.length > 0);
-  const files = hasExplicitFiles ? fileRows : fileRows.filter((r) => Number(r.score) >= 0.4);
-  const msgs = msgRows.filter((r) => Number(r.score) >= 0.45);
+  const FILE_MIN = 0.3;
+  const MSG_MIN = 0.3;
+  const files = hasExplicitFiles ? fileRows : fileRows.filter((r) => Number(r.score) >= FILE_MIN);
+  const msgs = msgRows.filter((r) => Number(r.score) >= MSG_MIN);
   if (files.length === 0 && msgs.length === 0) return null;
 
   const fileIds = [...new Set(files.map((f) => f.fileId))];
