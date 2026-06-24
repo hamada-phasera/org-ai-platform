@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma';
 import { requireAuth } from '../middleware/auth';
-import { retrieveContext, indexMessage } from '../services/rag';
+import { retrieveContext, indexMessages } from '../services/rag';
 
 const N8N_CLOUD_URL = process.env.N8N_CLOUD_URL ?? 'https://hamahiro.app.n8n.cloud';
 const N8N_API_KEY = process.env.N8N_API_KEY ?? '';
@@ -243,9 +243,11 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       },
     });
 
-    // RAG: 履歴の横断参照のため索引（fire-and-forget）
-    void indexMessage(userMessage.id, payload.orgId, id, 'user', result.data.content).catch(() => null);
-    void indexMessage(assistantMessage.id, payload.orgId, id, 'assistant', aiResponse.content).catch(() => null);
+    // RAG: 履歴の横断参照のため索引（1回の埋め込み呼び出しにまとめる・fire-and-forget）
+    void indexMessages(payload.orgId, id, [
+      { messageId: userMessage.id, role: 'user', content: result.data.content },
+      { messageId: assistantMessage.id, role: 'assistant', content: aiResponse.content },
+    ]).catch(() => null);
 
     if (!session.title) {
       const title = result.data.content.slice(0, 30);
@@ -386,9 +388,11 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       data: { sessionId: id, role: 'assistant', content: fullContent, department },
     });
 
-    // RAG: 履歴の横断参照のため、今回のやり取りを索引（fire-and-forget・ストリーム終了を待たせない）
-    void indexMessage(userMessage.id, payload.orgId, id, 'user', body.data.content).catch(() => null);
-    void indexMessage(assistantMessage.id, payload.orgId, id, 'assistant', fullContent).catch(() => null);
+    // RAG: 履歴の横断参照のため、今回のやり取りを索引（1回の埋め込み呼び出しにまとめる・fire-and-forget）
+    void indexMessages(payload.orgId, id, [
+      { messageId: userMessage.id, role: 'user', content: body.data.content },
+      { messageId: assistantMessage.id, role: 'assistant', content: fullContent },
+    ]).catch(() => null);
 
     reply.raw.write(`data: ${JSON.stringify({ type: 'done', data: assistantMessage })}\n\n`);
     reply.raw.end();

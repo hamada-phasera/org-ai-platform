@@ -74,27 +74,33 @@ export async function indexFile(
   }
 }
 
-/** チャットメッセージを埋め込み→MessageEmbedding へ保存。fire-and-forget 推奨。 */
-export async function indexMessage(
-  messageId: string,
+/**
+ * 1 ターン分（user + assistant）のメッセージをまとめて 1 回の埋め込み呼び出しで索引する。
+ * 埋め込みプロバイダの RPM 消費を半減させる（レート制限対策）。fire-and-forget 推奨。
+ */
+export async function indexMessages(
   orgId: string,
   sessionId: string,
-  role: string,
-  content: string,
+  items: Array<{ messageId: string; role: string; content: string }>,
 ): Promise<void> {
   if (!isEmbeddingEnabled()) return;
-  const text = content.trim();
-  if (text.length < 12) return; // ごく短い相槌は索引しない
+  const valid = items
+    .map((it) => ({ ...it, text: it.content.trim().slice(0, 8000) }))
+    .filter((it) => it.text.length >= 12); // ごく短い相槌は索引しない
+  if (valid.length === 0) return;
 
-  const vectors = await embedTexts([text.slice(0, 8000)], 'document');
-  const vec = vectors?.[0];
-  if (!vec || vec.length !== EMBEDDING_DIM) return;
+  const vectors = await embedTexts(valid.map((v) => v.text), 'document');
+  if (!vectors || vectors.length !== valid.length) return;
 
-  await prisma.$executeRaw`
-    INSERT INTO "MessageEmbedding" ("id", "orgId", "messageId", "sessionId", "role", "content", "embedding")
-    VALUES (${randomUUID()}, ${orgId}, ${messageId}, ${sessionId}, ${role}, ${text.slice(0, 8000)}, ${toVectorLiteral(vec)}::vector)
-    ON CONFLICT ("messageId") DO NOTHING
-  `;
+  for (let i = 0; i < valid.length; i++) {
+    const vec = vectors[i];
+    if (vec.length !== EMBEDDING_DIM) continue;
+    await prisma.$executeRaw`
+      INSERT INTO "MessageEmbedding" ("id", "orgId", "messageId", "sessionId", "role", "content", "embedding")
+      VALUES (${randomUUID()}, ${orgId}, ${valid[i].messageId}, ${sessionId}, ${valid[i].role}, ${valid[i].text}, ${toVectorLiteral(vec)}::vector)
+      ON CONFLICT ("messageId") DO NOTHING
+    `;
+  }
 }
 
 export interface RetrievedContext {
