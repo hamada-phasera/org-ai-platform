@@ -129,3 +129,10 @@
 - 検証: ai-engine `py_compile`、gateway `tsc --noEmit`、`prisma validate`、`vite build`、cap JSON parse すべて通過。
 - `render.yaml`: gateway は `npm install`（ci ではない）＝新依存は自動解決。`startCommand` に `prisma migrate deploy` あり＝pgvector マイグレーションは次回デプロイで自動適用（Neon の role は拡張作成可）。
 - **未実施（要・明示承認）**: `hamahiro1668/main` への push → Render 自動デプロイ（migrate + 依存 install）、Vercel フロント本番デプロイ、gateway env に `EMBEDDING_API_KEY` 追加。
+
+### 2026-06-24 本番反映＆検証 + Voyage レート制限対応
+- `hamahiro1668/main` へ push → Render 自動デプロイ（pgvector マイグレ適用・pgvector 0.8.0）、Vercel 本番反映。
+- 本番E2E検証済み: エージェント化CTA / 成果物ヒアリング(提案書) / RAGファイル根拠(出典付き正答＋off-topicは「記載なし」) / 横断ファイル参照 / **過去チャット横断参照**（要望③）。
+- 追加修正: 添付ファイルは類似度無視で必ず注入(e128085)、横断検索しきい値0.3(1ca35f6)、**埋め込み429/5xxリトライ(16f4895)**、**user/assistantを1回の埋め込みにまとめてRPM半減(1750599)**。
+- **Voyage 無料/トライアル枠は RPM が低く、連続テストで埋め込みが429→null→索引行が作られず/根拠注入されず RAG が静かに無効化される**罠を確認・対処。検索SQL/HNSW/コサインは正常（別セッションのメッセージをスコア0.62で返却）。持続負荷では Voyage 有料枠推奨。
+- 成果物(Google/Slack)は OAuth 未接続のため NEEDS_AUTH（`docs/oauth-setup.md`）。
