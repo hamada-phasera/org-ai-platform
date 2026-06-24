@@ -15,6 +15,7 @@ import { InlineChatResult } from '../components/Chat/InlineChatResult';
 import { TaskProgressSidebar } from '../components/Chat/TaskProgressSidebar';
 import { AgentCtaCard, type AgentDraft } from '../components/Chat/AgentCtaCard';
 import { DeliverableBar, type DeliverableKind } from '../components/Chat/DeliverableBar';
+import { MarkdownLite } from '../components/Chat/MarkdownLite';
 import { CreateAgentModal } from '../components/Agents/CreateAgentModal';
 import type { ChatSession, Message } from '@org-ai/shared-types';
 import { DEPT_LABEL, DEPT_ACCENT, DEPARTMENTS, DEPT_CHARACTER } from '../constants/departments';
@@ -792,10 +793,12 @@ export default function ChatPage() {
                             </span>
                           )}
                         </div>
-                        <div className={`text-sm leading-relaxed ${
-                          msg.role === 'user' ? 'text-[#2D2D2D]' : 'text-[#2D2D2D]'
-                        }`}>
-                          <p className="whitespace-pre-wrap">{msg.role === 'assistant' ? stripJsonBlocks(msg.content) : msg.content}</p>
+                        <div className="text-sm leading-relaxed text-[#2D2D2D]">
+                          {msg.role === 'assistant' ? (
+                            <MarkdownLite text={stripJsonBlocks(msg.content)} />
+                          ) : (
+                            <p className="whitespace-pre-wrap">{msg.content}</p>
+                          )}
                         </div>
                       </div>
                     </motion.div>
@@ -860,10 +863,8 @@ export default function ChatPage() {
                           )}
                         </div>
                         <div className="text-sm leading-relaxed text-[#2D2D2D]">
-                          <p className="whitespace-pre-wrap">
-                            {stripJsonBlocks(streamingContent ?? '')}
-                            <span className="inline-block w-0.5 h-4 bg-[#8b85ff] ml-0.5 animate-pulse align-middle" />
-                          </p>
+                          <MarkdownLite text={stripJsonBlocks(streamingContent ?? '')} />
+                          <span className="inline-block w-0.5 h-4 bg-[#8b85ff] ml-0.5 animate-pulse align-middle" />
                         </div>
                       </div>
                     ) : (
