@@ -181,4 +181,4 @@ endpoint never takes.
 - [x] PHASE 3 — pgx read-only reader + Neon dev branch + 3-stage benchmark + integration test
 - [x] PHASE 4 — async rollup worker (goroutine + ticker + trigger chan, idempotent) + rollup read path
 - [x] PHASE 5 — multi-stage Dockerfile (11.9MB distroless, non-root) + AWS App Runner/ECS deploy docs
-- [ ] PHASE 6 — DESIGN.md (100× data scenario)
+- [x] PHASE 6 — [DESIGN.md](DESIGN.md): 100× data scenario, p95-composition limit, columnar-DWH judgment
