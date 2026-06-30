@@ -94,18 +94,45 @@ tokens/cost; nil `latencyMs` is excluded from avg/p95 denominators.
 ## Architecture
 
 ```
-cmd/server            → wiring, :8080, graceful shutdown
-internal/domain       → UsageRow, UsageReport, Pricing (no deps)
-internal/aggregate    → Aggregate() — pure, table-driven tested
+cmd/server            → wiring, :8080, graceful shutdown, worker lifecycle
+internal/domain       → UsageRow, UsageReport, RollupRow, Pricing (no deps)
+internal/aggregate    → Aggregate() — pure, table-driven tested (raw path)
 internal/repository   → UsageRepository interface
-                        ├─ memory.go  (in-memory fake; tests + local dev)
-                        └─ postgres.go (pgx reader — PHASE 3)
-internal/service      → fetch → aggregate → annotate window
-internal/httpapi      → HTTP handlers + envelope
+                        ├─ memory.go   (in-memory fake; tests + local dev)
+                        ├─ postgres.go (pgx raw reader, READ ONLY tx)
+                        └─ rollup.go   (rollup reader + idempotent refresh writer)
+internal/service      → service.go (raw: fetch→Aggregate) +
+                        rollup.go  (rollup: fold pre-aggregated rows)
+internal/worker       → async rollup worker (goroutine + ticker + trigger chan)
+internal/httpapi      → UsageProvider interface + handlers + envelope
 ```
 
-The `UsageRepository` seam means the aggregation logic is identical whether rows
-come from the in-memory fake or Postgres — tests run green with zero DB.
+The `UsageProvider` interface (implemented by both the raw and rollup services)
+keeps the HTTP layer agnostic to the data source; the `UsageRepository` seam keeps
+the aggregation logic identical for the in-memory fake and Postgres — unit tests
+run green with zero DB.
+
+### Read paths & the rollup worker (PHASE 4)
+
+- **raw** (default): read `AILog` directly inside a READ ONLY transaction, aggregate
+  in Go. Exact, scales with the tenant's rows.
+- **rollup** (`METRICS_SOURCE=rollup`): read the pre-aggregated `usage_daily_rollup`,
+  fold in Go. Flat scaling. Verified to match the raw path **exactly** for
+  calls / tokens / cost / avg-latency and the department breakdown
+  (`TestRollupMatchesRawIntegration`); **p95 is approximate** (max of per-grain
+  p95 — percentiles don't compose; see DESIGN.md).
+
+The worker (`internal/worker`) runs in its own goroutine: refresh on startup, on a
+ticker, and on a coalescing trigger channel. Each refresh is an idempotent upsert
+bounded to recent days, so it stays cheap as `AILog` grows and re-runs converge.
+
+| env var            | default | meaning                                        |
+|--------------------|---------|------------------------------------------------|
+| `DATABASE_URL`     | (unset) | Postgres DSN; unset → in-memory seed           |
+| `METRICS_SOURCE`   | `raw`   | `raw` or `rollup`                              |
+| `ROLLUP_INTERVAL`  | `5m`    | worker refresh cadence (Go duration)           |
+| `ROLLUP_SINCE_DAYS`| `35`    | days of `AILog` each refresh re-aggregates     |
+| `PORT`             | `8080`  | listen port                                    |
 
 ## Run / test
 
@@ -148,6 +175,6 @@ endpoint never takes.
 - [x] PHASE 1 — skeleton, `:8080`, `GET /metrics/usage`, 3-layer split
 - [x] PHASE 2 — `Aggregate()` + table-driven tests (in-memory fake)
 - [x] PHASE 3 — pgx read-only reader + Neon dev branch + 3-stage benchmark + integration test
-- [ ] PHASE 4 — async rollup worker (goroutine + channel, idempotent upsert)
+- [x] PHASE 4 — async rollup worker (goroutine + ticker + trigger chan, idempotent) + rollup read path
 - [ ] PHASE 5 — multi-stage Dockerfile + AWS deploy
 - [ ] PHASE 6 — DESIGN.md (100× data scenario)

@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/hamada-phasera/usage-metrics-svc/internal/domain"
-	"github.com/hamada-phasera/usage-metrics-svc/internal/service"
 )
 
 const (
@@ -27,15 +26,22 @@ const (
 	requestTimeout = 5 * time.Second
 )
 
+// UsageProvider produces a usage report for a tenant + window. Both
+// service.Service (raw AILog read) and service.RollupService (rollup read)
+// satisfy it, so the HTTP layer is agnostic to the data source.
+type UsageProvider interface {
+	GetUsage(ctx context.Context, p domain.QueryParams) (domain.UsageReport, error)
+}
+
 // Handler holds the dependencies for the HTTP layer. `now` is injectable for tests.
 type Handler struct {
-	svc *service.Service
-	now func() time.Time
+	provider UsageProvider
+	now      func() time.Time
 }
 
 // NewRouter returns the configured HTTP handler.
-func NewRouter(svc *service.Service) http.Handler {
-	h := &Handler{svc: svc, now: time.Now}
+func NewRouter(provider UsageProvider) http.Handler {
+	h := &Handler{provider: provider, now: time.Now}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", h.health)
 	mux.HandleFunc("/metrics/usage", h.usage)
@@ -88,7 +94,7 @@ func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 
-	report, err := h.svc.GetUsage(ctx, domain.QueryParams{OrgID: tenant, From: from, To: to})
+	report, err := h.provider.GetUsage(ctx, domain.QueryParams{OrgID: tenant, From: from, To: to})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "AGGREGATION_FAILED", "failed to compute usage metrics")
 		return

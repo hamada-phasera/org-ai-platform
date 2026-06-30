@@ -72,3 +72,18 @@ type UsageReport struct {
 	// fallback rate). Surfaced for honesty rather than hidden.
 	UnknownModels []string `json:"unknownModels,omitempty"`
 }
+
+// RollupRow is one pre-aggregated row of usage_daily_rollup, at the grain
+// (org, day, provider, model, department). The worker writes these; the rollup
+// read path folds them into a UsageReport.
+type RollupRow struct {
+	Day          time.Time // UTC calendar day (midnight)
+	Provider     string
+	Model        string
+	Department   string
+	Calls        int
+	SumTokens    int64
+	SumLatencyMs int64
+	CountLatency int // rows with non-null latency
+	P95LatencyMs int // exact p95 for this grain row only
+}
