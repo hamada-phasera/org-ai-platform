@@ -144,6 +144,10 @@ go run ./cmd/server                      # in-memory seed on :8080 (PORT to over
 # Postgres-backed:
 DATABASE_URL='postgres://…' go run ./cmd/server
 TEST_DATABASE_URL='postgres://…' go test ./internal/repository/ -run TestPgx -v
+
+# Container (11.9MB distroless image):
+docker build -t usage-metrics-svc .
+docker run -p 8080:8080 usage-metrics-svc          # see DEPLOY.md for AWS
 ```
 
 When `DATABASE_URL` is set the service reads `AILog` from Postgres inside a
@@ -176,5 +180,5 @@ endpoint never takes.
 - [x] PHASE 2 — `Aggregate()` + table-driven tests (in-memory fake)
 - [x] PHASE 3 — pgx read-only reader + Neon dev branch + 3-stage benchmark + integration test
 - [x] PHASE 4 — async rollup worker (goroutine + ticker + trigger chan, idempotent) + rollup read path
-- [ ] PHASE 5 — multi-stage Dockerfile + AWS deploy
+- [x] PHASE 5 — multi-stage Dockerfile (11.9MB distroless, non-root) + AWS App Runner/ECS deploy docs
 - [ ] PHASE 6 — DESIGN.md (100× data scenario)
