@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle2, ChevronDown, ChevronUp, Copy, Check, CalendarPlus } from 'lucide-react';
-import { GlassCard } from '../../../components/ui/GlassCard';
+import GlassCard from '../ui/GlassCard';
 import type { Task, ExecutionResult } from '../../types/index';
 import { downloadICS } from '../../utils/ics';
 
@@ -177,7 +177,7 @@ export default function ProjectResultsPanel({ tasks, projectName, onClose }: Pro
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
     >
-      <GlassCard padding="none" radius="2xl" className="p-5 space-y-4">
+      <GlassCard hover={false} className="p-5 space-y-4">
         {/* Header */}
         <div className="flex items-start gap-2 border-b border-white/60 pb-3">
           <CheckCircle2 size={16} className="text-emerald-500 flex-shrink-0 mt-0.5" />
