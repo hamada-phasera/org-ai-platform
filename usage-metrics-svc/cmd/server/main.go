@@ -27,7 +27,22 @@ func main() {
 		port = "8080"
 	}
 
-	repo := repository.NewMemoryRepository(repository.SeedRows(time.Now().UTC()))
+	// DATABASE_URL → read AILog from Postgres (read-only). Otherwise fall back to
+	// the in-memory seed so the service runs with zero external dependencies.
+	var repo repository.UsageRepository
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		pool, err := repository.NewPool(context.Background(), dsn)
+		if err != nil {
+			log.Fatalf("database: %v", err)
+		}
+		defer pool.Close()
+		repo = repository.NewPgxRepository(pool)
+		log.Println("repository: Postgres (read-only AILog reader)")
+	} else {
+		repo = repository.NewMemoryRepository(repository.SeedRows(time.Now().UTC()))
+		log.Println("repository: in-memory (seeded demo data)")
+	}
+
 	svc := service.New(repo, domain.DefaultPricing())
 	router := httpapi.NewRouter(svc)
 

@@ -111,26 +111,43 @@ come from the in-memory fake or Postgres — tests run green with zero DB.
 
 ```bash
 export PATH="/opt/homebrew/bin:$PATH"   # if go isn't on PATH
-go test ./...                            # all green, no DB needed
-go run ./cmd/server                      # serves on :8080 (PORT to override)
+go test ./...                            # unit tests; no DB needed (pgx tests auto-skip)
+go run ./cmd/server                      # in-memory seed on :8080 (PORT to override)
+
+# Postgres-backed:
+DATABASE_URL='postgres://…' go run ./cmd/server
+TEST_DATABASE_URL='postgres://…' go test ./internal/repository/ -run TestPgx -v
 ```
 
-## Benchmark (PHASE 3 — to be filled in)
+When `DATABASE_URL` is set the service reads `AILog` from Postgres inside a
+**read-only transaction** (verified by `TestPgxReadOnlyTxRejectsWrites`:
+`INSERT … cannot execute INSERT in a read-only transaction`, SQLSTATE 25006);
+otherwise it falls back to the seeded in-memory repo.
 
-Three stages on a Neon **dev branch** (production `AILog` untouched), ~50k
-synthetic rows:
+## Benchmark (PHASE 3)
 
-| stage | query                                   | p50 latency |
-|-------|-----------------------------------------|-------------|
-| 1     | raw scan of `AILog` per request         | _TBD_       |
-| 2     | + index on `("orgId", "createdAt")`     | _TBD_       |
-| 3     | read `usage_daily_rollup`               | _TBD_       |
+Per-request aggregation (tenant `org-5`, last 30 days → day×provider buckets) on
+a Neon **dev branch** (production `AILog` untouched), pg17, **200k rows / 20
+tenants** (`org-5` = 10k rows, 3,334 in window). `EXPLAIN (ANALYZE, BUFFERS)`:
+
+| stage | plan                                        | exec time | scales with        |
+|-------|---------------------------------------------|-----------|--------------------|
+| 1     | `Parallel Seq Scan` (196k rows scanned)     | **~41 ms**| tenant row count   |
+| 2     | + index `("orgId","createdAt")` → bitmap scan, 3,334 rows | **~5.3 ms** | tenant window size |
+| 3     | read `usage_daily_rollup` (PK index, 5 rows)| **~0.05 ms** | **flat** (days×providers) |
+
+≈**800× from raw scan to rollup**, ≈8× from the index alone. The decisive
+property is stage 3's **flatness**: the rollup read touches a handful of
+pre-aggregated rows no matter how large `AILog` grows, while stages 1–2 grow with
+the tenant's data. Reproduce with [schema.sql](schema.sql) + the seed in the repo
+history; this is the same naive→indexed→rollup path the existing Node `/stats`
+endpoint never takes.
 
 ## Status
 
 - [x] PHASE 1 — skeleton, `:8080`, `GET /metrics/usage`, 3-layer split
 - [x] PHASE 2 — `Aggregate()` + table-driven tests (in-memory fake)
-- [ ] PHASE 3 — pgx + Neon dev branch + 3-stage benchmark
+- [x] PHASE 3 — pgx read-only reader + Neon dev branch + 3-stage benchmark + integration test
 - [ ] PHASE 4 — async rollup worker (goroutine + channel, idempotent upsert)
 - [ ] PHASE 5 — multi-stage Dockerfile + AWS deploy
 - [ ] PHASE 6 — DESIGN.md (100× data scenario)
