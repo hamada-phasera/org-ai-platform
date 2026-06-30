@@ -65,9 +65,12 @@ func main() {
 		log.Println("repository: in-memory (seeded demo data)")
 	}
 
+	// CORS so the browser dashboard panel can call the API cross-origin.
+	handler := httpapi.CORS(getenv("CORS_ALLOW_ORIGIN", "*"))(httpapi.NewRouter(provider))
+
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           httpapi.NewRouter(provider),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,
