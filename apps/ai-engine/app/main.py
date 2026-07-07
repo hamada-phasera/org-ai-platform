@@ -201,13 +201,29 @@ async def orchestrate_stream(request: OrchestateRequest) -> StreamingResponse:
 
 @app.post("/llm/chat", response_model=LLMResponse)
 async def llm_chat(request: LLMRequest) -> LLMResponse:
-    response, _pii, _types = await llm_router.chat(
+    response, pii_detected, pii_types = await llm_router.chat(
         messages=request.messages,
         department=request.department,
         org_id=request.org_id,
         plan=request.plan,
         json_mode=request.json_mode,
     )
+    # 監査ログ: /llm/chat を直接叩く経路（ゲートウェイ /api/llm/chat・各部署の生成機能）も
+    # 必ず AILog / RiskEvent に残す。CLAUDE.md「すべての AI 入出力を AILog に記録」・
+    # integration-requests 営業#5（/plan・/orchestrate と同様に集中ロギング）。
+    input_text = "\n".join(m.content for m in request.messages if m.role == "user")
+    asyncio.create_task(log_llm_call(
+        org_id=request.org_id,
+        department=request.department,
+        provider="anthropic",
+        model=response.model,
+        input_text=input_text,
+        output_text=response.content,
+        tokens=response.tokens_used,
+        latency_ms=response.latency_ms,
+        pii_detected=pii_detected,
+        pii_types=pii_types,
+    ))
     return response
 
 
