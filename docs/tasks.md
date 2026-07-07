@@ -20,7 +20,7 @@
 | 部署 | ブランチ | 割当画面 | サイクル1状態（巡回 2026-07-07 #3） | PR |
 |------|---------|---------|------|-----|
 | 営業 | feat/sales-dept | — | ✅ R1+R2完了。B統合待ち（#2=ローカルB統合のみ確定・origin push しない） | — |
-| 分析 | feat/analytics-dept | 画面3 | 🟡 R1完了 / R2(A-3,A-4)未着手 → **main rebase 後に着手可**（usage-metrics-svc取込済） | — |
+| 分析 | feat/analytics-dept | 画面3 | ✅ R1+R2完了（A-1〜A-4・8commits・25tests+Go全green・配線要求#A3）。B統合待ち | — |
 | SNS | feat/sns-dept | — | ✅ **R1完了**（N-1/N-2・5commits・#S1〜#S3要求・19tests pass） | — |
 | 統合 | feat/integration | 画面1（オーガナイザー） | 🔵 compliance#5 + usage-metrics-svc 統合済。B本番は分析R2後 | — |
 
@@ -79,8 +79,8 @@
 - [x] A-2: `AnalyticsPage.tsx` 追加 — まず既存 dashboard API 流用で部署別の実行数/コスト/成功率を read-only 表示（配線は B）→ 成果物: `apps/web/src/pages/AnalyticsPage.tsx` + `components/Analytics/**`。実行数=実装済(/dashboard/efficiency流用)、コスト・成功率=データ源不在のため A-3 接続予定として明示（捏造なし, commit 188e018）
 
 ### サイクル1・R2
-- [ ] A-3: `usage-metrics-svc` に部署別集計エンドポイント追加（Go, read-only AILog）→ AnalyticsPage を接続（blocker解除済 2026-07-07: 統合が usage-metrics-svc を main に取り込み）
-- [ ] A-4: `tests/business/` にイベント発火テスト（A-1 スキーマ準拠）
+- [x] A-3: `usage-metrics-svc` に部署別集計エンドポイント追加（Go, read-only AILog）→ AnalyticsPage を接続（blocker解除済 2026-07-07: 統合が usage-metrics-svc を main に取り込み）→ 成果物: `GET /metrics/departments`（raw+rollup 両経路, go test 全green, a52dc88）/ gateway プロキシ `routes/analytics/`（JWT orgId 強制・登録はB→#A3, d4479a3）/ `DepartmentCostCard` ライブ化+未接続時自動劣化（vite build green, 7171556）
+- [x] A-4: `tests/business/` にイベント発火テスト（A-1 スキーマ準拠）→ 成果物: `routes/analytics/kpi-events.ts`（発火純関数+レガシー部署名正規化+rollup）/ `apps/api-gateway/tests/business/kpi-events.test.ts` 20ケース green（分析計25/25, df1c0e7）
 
 ### フェーズ2（深化・後続）
 - [ ] A-5: 時系列/期間フィルタ・部署横断比較
