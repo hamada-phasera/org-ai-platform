@@ -94,26 +94,33 @@ export interface DepartmentKpi {
  * ⚠️ placeholder。正式なレート表は人間確認のうえ統合フェーズで確定する（#1 参照）。
  * AILog.tokens は入出力合算のため、本来の入力/出力別課金は近似になる点に注意。
  */
-export const PLACEHOLDER_MODEL_RATE_USD_PER_1K: Record<'haiku' | 'sonnet' | 'opus' | 'default', number> = {
-  haiku: 0.004,
-  sonnet: 0.012,
-  opus: 0.06,
-  default: 0.012,
+export const PLACEHOLDER_MODEL_RATE_USD_PER_1K: Record<'haiku' | 'sonnet' | 'opus' | 'fable' | 'default', number> = {
+  // usage-metrics-svc DefaultPricing（ブレンド USD/MTok: haiku 3 / sonnet 9 /
+  // opus 15 / fable 30, fallback 9）を 1K あたりに換算した同一値。
+  // サービス側を単一の真実とし、正式単価表は統合フェーズで確定（#1 参照）。
+  haiku: 0.003,
+  sonnet: 0.009,
+  opus: 0.015,
+  fable: 0.03,
+  default: 0.009,
 };
 
 /**
  * トークン数からコスト(USD)を導出する（提案中の導出ロジック）。
  * tokens が null の場合は null を返す（不明を数値で埋めない）。
+ * family 部分一致は高額優先（usage-metrics-svc と同じ決定規則）。
  */
 export function deriveCostUsd(model: string, tokens: number | null): number | null {
   if (tokens == null) return null;
   const m = model.toLowerCase();
-  const rate = m.includes('haiku')
-    ? PLACEHOLDER_MODEL_RATE_USD_PER_1K.haiku
-    : m.includes('sonnet')
-    ? PLACEHOLDER_MODEL_RATE_USD_PER_1K.sonnet
+  const rate = m.includes('fable')
+    ? PLACEHOLDER_MODEL_RATE_USD_PER_1K.fable
     : m.includes('opus')
     ? PLACEHOLDER_MODEL_RATE_USD_PER_1K.opus
+    : m.includes('sonnet')
+    ? PLACEHOLDER_MODEL_RATE_USD_PER_1K.sonnet
+    : m.includes('haiku')
+    ? PLACEHOLDER_MODEL_RATE_USD_PER_1K.haiku
     : PLACEHOLDER_MODEL_RATE_USD_PER_1K.default;
   return (tokens / 1000) * rate;
 }
