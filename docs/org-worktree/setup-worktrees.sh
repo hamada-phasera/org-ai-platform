@@ -81,5 +81,5 @@ done
 echo "  4. 各セッションの最初のプロンプト:"
 echo "     「CLAUDE.md と自分の部署の CLAUDE.md を読み、docs/tasks.md の担当タスクを進めて」"
 echo ""
-echo "統合フェーズ: main の worktree（$REPO_ROOT）で 4 つ目のセッションを起動し、"
+echo "統合フェーズ: main の worktree（${REPO_ROOT}）で 4 つ目のセッションを起動し、"
 echo "CLAUDE.integration.md のプロンプトを与えてください。"
