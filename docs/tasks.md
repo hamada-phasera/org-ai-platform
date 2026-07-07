@@ -19,7 +19,7 @@
 
 | 部署 | ブランチ | 割当画面 | サイクル1状態 | PR |
 |------|---------|---------|------|-----|
-| 営業 | feat/sales-dept | 画面2 | ⚪ R1 未着手 | — |
+| 営業 | feat/sales-dept | 画面2 | 🔵 R1完了(S-1,S-2)・R2着手前 | — |
 | 分析 | feat/analytics-dept | 画面3 | ⚪ R1 未着手 | — |
 | SNS | feat/sns-dept | （待機列→空き画面へ） | ⚪ R1 未着手 | — |
 | 統合 | feat/integration | 画面1（オーガナイザー） | ⚪ 配線はR1完了分から随時 | — |
@@ -61,8 +61,10 @@
 ## 🏷 営業部署（feat/sales-dept）
 
 ### サイクル1・R1（縦切りの土台）
-- [ ] S-1: `SalesPage.tsx` 追加 — `department="SALES"` の Agent/Task を read-only 一覧表示（既存 services/store 再利用、配線は B）
-- [ ] S-2: `routes/sales/pipeline.ts` — 商談ステージ（リード→商談→提案→受注）の read/更新 最小API（register は B）
+- [x] S-1: `SalesPage.tsx` 追加 — `department="SALES"` の Agent/Task を read-only 一覧表示（既存 services/store 再利用、配線は B）
+  - 成果物: `apps/web/src/pages/SalesPage.tsx`（useQuery で `/agents`・`/tasks` を取得しクライアント側で department 絞り込み。tsc 追加エラー 0）。配線は integration-requests #2。
+- [x] S-2: `routes/sales/pipeline.ts` — 商談ステージ（リード→商談→提案→受注）の read/更新 最小API（register は B）
+  - 成果物: `apps/api-gateway/src/routes/sales/pipeline.ts`（インメモリ store・prisma 非依存）+ テスト `apps/api-gateway/tests/sales/*.test.ts`（Vitest 12/12 pass）。共有型/DB化は integration-requests #1、登録は #2。
 
 ### サイクル1・R2（主機能＋テスト）
 - [ ] S-3: 提案書ドラフト生成（主機能）— deliverables + LLMRouter で生成。⛓ depends: `ProposalTemplate` 型（integration-requests へ、ローカルモック型で先行）
