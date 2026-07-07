@@ -10,6 +10,7 @@ import {
   type SnsDraft,
   type SnsGenInputs,
 } from './format';
+import { groupDraftsByDate, type CalendarTask } from './calendar';
 
 /**
  * SNS投稿 下書き生成 & 承認待ちキュー（N-1 / N-2）。
@@ -49,6 +50,11 @@ const generateSchema = z.object({
 });
 
 const rejectSchema = z.object({ reason: z.string().max(500).optional() });
+const scheduleSchema = z.object({
+  scheduledAt: z
+    .string()
+    .refine((s) => !Number.isNaN(new Date(s).getTime()), { message: '日付が不正です' }),
+});
 
 type AuthPayload = { orgId: string; sub?: string };
 
@@ -182,6 +188,16 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: tasks });
   });
 
+  // ── N-3: コンテンツカレンダー（下書きを日付にグルーピング） ──
+  app.get('/calendar', { preHandler: requireAuth }, async (request, reply) => {
+    const payload = request.user as AuthPayload;
+    const tasks = (await prisma.task.findMany({
+      where: { orgId: payload.orgId, taskType: SNS_TASK_TYPE },
+      orderBy: { createdAt: 'desc' },
+    })) as CalendarTask[];
+    return reply.send({ success: true, data: { days: groupDraftsByDate(tasks) } });
+  });
+
   // ── N-2: 承認/却下（状態遷移のみ・dispatch/投稿はしない） ──
   async function loadPendingSnsTask(orgId: string, taskId: string) {
     const task = await prisma.task.findUnique({ where: { id: taskId } });
@@ -244,6 +260,37 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
           reason: parsed.data.reason ?? null,
         }),
       },
+    });
+    return reply.send({ success: true, data: updated });
+  });
+
+  // ── N-3: 下書きを日付にひも付け（scheduledAt 設定・メタデータのみ／投稿はしない） ──
+  app.patch('/:taskId/schedule', { preHandler: requireAuth }, async (request, reply) => {
+    const payload = request.user as AuthPayload;
+    const { taskId } = request.params as { taskId: string };
+    const parsed = scheduleSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply
+        .code(400)
+        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+    }
+    const task = await prisma.task.findUnique({ where: { id: taskId } });
+    if (!task || task.orgId !== payload.orgId || task.taskType !== SNS_TASK_TYPE) {
+      return reply
+        .code(404)
+        .send({ success: false, error: { code: 'NOT_FOUND', message: 'SNS下書きが見つかりません' } });
+    }
+    // 既存 output(下書きJSON)に scheduledAt を差し込む。status は変えない・投稿もしない。
+    let draft: Record<string, unknown> = {};
+    try {
+      draft = task.output ? (JSON.parse(task.output) as Record<string, unknown>) : {};
+    } catch {
+      draft = {};
+    }
+    draft.scheduledAt = parsed.data.scheduledAt;
+    const updated = await prisma.task.update({
+      where: { id: taskId },
+      data: { output: JSON.stringify(draft) },
     });
     return reply.send({ success: true, data: updated });
   });

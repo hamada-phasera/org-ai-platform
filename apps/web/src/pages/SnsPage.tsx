@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Share2, Check, X, Sparkles, Clock } from 'lucide-react';
+import { Share2, Check, X, Sparkles, Clock, CalendarDays, List } from 'lucide-react';
 import { api } from '../services/api';
 import { GlassCard } from '../components/ui/GlassCard';
 import { GlassButton } from '../components/ui/GlassButton';
@@ -9,6 +9,7 @@ import { GlassBadge } from '../components/ui/GlassBadge';
 import { PageHeader } from '../components/ui/PageHeader';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Spinner } from '../components/ui/LoadingSkeleton';
+import { SnsCalendar } from '../components/Sns/SnsCalendar';
 
 const SNS_TASK_TYPE = 'sns';
 type Platform = 'twitter' | 'instagram' | 'linkedin';
@@ -107,6 +108,7 @@ export default function SnsPage() {
   const qc = useQueryClient();
   const [platform, setPlatform] = useState<Platform>('twitter');
   const [topic, setTopic] = useState('');
+  const [view, setView] = useState<'list' | 'calendar'>('list');
 
   const tasksQ = useQuery({ queryKey: ['sns-tasks'], queryFn: fetchSnsTasks });
   const invalidate = () => qc.invalidateQueries({ queryKey: ['sns-tasks'] });
@@ -137,6 +139,26 @@ export default function SnsPage() {
         eyebrow="SNS"
         title="SNS投稿"
         description="投稿の下書きを生成し、承認フローを通します（自動投稿はしません）。"
+        actions={
+          <div className="flex gap-1">
+            <GlassButton
+              variant={view === 'list' ? 'primary' : 'ghost'}
+              size="sm"
+              icon={<List size={14} />}
+              onClick={() => setView('list')}
+            >
+              リスト
+            </GlassButton>
+            <GlassButton
+              variant={view === 'calendar' ? 'primary' : 'ghost'}
+              size="sm"
+              icon={<CalendarDays size={14} />}
+              onClick={() => setView('calendar')}
+            >
+              カレンダー
+            </GlassButton>
+          </div>
+        }
       />
 
       {/* ── 下書き生成 ─────────────────────────────── */}
@@ -175,6 +197,10 @@ export default function SnsPage() {
         )}
       </GlassCard>
 
+      {view === 'calendar' ? (
+        <SnsCalendar tasks={all} />
+      ) : (
+      <>
       {/* ── 承認待ちキュー ─────────────────────────── */}
       <section className="mb-8">
         <div className="flex items-center gap-2 mb-3">
@@ -241,6 +267,8 @@ export default function SnsPage() {
             ))}
           </div>
         </section>
+      )}
+      </>
       )}
     </div>
   );
