@@ -110,3 +110,34 @@ describe('validatePost 境界値 (N-4)', () => {
     expect(countChars('ab', ['x'])).toBe(2 + (1 + 2));
   });
 });
+
+describe('N-4 追加エッジ（LinkedIn境界 / 空入力 / タグ内サロゲート）', () => {
+  it('LinkedIn: ちょうど3000はOK、3001はNG', () => {
+    expect(PLATFORM_CONSTRAINTS.linkedin.maxChars).toBe(3000);
+    expect(validatePost('linkedin', 'a'.repeat(3000), []).ok).toBe(true);
+    const over = validatePost('linkedin', 'a'.repeat(3001), []);
+    expect(over.ok).toBe(false);
+    expect(over.overBy).toBe(1);
+  });
+
+  it('空入力: 本文空・タグ空は charCount 0 で ok', () => {
+    const v = validatePost('twitter', '', []);
+    expect(v.charCount).toBe(0);
+    expect(v.ok).toBe(true);
+    expect(v.hashtagCount).toBe(0);
+  });
+
+  it('空白/記号のみのタグ配列は正規化で全除去され []', () => {
+    expect(normalizeHashtags(['   ', '#', '', '###', '  #  '])).toEqual([]);
+  });
+
+  it('タグ内の絵文字(サロゲート)や不可記号は除去、素の語だけ残す', () => {
+    // 絵文字は \p{L}/\p{N}/_ ではないので除去され 'ai' が残る
+    expect(normalizeHashtags(['ai😀', '#新商品🎉', '🔥'])).toEqual(['ai', '新商品']);
+  });
+
+  it('countChars: マルチバイト本文もUTF-16単位（結合しないCJKは1/字）', () => {
+    // CJK は各1コードユニット。'新商品告知'=5 + タグ'ai'(2)+2 = 9
+    expect(countChars('新商品告知', ['ai'])).toBe(5 + (2 + 2));
+  });
+});
