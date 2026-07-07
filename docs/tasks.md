@@ -96,9 +96,9 @@
 
 ### サイクル1・R2
 - [x] N-3: コンテンツカレンダー画面（下書きを日付にひも付け表示）
-  - 成果物: `apps/api-gateway/src/routes/sns/calendar.ts`（JST日付キー/グルーピング、純粋）+ posts.ts に GET `/calendar`（日付グルーピング）と PATCH `/:id/schedule`（scheduledAt 差し込み・**メタデータのみ/投稿しない**）+ `apps/web/src/components/Sns/SnsCalendar.tsx`（月グリッド）+ SnsPage に リスト/カレンダー切替。新エンドポイントは既存 snsPostsRoutes 内なので追加配線不要（#S2 のまま）。
+  - 成果物: `apps/api-gateway/src/routes/sns/calendar.ts`（JST日付キー/グルーピング、純粋）+ posts.ts に GET `/calendar`（日付グルーピング）と PATCH `/:id/schedule`（scheduledAt 差し込み・**メタデータのみ/投稿しない**）+ `apps/web/src/components/Sns/SnsCalendar.tsx`（月グリッド）+ SnsPage に リスト/カレンダー切替。新エンドポイントは既存 snsPostsRoutes 内なので追加配線不要（#S2 のまま）。予約日時の第一級カラム化は integration-requests #S4（output JSON でローカル先行）。commit: `cb72edf`。
 - [x] N-4: 文字数/ハッシュタグ整形のエッジケーステスト（`tests/sns/`）
-  - 成果物: `tests/sns/format.test.ts`（正規化/検証/境界値 280・281/IG 30・31/絵文字UTF-16）+ `tests/sns/calendar.test.ts`（JST丸め/scheduledAt優先/グルーピング）+ posts.route.test.ts に calendar/schedule ルートテスト追加。SNS スイート **Vitest 32/32 pass**。
+  - 成果物: `tests/sns/format.test.ts`（正規化/検証/境界値 X 280・281/IG 30・31/LinkedIn 3000・3001/絵文字UTF-16/空入力/タグ内サロゲート除去）+ `tests/sns/calendar.test.ts`（JST丸め/scheduledAt優先/グルーピング）+ posts.route.test.ts に calendar/schedule ルートテスト追加。SNS スイート **Vitest 37/37 pass**。commits: `f1bee03`(初版) / `b216e46`(追加エッジ)。
 
 ### フェーズ2（深化・後続）
 - [ ] N-5: プラットフォーム追加（LinkedIn 等）/ 画像添付
