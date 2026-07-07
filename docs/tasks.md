@@ -17,12 +17,12 @@
 
 ## 📋 進捗ボード（オーガナイザーのみ「割当」欄を編集可）
 
-| 部署 | ブランチ | 割当画面 | サイクル1状態（巡回 2026-07-07） | PR |
+| 部署 | ブランチ | 割当画面 | サイクル1状態（巡回 2026-07-07 #2） | PR |
 |------|---------|---------|------|-----|
-| 営業 | feat/sales-dept | 画面2 | ✅ R1+R2完了（S-1〜S-4・6commits・PR未） | — |
-| 分析 | feat/analytics-dept | 画面3 | 🔵 R1完了（A-1,A-2）→ R2作業中 | — |
-| SNS | feat/sns-dept | （待機列・vocab確定後に着手） | ⚪ 未着手 | — |
-| 統合 | feat/integration | 画面1（オーガナイザー） | 🔵 Bキュー7件（配線/共有型/コンプラ） | — |
+| 営業 | feat/sales-dept | 画面2→SNSへ譲渡 | ✅ R1+R2完了。統合待ち（GitHub PRは要 origin push 判断） | — |
+| 分析 | feat/analytics-dept | 画面3 | 🟡→🔵 R1完了。R2(A-3)は usage-metrics-svc をBに取り込み済 → **main を rebase して A-3 着手可** | — |
+| SNS | feat/sns-dept | 画面2（着手・dept=MARKETING） | 🔵 R1 着手（サブエージェントworker） | — |
+| 統合 | feat/integration | 画面1（オーガナイザー） | 🔵 compliance#5 + usage-metrics-svc をBに統合済 | — |
 
 状態: ⚪ 未着手 / 🔵 作業中 / 🟡 ブロック中 / ✅ 完了・PR済み
 
@@ -113,3 +113,6 @@
 - **2026-07-07 department 語彙**: 実正本 `AgentDepartment` = `SALES|MARKETING|ACCOUNTING|ANALYTICS|GENERAL` を採用。SNS投稿部署の成果物は `department='MARKETING'`（UI名は SnsPage のまま）。→ 営業#3 / 分析#2 クローズ。
 - **2026-07-07 コンプラ 営業#5**: `/llm/chat` の AILog 未記録を中央修正すると決定。`feat/integration` で ai-engine `/llm/chat` に `log_llm_call` を追加（riskScore/RiskEvent 込み）。各部署の best-effort 個別ロギングは昇格後に撤去。→ 実装は feat/integration、マージは人間承認。
 - **B残タスク（他部署R1が揃ってから一括）**: 営業#1 Deal型+Prisma Dealモデル(migration) / 営業#4 ProposalTemplate型+`taskType='proposal'`予約 / 分析#1 KPIイベント型+DepartmentKpi(コスト単価表=要Anthropicレート)。配線(営業#2)は各dept branchのマージ時に実施。
+- **2026-07-07 分析ブロッカー解除**: `feature/usage-metrics-svc`（Go, 29ファイル）を `feat/integration` にマージ（`55c3871`・main比コンフリクトなしの純加算）→ FF main。分析ワーカーは `git rebase main`（または merge main）で usage-metrics-svc を取り込み A-3 着手可。
+- **2026-07-07 SNS 起動**: 画面2（営業完了で空き）に SNS を割当。R1（N-1/N-2）をサブエージェントworkerで着手（`org-ai-sns`・feat/sns-dept・dept=MARKETING・配線は触らない）。※ 同 worktree を人手で二重起動しないこと。
+- **未push（要人間判断）**: ローカル main は origin/main より大幅先行（〜52+コミット）。GitHub PR/デプロイに向けた `origin` への push はデプロイ影響があるため保留（営業#2 の“PR”含む）。
