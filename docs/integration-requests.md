@@ -58,3 +58,26 @@
 - 理由: 営業スライス実装中に発見した横断的な不整合。SNS 部署の実装方針（`MARKETING` を使うか、`SNS` を新設して shared-types/agents.ts/prisma default を揃えるか）を B が確定する必要がある。営業自身は `SALES`（両者に存在）を使うため影響なし。
 - 暫定対応: 営業は `SALES` 固定で実装（影響なし）。SNS 部署・B の判断待ち。
 - ステータス: 未対応
+
+## #4 [営業] ProposalTemplate 共有型 + 提案書 Task 化の合意
+- 要求日: 2026-07-07
+- 内容:
+  - `packages/shared-types` に提案書テンプレート型を追加してほしい:
+    ```ts
+    export interface ProposalSection { key: string; title: string; guidance: string; }
+    export interface ProposalTemplate {
+      id: string; name: string; tone: 'formal' | 'casual';
+      language: 'ja'; sections: ProposalSection[];
+    }
+    ```
+  - 生成した提案書の**永続化方針の合意**: この製品に `Deliverable` モデルは無く「成果物」= `status='DONE'` の `Task` である。S-3 は生成結果を `Task(taskType='proposal', department='SALES', output=JSON)` として保存し、既存フロント（`deliverableConstants` の `proposal:'提案書'` レンダラ）に載る想定。`taskType='proposal'` を正式な予約値としてよいか、分析部署の集計（AILog/Task 由来KPI）と衝突しないかを B/分析と確認したい。
+- 理由: 営業とSNS双方でコンテンツ生成テンプレートを使うため型を共有したい。`Task` への書き込みは横断リソースなので合意が必要。
+- 暫定対応: `apps/api-gateway/src/routes/sales/proposal-templates.ts` にローカル型 + 組み込みテンプレート（standard/short）。生成は `apps/api-gateway/src/routes/sales/proposals.ts`（`/api/sales/proposals`、登録は #2 と同様 B）。`persist:false` で Task 保存を無効化可能。
+- ステータス: 未対応
+
+## #5 [営業→統合/ガバナンス] AI Engine `/llm/chat` が AILog を記録しない（コンプライアンス欠落）
+- 要求日: 2026-07-07
+- 内容: `apps/ai-engine/app/main.py` の `/llm/chat`（`llm_router.chat`）は PII スクリーニングは通すが `log_llm_call` を発火しない（発火するのは `/orchestrate/stream`・`/plan`・`/plan/agent`・orchestrator のみ）。そのためゲートウェイの `/api/llm/chat` や本 S-3 の提案生成のように `/llm/chat` を直接叩く経路は AILog に残らず、CLAUDE.md「すべての AI 入出力を AILog に記録」を満たさない。RiskEvent（PII 検知時）も同様に欠落。
+- 理由: 各部署が `prisma.aILog.create` を個別実装するのは重複・記録漏れの温床。`/llm/chat` 側で `/plan` と同様に `log_llm_call` を発火（riskScore/RiskEvent 込み）すれば集中管理できる。
+- 暫定対応: S-3 の `proposals.ts` で `prisma.aILog.create`（provider/model/tokens/latency はレスポンス由来）を best-effort 実行。ただし `riskScore` は算出できず null、RiskEvent は未記録。B（またはガバナンス）で `/llm/chat` の集中ロギング化を検討してほしい。
+- ステータス: 未対応
