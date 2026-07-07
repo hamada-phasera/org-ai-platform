@@ -44,3 +44,10 @@
 - 理由: 各部署での AILog 個別実装は重複・記録漏れの温床。
 - 暫定対応: `routes/sns/posts.ts` で best-effort に `prisma.aILog.create`（riskScore は null）。
 - ステータス: 未対応
+
+## #S4 [SNS] 予約日時(scheduledAt)の第一級カラム化
+- 要求日: 2026-07-07
+- 内容: コンテンツカレンダー(N-3)は下書きを「日付」にひも付けて表示する。`Task` に予約日時カラムが無いため、暫定で**下書き output JSON 内の任意フィールド `scheduledAt`（ISO文字列）**に格納し、未設定時は `createdAt` を日付キーに採用している（JST丸め）。**投稿予約の実行はしない＝表示・状態可視化のみ**。将来的に予約絞り込み/並べ替え/月跨ぎ集計を DB 側で効率化するなら、`Task.scheduledAt DateTime?`（＋`@@index([orgId, scheduledAt])`）の追加を要望。prisma は統合(B)所有のため本ブランチでは変更せず、output JSON でローカル先行。
+- 理由: JSON 埋め込みは where 句で日付フィルタできず、件数増で N+1/全件パースになる。共有スキーマ側の第一級フィールド化が望ましい。
+- 暫定対応: `routes/sns/posts.ts` PATCH `/:id/schedule`（output に `scheduledAt` 差し込み・status不変・投稿なし）+ `routes/sns/calendar.ts`（`extractScheduledAt`/`draftDateKey`/`groupDraftsByDate`, JST）+ `components/Sns/SnsCalendar.tsx`（月グリッド, 読み取り専用）。単体テスト済み(Vitest)。
+- ステータス: 未対応
