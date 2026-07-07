@@ -1,6 +1,9 @@
 export { useDepartmentAnalytics, toDepartmentAnalytics } from './useDepartmentAnalytics';
 export type { DepartmentAnalytics } from './useDepartmentAnalytics';
+export { useDepartmentMetrics } from './useDepartmentMetrics';
+export type { DepartmentMetricsRow } from './useDepartmentMetrics';
 export { DepartmentBreakdownCard } from './DepartmentBreakdownCard';
+export { DepartmentCostCard } from './DepartmentCostCard';
 export { ReservedMetricCard } from './ReservedMetricCard';
 export type { EfficiencyResponse, DepartmentRow } from './types';
 

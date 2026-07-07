@@ -48,7 +48,7 @@ export function DepartmentBreakdownCard({ rows }: { rows: DepartmentRow[] }) {
 
       <p className="text-[11px] text-text-muted mt-4 leading-relaxed">
         実行数＝完了(DONE)タスク数、時間＝各タスクの推定削減時間の合計（/dashboard/efficiency 由来）。
-        部署別の <span className="font-medium">コスト・成功率</span> は R2 (A-3: usage-metrics-svc 部署別集計) で接続予定です。
+        LLM 呼び出し数・コストは下の「部署別 推定コスト」カード（usage-metrics-svc 由来）を参照。
       </p>
     </GlassCard>
   );
