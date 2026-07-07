@@ -6,7 +6,7 @@ process.env.AI_ENGINE_URL = 'https://ai.test';
 const prismaMock = {
   organization: { findUnique: vi.fn() },
   aILog: { create: vi.fn() },
-  task: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+  task: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), findMany: vi.fn() },
 };
 vi.mock('../../src/utils/prisma', () => ({ prisma: prismaMock }));
 vi.mock('../../src/middleware/auth', () => ({
@@ -191,6 +191,67 @@ describe('POST approve/reject (N-2 状態遷移・自動投稿しない)', () =>
     });
     const wrongType = await app.inject({ method: 'POST', url: '/api/sns/posts/task-2/approve' });
     expect(wrongType.statusCode).toBe(404);
+    await app.close();
+  });
+});
+
+describe('GET /api/sns/posts/calendar (N-3)', () => {
+  it('正常系: sns タスクを日付グルーピングして返す', async () => {
+    prismaMock.task.findMany.mockResolvedValue([
+      { id: 'a', title: 'A', status: 'APPROVED', taskType: 'sns', output: null, createdAt: '2026-07-03T09:00:00+09:00' },
+      { id: 'b', title: 'B', status: 'PENDING_APPROVAL', taskType: 'sns', output: null, createdAt: '2026-07-01T09:00:00+09:00' },
+    ]);
+    const app = await build();
+    const res = await app.inject({ method: 'GET', url: '/api/sns/posts/calendar' });
+    expect(res.statusCode).toBe(200);
+    const days = res.json().data.days;
+    expect(days.map((d: { date: string }) => d.date)).toEqual(['2026-07-01', '2026-07-03']);
+    // taskType=sns で org スコープ
+    expect(prismaMock.task.findMany.mock.calls[0][0].where).toMatchObject({ orgId: 'org-1', taskType: 'sns' });
+    await app.close();
+  });
+});
+
+describe('PATCH /api/sns/posts/:id/schedule (N-3・投稿はしない)', () => {
+  it('正常系: output に scheduledAt を差し込む（status は変えない）', async () => {
+    prismaMock.task.findUnique.mockResolvedValue({
+      id: 'task-1',
+      orgId: 'org-1',
+      taskType: 'sns',
+      status: 'APPROVED',
+      output: JSON.stringify({ platform: 'twitter', content: '本文', hashtags: [] }),
+    });
+    const app = await build();
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/sns/posts/task-1/schedule',
+      payload: { scheduledAt: '2026-08-01T10:00:00+09:00' },
+    });
+    expect(res.statusCode).toBe(200);
+    const data = prismaMock.task.update.mock.calls[0][0].data;
+    expect(JSON.parse(data.output).scheduledAt).toBe('2026-08-01T10:00:00+09:00');
+    expect(JSON.parse(data.output).content).toBe('本文'); // 既存フィールドは保持
+    expect(data.status).toBeUndefined(); // status は変更しない
+    expect(fetchMock).not.toHaveBeenCalled(); // 投稿・実行はしない
+    await app.close();
+  });
+
+  it('エッジ: 不正な日付 → 400、非sns/不明 → 404', async () => {
+    const app = await build();
+    const bad = await app.inject({
+      method: 'PATCH',
+      url: '/api/sns/posts/task-1/schedule',
+      payload: { scheduledAt: 'not-a-date' },
+    });
+    expect(bad.statusCode).toBe(400);
+
+    prismaMock.task.findUnique.mockResolvedValueOnce(null);
+    const nf = await app.inject({
+      method: 'PATCH',
+      url: '/api/sns/posts/x/schedule',
+      payload: { scheduledAt: '2026-08-01T10:00:00+09:00' },
+    });
+    expect(nf.statusCode).toBe(404);
     await app.close();
   });
 });

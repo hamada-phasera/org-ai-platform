@@ -89,3 +89,24 @@ describe('isSnsPlatform', () => {
     expect(isSnsPlatform(undefined)).toBe(false);
   });
 });
+
+describe('validatePost 境界値 (N-4)', () => {
+  it('X: ちょうど280はOK、281はNG', () => {
+    expect(validatePost('twitter', 'a'.repeat(280), []).ok).toBe(true);
+    const over = validatePost('twitter', 'a'.repeat(281), []);
+    expect(over.ok).toBe(false);
+    expect(over.overBy).toBe(1);
+  });
+
+  it('Instagram: ハッシュタグちょうど30はOK、31はNG', () => {
+    const tags30 = Array.from({ length: 30 }, (_, i) => `t${i}`);
+    expect(validatePost('instagram', '本文', tags30).ok).toBe(true);
+    expect(validatePost('instagram', '本文', [...tags30, 't30']).ok).toBe(false);
+  });
+
+  it('文字数は本文+タグ(#と空白で+2/個)。絵文字はUTF-16単位で数える', () => {
+    // '😀' は length=2（サロゲートペア）
+    expect(countChars('😀', [])).toBe(2);
+    expect(countChars('ab', ['x'])).toBe(2 + (1 + 2));
+  });
+});
