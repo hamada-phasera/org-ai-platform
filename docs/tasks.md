@@ -17,12 +17,12 @@
 
 ## 📋 進捗ボード（オーガナイザーのみ「割当」欄を編集可）
 
-| 部署 | ブランチ | 割当画面 | サイクル1状態（巡回 2026-07-07 #2） | PR |
+| 部署 | ブランチ | 割当画面 | サイクル1状態（巡回 2026-07-07 #3） | PR |
 |------|---------|---------|------|-----|
-| 営業 | feat/sales-dept | 画面2→SNSへ譲渡 | ✅ R1+R2完了。統合待ち（GitHub PRは要 origin push 判断） | — |
-| 分析 | feat/analytics-dept | 画面3 | 🟡→🔵 R1完了。R2(A-3)は usage-metrics-svc をBに取り込み済 → **main を rebase して A-3 着手可** | — |
-| SNS | feat/sns-dept | 画面2（着手・dept=MARKETING） | 🔵 R1 着手（サブエージェントworker） | — |
-| 統合 | feat/integration | 画面1（オーガナイザー） | 🔵 compliance#5 + usage-metrics-svc をBに統合済 | — |
+| 営業 | feat/sales-dept | — | ✅ R1+R2完了。B統合待ち（#2=ローカルB統合のみ確定・origin push しない） | — |
+| 分析 | feat/analytics-dept | 画面3 | 🟡 R1完了 / R2(A-3,A-4)未着手 → **main rebase 後に着手可**（usage-metrics-svc取込済） | — |
+| SNS | feat/sns-dept | — | ✅ **R1完了**（N-1/N-2・5commits・#S1〜#S3要求・19tests pass） | — |
+| 統合 | feat/integration | 画面1（オーガナイザー） | 🔵 compliance#5 + usage-metrics-svc 統合済。B本番は分析R2後 | — |
 
 状態: ⚪ 未着手 / 🔵 作業中 / 🟡 ブロック中 / ✅ 完了・PR済み
 
@@ -115,4 +115,5 @@
 - **B残タスク（他部署R1が揃ってから一括）**: 営業#1 Deal型+Prisma Dealモデル(migration) / 営業#4 ProposalTemplate型+`taskType='proposal'`予約 / 分析#1 KPIイベント型+DepartmentKpi(コスト単価表=要Anthropicレート)。配線(営業#2)は各dept branchのマージ時に実施。
 - **2026-07-07 分析ブロッカー解除**: `feature/usage-metrics-svc`（Go, 29ファイル）を `feat/integration` にマージ（`55c3871`・main比コンフリクトなしの純加算）→ FF main。分析ワーカーは `git rebase main`（または merge main）で usage-metrics-svc を取り込み A-3 着手可。
 - **2026-07-07 SNS 起動**: 画面2（営業完了で空き）に SNS を割当。R1（N-1/N-2）をサブエージェントworkerで着手（`org-ai-sns`・feat/sns-dept・dept=MARKETING・配線は触らない）。※ 同 worktree を人手で二重起動しないこと。
-- **未push（要人間判断）**: ローカル main は origin/main より大幅先行（〜52+コミット）。GitHub PR/デプロイに向けた `origin` への push はデプロイ影響があるため保留（営業#2 の“PR”含む）。
+- **2026-07-07 #2 確定: ローカルB統合のみ**: `origin` に push しない。3部署R1(+営業/分析R2)が揃ったら feat/integration へ順次マージ＋配線し、`docs/integration-review.md` にマージ順提案。GitHub PR/デプロイ（要 main→origin push）は後日あなたが実施。
+- **2026-07-07 SNS R1完了**: N-1(下書き生成 IG/X/LinkedIn)・N-2(承認キュー PENDING_APPROVAL、自動投稿なし)。境界クリーン・19tests pass。要求 #S1(vocab/taskType)・#S2(配線+TaskStatus昇格)・#S3(/llm/chat AILog=コンプラ#5と同件、統合済で解消見込)。
