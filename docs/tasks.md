@@ -32,7 +32,7 @@
 
 **この節は全部署が従う。破ると衝突・境界違反になる。**
 
-- **department 値域（訂正 2026-07-07）**: 実正本 `packages/shared-types` の `AgentDepartment` = `SALES | MARKETING | ACCOUNTING | ANALYTICS | GENERAL`（当初契約の `SNS` は誤り＝コードに存在しない。両部署が検出: sales#3 / analytics#2）。**SNS投稿部署の成果物 `department = 'MARKETING'`**（推奨・要人間確定）。UI名（`SnsPage` 等）はそのままで可、データ次元のみ MARKETING に寄せる。新値を勝手に足さない。
+- **department 値域（訂正 2026-07-07）**: 実正本 `packages/shared-types` の `AgentDepartment` = `SALES | MARKETING | ACCOUNTING | ANALYTICS | GENERAL`（当初契約の `SNS` は誤り＝コードに存在しない。両部署が検出: sales#3 / analytics#2）。**SNS投稿部署の成果物 `department = 'MARKETING'`**（確定 2026-07-07）。UI名（`SnsPage` 等）はそのままで可、データ次元のみ MARKETING に寄せる。新値を勝手に足さない。
 - **共有型の正本**: 暫定 `packages/shared-types`（`packages/shared` は作らない）。B で最終確定。
 - **所有 vs 配線の分離（衝突防止の核）**:
   - 各部署が **所有＝編集可** なのは自分のページ実装と部署ルート実装のみ:
@@ -107,3 +107,9 @@
 - [ ] I-2: integration-requests.md の消化・shared-types 正本確定・shared 昇格
 - [ ] I-3: マージ順序の決定と rebase 指示
 - [ ] I-4: マージ後の統合テスト実行
+
+## 🧾 統合(B) 決定ログ
+
+- **2026-07-07 department 語彙**: 実正本 `AgentDepartment` = `SALES|MARKETING|ACCOUNTING|ANALYTICS|GENERAL` を採用。SNS投稿部署の成果物は `department='MARKETING'`（UI名は SnsPage のまま）。→ 営業#3 / 分析#2 クローズ。
+- **2026-07-07 コンプラ 営業#5**: `/llm/chat` の AILog 未記録を中央修正すると決定。`feat/integration` で ai-engine `/llm/chat` に `log_llm_call` を追加（riskScore/RiskEvent 込み）。各部署の best-effort 個別ロギングは昇格後に撤去。→ 実装は feat/integration、マージは人間承認。
+- **B残タスク（他部署R1が揃ってから一括）**: 営業#1 Deal型+Prisma Dealモデル(migration) / 営業#4 ProposalTemplate型+`taskType='proposal'`予約 / 分析#1 KPIイベント型+DepartmentKpi(コスト単価表=要Anthropicレート)。配線(営業#2)は各dept branchのマージ時に実施。
