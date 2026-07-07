@@ -89,8 +89,10 @@
 ## 📣 SNS投稿部署（feat/sns-dept）
 
 ### サイクル1・R1
-- [ ] N-1: `SnsPage.tsx` 追加 + 投稿下書き生成（主機能, LLMRouter, Instagram/X フォーマット別）を最小で（配線は B）
-- [ ] N-2: 承認待ちキュー UI — 自動投稿しない・**承認フロー必須**。Task の承認状態を read + 承認/却下
+- [x] N-1: `SnsPage.tsx` 追加 + 投稿下書き生成（主機能, LLMRouter, Instagram/X フォーマット別）を最小で（配線は B）
+  - 成果物: `apps/api-gateway/src/routes/sns/posts.ts`（`/llm/chat` json_mode 経由生成→AILog→`Task(taskType='sns', dept='MARKETING', status='PENDING_APPROVAL')` 保存）+ `routes/sns/format.ts`（X/Instagram/LinkedIn 文字数・ハッシュタグ整形・検証・プロンプト、純粋）+ `apps/web/src/pages/SnsPage.tsx`。vocab方針(dept=MARKETING+taskType='sns')は integration-requests #S1、配線は #S2。commits: `ab776e6`(api routes) / `fed3f5f`(SnsPage)。
+- [x] N-2: 承認待ちキュー UI — 自動投稿しない・**承認フロー必須**。Task の承認状態を read + 承認/却下
+  - 成果物: `routes/sns/posts.ts` GET `/queue` + POST `/:id/approve` `/:id/reject`（**状態遷移のみ・dispatch/投稿なし**。実行を伴う既存 `/tasks/:id/approve` は流用せず新設）+ SnsPage 承認/却下UI。テストで「承認時に外部呼び出しが起きない」ことを保証。※N-4(文字数/ハッシュタグ エッジテスト)相当は `tests/sns/format.test.ts` で先行実装済み。commits: `ab776e6`(api routes) / `fed3f5f`(SnsPage) / `09cc3f1`(tests, 19 pass)。
 
 ### サイクル1・R2
 - [ ] N-3: コンテンツカレンダー画面（下書きを日付にひも付け表示）
