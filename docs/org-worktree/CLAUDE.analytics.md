@@ -14,16 +14,18 @@
 ## ファイル所有権
 
 ### 編集可能（OWN）
-<!-- TODO: 実際のディレクトリ構成に合わせて調整 -->
-- `apps/analytics/` 配下すべて
-- `usage-metrics-svc/` 配下すべて（計測マイクロサービス）
-- `packages/api/src/routes/analytics/`
-- `tests/analytics/`, `tests/business/`（KPIイベント発火テスト）
+- `apps/web/src/pages/Analytics*.tsx`（分析画面）
+- `apps/web/src/components/Analytics/**`（分析専用コンポーネント）
+- `usage-metrics-svc/**` 配下すべて（計測マイクロサービス, Go）
+- `apps/api-gateway/src/routes/analytics/**`
+- `tests/analytics/**`, `tests/business/**`（KPIイベント発火テスト）
 
 ### 参照のみ（READ — 絶対に編集しない）
-- `packages/shared/`（共有型定義）→ 所有者: 統合エージェント
-- `apps/sales/`, `apps/sns/` → 他部署の領域
-- ルートの設定ファイル
+- 根の配線ファイル → 配線は統合が B で実施:
+  `apps/web/src/App.tsx`, `apps/web/src/components/Layout.tsx`, `apps/web/src/components/Navigation/**`, `apps/api-gateway/src/index.ts`
+- `packages/shared-types/**`, `packages/db-schema/**` → 所有者: 統合エージェント
+- 他部署領域: `*Sales*` / `*Sns*` / `routes/sales` / `routes/sns`
+- ルートの設定ファイル（`turbo.json`, `vercel.json`, `docker-compose.yml` など）
 
 ### イベントスキーマについて（重要）
 分析部署は **イベントスキーマの定義者** ではあるが、スキーマ自体は共有資産。

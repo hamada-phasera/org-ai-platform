@@ -15,15 +15,17 @@
 ## ファイル所有権
 
 ### 編集可能（OWN）
-<!-- TODO: 実際のディレクトリ構成に合わせて調整 -->
-- `apps/sns/` 配下すべて
-- `packages/api/src/routes/sns/`
-- `tests/sns/`
+- `apps/web/src/pages/Sns*.tsx`（SNS画面）
+- `apps/web/src/components/Sns/**`（SNS専用コンポーネント）
+- `apps/api-gateway/src/routes/sns/**`
+- `tests/sns/**`
 
 ### 参照のみ（READ — 絶対に編集しない）
-- `packages/shared/`（共有型定義）→ 所有者: 統合エージェント
-- `apps/sales/`, `apps/analytics/`, `usage-metrics-svc/` → 他部署の領域
-- ルートの設定ファイル
+- 根の配線ファイル → 配線は統合が B で実施:
+  `apps/web/src/App.tsx`, `apps/web/src/components/Layout.tsx`, `apps/web/src/components/Navigation/**`, `apps/api-gateway/src/index.ts`
+- `packages/shared-types/**`, `packages/db-schema/**` → 所有者: 統合エージェント
+- 他部署領域: `*Sales*` / `*Analytics*` / `routes/sales` / `routes/analytics` / `usage-metrics-svc/`
+- ルートの設定ファイル（`turbo.json`, `vercel.json`, `docker-compose.yml` など）
 
 ### 共有ファイルに変更が必要になったら
 `docs/integration-requests.md` に提案を追記 → 統合フェーズで確定。

@@ -13,7 +13,8 @@
    - feat/sales-dept → 営業部署
    - feat/analytics-dept → 分析部署
    - feat/sns-dept → SNS投稿部署
-3. 自分の部署の CLAUDE.md（所有ディレクトリ直下）を読む
+3. 自分の部署の CLAUDE.md を読む（`docs/org-worktree/CLAUDE.<sales|analytics|sns>.md`）
+   - 併せて `docs/tasks.md` の「🔒 共有コントラクト v0」に必ず従う（根の配線ファイルは触らない）
 4. `docs/tasks.md` の進捗ボードを開き、自分の画面番号に割り当てられた部署の
    未着手タスクを上から着手する
 5. 作業ルール:

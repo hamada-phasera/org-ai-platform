@@ -14,15 +14,16 @@
 ## ファイル所有権
 
 ### 編集可能（OWN）
-<!-- TODO: 実際のディレクトリ構成に合わせて調整 -->
-- `apps/sales/` 配下すべて
-- `packages/api/src/routes/sales/`（営業向けAPIルート）
-- `tests/sales/`
+- `apps/web/src/pages/Sales*.tsx`（営業画面）
+- `apps/web/src/components/Sales/**`（営業専用コンポーネント）
+- `apps/api-gateway/src/routes/sales/**`（営業向け Fastify ルートプラグイン）
+- `tests/sales/**`
 
 ### 参照のみ（READ — 絶対に編集しない）
-- `packages/shared/`（共有型定義・共通コード）→ 所有者: 統合エージェント
-- `apps/analytics/`, `apps/sns/` → 他部署の領域
-- `usage-metrics-svc/` → 分析部署の領域
+- 根の配線ファイル → 配線は統合が B で実施:
+  `apps/web/src/App.tsx`, `apps/web/src/components/Layout.tsx`, `apps/web/src/components/Navigation/**`, `apps/api-gateway/src/index.ts`
+- `packages/shared-types/**`, `packages/db-schema/**` → 所有者: 統合エージェント
+- 他部署領域: `*Analytics*` / `*Sns*` / `routes/analytics` / `routes/sns` / `usage-metrics-svc/`
 - ルートの設定ファイル（`turbo.json`, `vercel.json`, `docker-compose.yml` など）
 
 ### 共有ファイルに変更が必要になったら
@@ -42,7 +43,7 @@
 ## 禁止事項（ルート CLAUDE.md に加えて）
 
 - 他部署の所有ファイルの編集
-- `packages/shared/` の直接編集
+- 根の配線ファイル（`App.tsx`, `Layout.tsx`, `Navigation/**`, `api-gateway/src/index.ts`）と `packages/shared-types/` / prisma schema の直接編集
 - 価格・料金プランに関わる数値の変更（提案は docs/ にドラフトまで）
 - 顧客の実データ（個人情報・企業名）をテストフィクスチャに使うこと
 - main への直接 push、PR の自動マージ
