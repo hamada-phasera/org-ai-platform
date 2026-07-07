@@ -95,8 +95,10 @@
   - 成果物: `routes/sns/posts.ts` GET `/queue` + POST `/:id/approve` `/:id/reject`（**状態遷移のみ・dispatch/投稿なし**。実行を伴う既存 `/tasks/:id/approve` は流用せず新設）+ SnsPage 承認/却下UI。テストで「承認時に外部呼び出しが起きない」ことを保証。※N-4(文字数/ハッシュタグ エッジテスト)相当は `tests/sns/format.test.ts` で先行実装済み。commits: `ab776e6`(api routes) / `fed3f5f`(SnsPage) / `09cc3f1`(tests, 19 pass)。
 
 ### サイクル1・R2
-- [ ] N-3: コンテンツカレンダー画面（下書きを日付にひも付け表示）
-- [ ] N-4: 文字数/ハッシュタグ整形のエッジケーステスト（`tests/sns/`）
+- [x] N-3: コンテンツカレンダー画面（下書きを日付にひも付け表示）
+  - 成果物: `apps/api-gateway/src/routes/sns/calendar.ts`（JST日付キー/グルーピング、純粋）+ posts.ts に GET `/calendar`（日付グルーピング）と PATCH `/:id/schedule`（scheduledAt 差し込み・**メタデータのみ/投稿しない**）+ `apps/web/src/components/Sns/SnsCalendar.tsx`（月グリッド）+ SnsPage に リスト/カレンダー切替。新エンドポイントは既存 snsPostsRoutes 内なので追加配線不要（#S2 のまま）。
+- [x] N-4: 文字数/ハッシュタグ整形のエッジケーステスト（`tests/sns/`）
+  - 成果物: `tests/sns/format.test.ts`（正規化/検証/境界値 280・281/IG 30・31/絵文字UTF-16）+ `tests/sns/calendar.test.ts`（JST丸め/scheduledAt優先/グルーピング）+ posts.route.test.ts に calendar/schedule ルートテスト追加。SNS スイート **Vitest 32/32 pass**。
 
 ### フェーズ2（深化・後続）
 - [ ] N-5: プラットフォーム追加（LinkedIn 等）/ 画像添付
