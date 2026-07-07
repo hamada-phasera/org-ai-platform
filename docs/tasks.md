@@ -17,12 +17,12 @@
 
 ## 📋 進捗ボード（オーガナイザーのみ「割当」欄を編集可）
 
-| 部署 | ブランチ | 割当画面 | サイクル1状態 | PR |
+| 部署 | ブランチ | 割当画面 | サイクル1状態（巡回 2026-07-07） | PR |
 |------|---------|---------|------|-----|
-| 営業 | feat/sales-dept | 画面2 | ⚪ R1 未着手 | — |
-| 分析 | feat/analytics-dept | 画面3 | ⚪ R1 未着手 | — |
-| SNS | feat/sns-dept | （待機列→空き画面へ） | ⚪ R1 未着手 | — |
-| 統合 | feat/integration | 画面1（オーガナイザー） | ⚪ 配線はR1完了分から随時 | — |
+| 営業 | feat/sales-dept | 画面2 | ✅ R1+R2完了（S-1〜S-4・6commits・PR未） | — |
+| 分析 | feat/analytics-dept | 画面3 | 🔵 R1完了（A-1,A-2）→ R2作業中 | — |
+| SNS | feat/sns-dept | （待機列・vocab確定後に着手） | ⚪ 未着手 | — |
+| 統合 | feat/integration | 画面1（オーガナイザー） | 🔵 Bキュー7件（配線/共有型/コンプラ） | — |
 
 状態: ⚪ 未着手 / 🔵 作業中 / 🟡 ブロック中 / ✅ 完了・PR済み
 
@@ -32,7 +32,7 @@
 
 **この節は全部署が従う。破ると衝突・境界違反になる。**
 
-- **department 値域**: `SALES | ANALYTICS | SNS | GENERAL`（`Agent.department` の既定=GENERAL）。新値を勝手に足さない。
+- **department 値域（訂正 2026-07-07）**: 実正本 `packages/shared-types` の `AgentDepartment` = `SALES | MARKETING | ACCOUNTING | ANALYTICS | GENERAL`（当初契約の `SNS` は誤り＝コードに存在しない。両部署が検出: sales#3 / analytics#2）。**SNS投稿部署の成果物 `department = 'MARKETING'`**（推奨・要人間確定）。UI名（`SnsPage` 等）はそのままで可、データ次元のみ MARKETING に寄せる。新値を勝手に足さない。
 - **共有型の正本**: 暫定 `packages/shared-types`（`packages/shared` は作らない）。B で最終確定。
 - **所有 vs 配線の分離（衝突防止の核）**:
   - 各部署が **所有＝編集可** なのは自分のページ実装と部署ルート実装のみ:
