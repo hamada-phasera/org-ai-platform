@@ -75,11 +75,11 @@
 ## 📊 分析部署（feat/analytics-dept）
 
 ### サイクル1・R1
-- [ ] A-1: イベントスキーマ v1 **提案のみ**（AILog/ExecutionLog/TaskLog 土台に部署別KPIイベント定義 → integration-requests。発火は後）
-- [ ] A-2: `AnalyticsPage.tsx` 追加 — まず既存 dashboard API 流用で部署別の実行数/コスト/成功率を read-only 表示（配線は B）
+- [x] A-1: イベントスキーマ v1 **提案のみ**（AILog/ExecutionLog/TaskLog 土台に部署別KPIイベント定義 → integration-requests。発火は後）→ 成果物: `docs/integration-requests.md` #1(KPIイベント型),#2(department値域不一致) / `apps/web/src/components/Analytics/kpiEvents.ts`（ローカルモック, commit 346cc5b）
+- [x] A-2: `AnalyticsPage.tsx` 追加 — まず既存 dashboard API 流用で部署別の実行数/コスト/成功率を read-only 表示（配線は B）→ 成果物: `apps/web/src/pages/AnalyticsPage.tsx` + `components/Analytics/**`。実行数=実装済(/dashboard/efficiency流用)、コスト・成功率=データ源不在のため A-3 接続予定として明示（捏造なし, commit 188e018）
 
 ### サイクル1・R2
-- [ ] A-3: `usage-metrics-svc` に部署別集計エンドポイント追加（Go, read-only AILog）→ AnalyticsPage を接続
+- [ ] A-3: `usage-metrics-svc` に部署別集計エンドポイント追加（Go, read-only AILog）→ AnalyticsPage を接続（blocker解除済 2026-07-07: 統合が usage-metrics-svc を main に取り込み）
 - [ ] A-4: `tests/business/` にイベント発火テスト（A-1 スキーマ準拠）
 
 ### フェーズ2（深化・後続）
