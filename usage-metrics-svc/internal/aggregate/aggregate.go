@@ -118,3 +118,64 @@ func Aggregate(rows []domain.UsageRow, pricing domain.Pricing) domain.UsageRepor
 		UnknownModels: unknownModels,
 	}
 }
+
+// AggregateDepartments reduces raw AILog rows into per-department KPI rows for
+// GET /metrics/departments. Same null-handling contract as Aggregate:
+//   - a row always counts as one call;
+//   - nil tokens contribute 0 tokens and 0 cost;
+//   - nil latency is excluded from the avg and p95 denominators.
+//
+// Departments are sorted by calls desc then name asc (same convention as
+// UsageReport.ByDepartment). The second return value lists model ids that had
+// no price entry (cost used the fallback rate).
+func AggregateDepartments(rows []domain.UsageRow, pricing domain.Pricing) ([]domain.DepartmentKpi, []string) {
+	deptCalls := map[string]int{}
+	deptTokens := map[string]int{}
+	deptCost := map[string]float64{}
+	deptLat := map[string][]int{}
+	unknown := map[string]struct{}{}
+
+	for _, r := range rows {
+		tokens := 0
+		if r.Tokens != nil && *r.Tokens > 0 {
+			tokens = *r.Tokens
+		}
+		cost, known := pricing.CostUSD(r.Model, tokens)
+		if !known {
+			unknown[r.Model] = struct{}{}
+		}
+
+		deptCalls[r.Department]++
+		deptTokens[r.Department] += tokens
+		deptCost[r.Department] += cost
+		if r.LatencyMs != nil {
+			deptLat[r.Department] = append(deptLat[r.Department], *r.LatencyMs)
+		}
+	}
+
+	depts := make([]domain.DepartmentKpi, 0, len(deptCalls))
+	for d := range deptCalls {
+		depts = append(depts, domain.DepartmentKpi{
+			Department:   d,
+			Calls:        deptCalls[d],
+			Tokens:       deptTokens[d],
+			CostUSD:      round6(deptCost[d]),
+			AvgLatencyMs: meanInt(deptLat[d]),
+			P95LatencyMs: percentileInt(deptLat[d], 0.95),
+		})
+	}
+	sort.Slice(depts, func(i, j int) bool {
+		if depts[i].Calls != depts[j].Calls {
+			return depts[i].Calls > depts[j].Calls
+		}
+		return depts[i].Department < depts[j].Department
+	})
+
+	unknownModels := make([]string, 0, len(unknown))
+	for m := range unknown {
+		unknownModels = append(unknownModels, m)
+	}
+	sort.Strings(unknownModels)
+
+	return depts, unknownModels
+}

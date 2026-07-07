@@ -56,6 +56,7 @@ models use a fallback rate and are surfaced in `unknownModels`.
 
 ```
 GET /metrics/usage?tenant_id=<org>&from=<ts>&to=<ts>
+GET /metrics/departments?tenant_id=<org>&from=<ts>&to=<ts>
 GET /healthz
 ```
 
@@ -64,6 +65,11 @@ GET /healthz
   Window is half-open `[from, to)`.
 - Envelope matches the platform: `{ "success": true, "data": {...} }` /
   `{ "success": false, "error": { "code", "message" } }`.
+- `/metrics/departments` returns per-department KPI rows
+  `{ department, calls, tokens, costUsd, avgLatencyMs, p95LatencyMs }` (sorted
+  calls desc) for the analytics dashboard (A-3). Success/failure rate is
+  intentionally absent — AILog has no status column; that signal lives in
+  `Task.status` and needs a different data source.
 
 Example:
 

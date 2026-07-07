@@ -41,6 +41,82 @@ func (s *RollupService) GetUsage(ctx context.Context, p domain.QueryParams) (dom
 	return report, nil
 }
 
+// GetDepartments satisfies the same contract as service.Service.GetDepartments,
+// reading from usage_daily_rollup. calls / tokens / cost / avg latency are
+// exact; per-department p95 is approximate (max of the component per-grain
+// p95s — the same convention GetUsage uses, see DESIGN.md).
+func (s *RollupService) GetDepartments(ctx context.Context, p domain.QueryParams) (domain.DepartmentsReport, error) {
+	rows, err := s.source.FetchRollupRows(ctx, p)
+	if err != nil {
+		return domain.DepartmentsReport{}, err
+	}
+
+	type deptKpiAgg struct {
+		calls      int
+		tokens     int64
+		cost       float64
+		sumLatency int64
+		cntLatency int
+		p95Max     int
+	}
+	dept := map[string]*deptKpiAgg{}
+	unknown := map[string]struct{}{}
+
+	for _, r := range rows {
+		// cost is linear in tokens, so cost over a grain's token sum equals the
+		// sum of per-row costs — exact, not an approximation.
+		cost, known := s.pricing.CostUSD(r.Model, int(r.SumTokens))
+		if !known {
+			unknown[r.Model] = struct{}{}
+		}
+		d := dept[r.Department]
+		if d == nil {
+			d = &deptKpiAgg{}
+			dept[r.Department] = d
+		}
+		d.calls += r.Calls
+		d.tokens += r.SumTokens
+		d.cost += cost
+		d.sumLatency += r.SumLatencyMs
+		d.cntLatency += r.CountLatency
+		if r.P95LatencyMs > d.p95Max {
+			d.p95Max = r.P95LatencyMs
+		}
+	}
+
+	depts := make([]domain.DepartmentKpi, 0, len(dept))
+	for name, d := range dept {
+		depts = append(depts, domain.DepartmentKpi{
+			Department:   name,
+			Calls:        d.calls,
+			Tokens:       int(d.tokens),
+			CostUSD:      round6(d.cost),
+			AvgLatencyMs: meanFromSum(d.sumLatency, d.cntLatency),
+			P95LatencyMs: d.p95Max,
+		})
+	}
+	sort.Slice(depts, func(i, j int) bool {
+		if depts[i].Calls != depts[j].Calls {
+			return depts[i].Calls > depts[j].Calls
+		}
+		return depts[i].Department < depts[j].Department
+	})
+
+	unknownModels := make([]string, 0, len(unknown))
+	for m := range unknown {
+		unknownModels = append(unknownModels, m)
+	}
+	sort.Strings(unknownModels)
+
+	return domain.DepartmentsReport{
+		TenantID:      p.OrgID,
+		From:          p.From,
+		To:            p.To,
+		Departments:   depts,
+		UnknownModels: unknownModels,
+	}, nil
+}
+
 type dpAgg struct {
 	calls      int
 	tokens     int64

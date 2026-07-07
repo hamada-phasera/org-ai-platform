@@ -73,6 +73,29 @@ type UsageReport struct {
 	UnknownModels []string `json:"unknownModels,omitempty"`
 }
 
+// DepartmentKpi is one per-department KPI row for GET /metrics/departments.
+// Vocabulary is aligned with the DepartmentKpi rollup shape proposed in
+// docs/integration-requests.md #1 (analytics). Success/failure fields are
+// intentionally absent: AILog carries no status column — success rate lives in
+// Task.status and needs a different data source (documented in the proposal).
+type DepartmentKpi struct {
+	Department   string  `json:"department"`
+	Calls        int     `json:"calls"`
+	Tokens       int     `json:"tokens"`
+	CostUSD      float64 `json:"costUsd"`
+	AvgLatencyMs int     `json:"avgLatencyMs"`
+	P95LatencyMs int     `json:"p95LatencyMs"`
+}
+
+// DepartmentsReport is the payload for GET /metrics/departments.
+type DepartmentsReport struct {
+	TenantID      string          `json:"tenantId"`
+	From          time.Time       `json:"from"`
+	To            time.Time       `json:"to"`
+	Departments   []DepartmentKpi `json:"departments"`
+	UnknownModels []string        `json:"unknownModels,omitempty"`
+}
+
 // RollupRow is one pre-aggregated row of usage_daily_rollup, at the grain
 // (org, day, provider, model, department). The worker writes these; the rollup
 // read path folds them into a UsageReport.

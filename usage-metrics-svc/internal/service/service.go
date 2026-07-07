@@ -33,3 +33,20 @@ func (s *Service) GetUsage(ctx context.Context, p domain.QueryParams) (domain.Us
 	report.To = p.To
 	return report, nil
 }
+
+// GetDepartments returns per-department KPI rows (calls / tokens / cost /
+// latency) for a tenant + window, for GET /metrics/departments.
+func (s *Service) GetDepartments(ctx context.Context, p domain.QueryParams) (domain.DepartmentsReport, error) {
+	rows, err := s.repo.FetchUsageRows(ctx, p)
+	if err != nil {
+		return domain.DepartmentsReport{}, err
+	}
+	depts, unknown := aggregate.AggregateDepartments(rows, s.pricing)
+	return domain.DepartmentsReport{
+		TenantID:      p.OrgID,
+		From:          p.From,
+		To:            p.To,
+		Departments:   depts,
+		UnknownModels: unknown,
+	}, nil
+}

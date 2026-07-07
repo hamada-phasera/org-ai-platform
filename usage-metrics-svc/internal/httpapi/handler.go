@@ -2,8 +2,9 @@
 //
 // Endpoints:
 //
-//	GET /metrics/usage?tenant_id=<org>&from=<ts>&to=<ts>   aggregated KPIs
-//	GET /healthz                                           liveness for App Runner/ECS
+//	GET /metrics/usage?tenant_id=<org>&from=<ts>&to=<ts>        aggregated KPIs
+//	GET /metrics/departments?tenant_id=<org>&from=<ts>&to=<ts>  per-department KPIs
+//	GET /healthz                                                liveness for App Runner/ECS
 //
 // The external contract uses "tenant_id"; internally that maps to AILog.orgId.
 // Responses follow the org-ai-platform envelope:
@@ -33,18 +34,31 @@ type UsageProvider interface {
 	GetUsage(ctx context.Context, p domain.QueryParams) (domain.UsageReport, error)
 }
 
+// DepartmentsProvider produces per-department KPI rows for a tenant + window.
+// Kept separate from UsageProvider so existing fakes/providers that only serve
+// /metrics/usage keep compiling; both service.Service and service.RollupService
+// implement it.
+type DepartmentsProvider interface {
+	GetDepartments(ctx context.Context, p domain.QueryParams) (domain.DepartmentsReport, error)
+}
+
 // Handler holds the dependencies for the HTTP layer. `now` is injectable for tests.
 type Handler struct {
 	provider UsageProvider
 	now      func() time.Time
 }
 
-// NewRouter returns the configured HTTP handler.
+// NewRouter returns the configured HTTP handler. /metrics/departments is
+// registered only when the provider also implements DepartmentsProvider
+// (true for both built-in services).
 func NewRouter(provider UsageProvider) http.Handler {
 	h := &Handler{provider: provider, now: time.Now}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", h.health)
 	mux.HandleFunc("/metrics/usage", h.usage)
+	if dp, ok := provider.(DepartmentsProvider); ok {
+		mux.HandleFunc("/metrics/departments", h.departments(dp))
+	}
 	return mux
 }
 
@@ -56,16 +70,56 @@ func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
+	params, ok := h.queryParams(w, r)
+	if !ok {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	report, err := h.provider.GetUsage(ctx, params)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "AGGREGATION_FAILED", "failed to compute usage metrics")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": report})
+}
+
+// departments serves GET /metrics/departments — the per-department KPI view
+// (calls / tokens / cost / latency), added for the analytics dashboard (A-3).
+func (h *Handler) departments(provider DepartmentsProvider) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		params, ok := h.queryParams(w, r)
+		if !ok {
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+		defer cancel()
+
+		report, err := provider.GetDepartments(ctx, params)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "AGGREGATION_FAILED", "failed to compute department metrics")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": report})
+	}
+}
+
+// queryParams validates method + tenant_id/from/to for the /metrics/* endpoints.
+// On failure it writes the error response and returns ok=false.
+func (h *Handler) queryParams(w http.ResponseWriter, r *http.Request) (domain.QueryParams, bool) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "only GET is supported")
-		return
+		return domain.QueryParams{}, false
 	}
 
 	q := r.URL.Query()
 	tenant := q.Get("tenant_id")
 	if tenant == "" {
 		writeError(w, http.StatusBadRequest, "MISSING_TENANT_ID", "tenant_id query parameter is required")
-		return
+		return domain.QueryParams{}, false
 	}
 
 	to := h.now().UTC()
@@ -74,7 +128,7 @@ func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
 		t, err := parseTime(v)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "INVALID_FROM", "from must be RFC3339 or YYYY-MM-DD")
-			return
+			return domain.QueryParams{}, false
 		}
 		from = t
 	}
@@ -82,24 +136,16 @@ func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
 		t, err := parseTime(v)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "INVALID_TO", "to must be RFC3339 or YYYY-MM-DD")
-			return
+			return domain.QueryParams{}, false
 		}
 		to = t
 	}
 	if !to.After(from) {
 		writeError(w, http.StatusBadRequest, "INVALID_RANGE", "to must be after from")
-		return
+		return domain.QueryParams{}, false
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
-	defer cancel()
-
-	report, err := h.provider.GetUsage(ctx, domain.QueryParams{OrgID: tenant, From: from, To: to})
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "AGGREGATION_FAILED", "failed to compute usage metrics")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": report})
+	return domain.QueryParams{OrgID: tenant, From: from, To: to}, true
 }
 
 // parseTime accepts RFC3339 timestamps or bare YYYY-MM-DD dates (UTC).
