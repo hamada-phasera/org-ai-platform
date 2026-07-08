@@ -148,3 +148,20 @@
 - 全httpRequest/Docノードに node-level retry（一時503/429/コールドスタート対策。最初のE2Eで AI Plan が ai-engine 再デプロイ中の503で停止→QUEUED滞留したため追加）。
 - **本番E2E成功**: doc-stepエージェント作成→チェーン型WF生成(ACTIVE)→/run→タスクDONE→`{docUrl, title}`（実Googleドキュメント生成）。commit b3482e7。
 - 残: Sheet/Slidesステップのノード展開、CreateAgentModalでのsteps可視化/編集。
+
+## 2026-07-07〜08 — 3画面マルチエージェント体制でサイクル1完遂 + 松竹梅LLMルーティング
+
+### 重要度順サマリ（週次メモ）
+1. **3部署バーティカル（営業/分析/SNS）完成・統合・E2E合格** — オーガナイザー+ワーカーの3画面体制で並列開発。営業(SalesPage+商談パイプラインAPI+提案書生成)、分析(KPIスキーマ+AnalyticsPage+usage-metrics-svc部署別集計 /metrics/departments)、SNS(SnsPage+下書き生成IG/X/LinkedIn+承認キュー+カレンダー)。B統合で配線(App.tsx 3ルート/index.ts 4登録)→docker実DBでフルE2E合格（商談作成/遷移・下書き→承認APPROVED・部署別コスト/レイテンシKPI集計）。テスト: vitest 95/96(1件は既存agents債務)+Go全green。
+2. **松竹梅LLMプロバイダルーティング（コスト構造の根幹）** — 梅(STARTER)/竹(PRO)=Gemini無料枠(flash-lite/flash)、松(MAX)/admin(ADMIN_EMAILS)=Claude、エージェント構築(/plan/agent)は全ユーザーOpus固定。GeminiProvider新規(httpx REST・依存追加ゼロ・SSE対応)。LLMRouter一点分岐で全経路適用＝**n8nも変更ゼロで自動適用**。JWTにemailクレーム追加→user_email貫通。キー未設定はClaude安全フォールバック。実キーでlive検証済み(flash-lite応答確認)。ルーティング行列9ケース全PASS。→ docs/llm-provider-tiers.md。commit e4117fd。
+3. **リポジトリ正準化: hamada-phasera/main に集約** — mainが3系統に分裂（作業=hamada-phasera/デプロイ=hamahiro1668 fork/ローカル統合）していたのを解消。fork差分0確認の上、cycle-1統合+Phase8-10全部入りをクリーンFFでhamada-phasera/mainへ(2782bc3→e4117fd)。連携張り替え手順書=docs/hamada-phasera-canonical.md。
+4. **コンプライアンス修正: /llm/chat のAILog中央ロギング** — /llm/chatがlog_llm_call未発火で直呼び経路(gateway /api/llm/chat・部署生成機能)が監査ログから漏れていた（営業ワーカーが検出）。/plan同様の集中ロギングに修正(riskScore/RiskEvent込み)。AILog.providerは実プロバイダ(gemini/anthropic)を記録するよう更新。
+5. **n8n統合設計（D1/D2確定）** — 3軸モデル（生成系=Task/dispatch化・副作用系=承認ゲート後のみ・監視系=cron読み取り）。D1: 生成系(提案/SNS下書き)をdispatchQueuedTaskへ寄せる（次フェーズ実装）。D2: SNSは段階1=投稿準備まで(実投稿はSNS_LIVE_POST明示解放のみ)。→ docs/n8n-integration-design.md。
+6. **開発体制の資産化** — docs/tasks.md進捗ボード+共有コントラクト(所有vs配線分離)+integration-requests運用で境界違反ゼロのまま3部署並列を完走。department語彙修正(SNS→MARKETING、契約バグを両部署が独立検出)。usage-metrics-svc(Go 29ファイル)を孤児ブランチからmainへ統合。worktreeをorg-ai-platform/.worktrees/配下に整理。
+7. **デプロイ準備** — docs/DEPLOY.md(手順書)。残ブロッカー: Render(支払い復旧済)のRepo張り替え(→hamada-phasera)+ai-engineへGEMINI_API_KEY/ADMIN_EMAILS設定+デプロイ実行はダッシュボード操作待ち。ローカル環境はNeon:5432到達不可等ネット制約あり(安定回線で実施)。
+
+### 残タスク（次スプリント候補）
+- Render/Vercelの連携張り替え→本番デプロイ→スモーク（DEPLOY.md/hamada-phasera-canonical.md）
+- shared-types昇格+prisma migration（Deal/scheduledAt/TaskStatus拡張）→ integration-review.md 🟡
+- n8n D1実装（生成系Task化）+SNS段階1（投稿準備cron）+分析KPIアラート
+- pricing.goにgemini=0円扱い追加（コスト集計）/ 既存agents失敗テスト1件の修繕
