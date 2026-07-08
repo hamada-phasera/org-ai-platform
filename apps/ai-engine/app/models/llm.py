@@ -13,6 +13,8 @@ class LLMRequest(BaseModel):
     org_id: str
     plan: str = "STARTER"
     json_mode: bool = False
+    # 松竹梅ルーティング用: ADMIN_EMAILS 照合に使う（無ければ plan のみで判定）
+    user_email: Optional[str] = None
 
 
 class LLMResponse(BaseModel):
@@ -33,6 +35,8 @@ class OrchestateRequest(BaseModel):
     context: Optional[str] = None
     # 直近の会話履歴（ヒアリングが回答を積み上げて進行できるように）
     history: list[ChatMessage] = []
+    # 松竹梅ルーティング用: ADMIN_EMAILS 照合に使う（無ければ plan のみで判定）
+    user_email: Optional[str] = None
 
 
 class OrchestrateResponse(BaseModel):

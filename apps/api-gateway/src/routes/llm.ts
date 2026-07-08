@@ -28,7 +28,7 @@ export async function llmRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    const payload = request.user as { orgId: string };
+    const payload = request.user as { orgId: string; email?: string };
     const org = await prisma.organization.findUnique({ where: { id: payload.orgId } });
     const plan = org?.plan ?? 'STARTER';
 
@@ -44,6 +44,7 @@ export async function llmRoutes(app: FastifyInstance): Promise<void> {
           org_id: payload.orgId,
           plan,
           json_mode: parsed.data.jsonMode ?? false,
+          user_email: payload.email ?? null, // 松竹梅ルーティング（admin判定）
         }),
       });
     } catch (e) {

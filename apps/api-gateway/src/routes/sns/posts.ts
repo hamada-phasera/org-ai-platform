@@ -101,6 +101,7 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
           org_id: payload.orgId,
           plan,
           json_mode: true,
+          user_email: (request.user as { email?: string }).email ?? null, // 松竹梅ルーティング
         }),
       });
     } catch (e) {
@@ -194,7 +195,7 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
     const tasks = (await prisma.task.findMany({
       where: { orgId: payload.orgId, taskType: SNS_TASK_TYPE },
       orderBy: { createdAt: 'desc' },
-    })) as CalendarTask[];
+    })) as unknown as CalendarTask[]; // Prisma Task → カレンダー最小形（groupDraftsByDate が必要フィールドのみ参照）
     return reply.send({ success: true, data: { days: groupDraftsByDate(tasks) } });
   });
 

@@ -3,7 +3,7 @@ import json
 import logging
 from typing import Any
 from app.models.llm import ChatMessage
-from app.llm.router import llm_router
+from app.llm.router import llm_router, AGENT_BUILD_MODEL
 from app.planner.prompts import (
     build_planner_system_prompt,
     build_planner_user_prompt,
@@ -21,6 +21,7 @@ async def plan_capability(
     org_id: str,
     plan: str,
     capabilities: list[dict[str, Any]],
+    user_email: str | None = None,
 ) -> dict[str, Any]:
     if not capabilities:
         return {
@@ -41,6 +42,7 @@ async def plan_capability(
             org_id=org_id,
             plan=plan,
             json_mode=True,
+            user_email=user_email,
         )
     except Exception as e:
         logger.exception("planner LLM call failed")
@@ -100,12 +102,15 @@ async def plan_agent(
         ChatMessage(role="user", content=build_agent_planner_user_prompt(description)),
     ]
     try:
+        # エージェント構築は頻度が低く 1 回の品質が資産になるため、
+        # 松竹梅に関係なく全ユーザー Anthropic Opus 固定（ユーザー決定 2026-07-08）。
         response, _pii, _types = await llm_router.chat(
             messages=messages,
             department="GENERAL",
             org_id=org_id,
             plan=plan,
             json_mode=True,
+            force_anthropic_model=AGENT_BUILD_MODEL,
         )
     except Exception as e:
         logger.exception("agent planner LLM call failed")

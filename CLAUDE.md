@@ -14,7 +14,7 @@ AIガバナンス機能（ログ監視・リスク検知）を補助機能とし
 | APIゲートウェイ | Node.js (Fastify) + TypeScript | 認証、ルーティング、WebSocket |
 | AI処理エンジン | Python 3.11+ (FastAPI) | エージェント実行、Intent分類、リスク検知、LLM呼び出し |
 | データベース | PostgreSQL (Prisma) | 本番=Neon / ローカル=docker-compose |
-| LLM | Anthropic Claude | プラン別 (STARTER=Haiku / PRO=Sonnet / MAX=Opus)。LLMRouter経由 |
+| LLM | Anthropic Claude + Google Gemini | 松竹梅ルーティング: 梅(STARTER)/竹(PRO)=Gemini無料枠、松(MAX)/admin=Claude。エージェント構築は全ユーザーOpus。LLMRouter経由（docs/llm-provider-tiers.md） |
 | ワークフロー | n8n (セルフホスト) | 部署/capability/エージェントの実行基盤。Webhook起動＋AI Engineフォールバック |
 | 認証 | JWT自前実装 (bcryptjs + @fastify/jwt) | シンプル認証 |
 | ファイル保存 | ローカルファイルシステム | ./data/files/ |
@@ -52,6 +52,8 @@ org-ai-platform/
 
 ```
 ANTHROPIC_API_KEY=    # Anthropic APIキー (必須、ai-engine の LLM 呼び出し)
+GEMINI_API_KEY=       # Google AI Studio 無料キー (梅/竹プラン用。未設定なら全プランClaudeにフォールバック=課金注意)
+ADMIN_EMAILS=         # admin判定 (カンマ区切りemail)。一致ユーザーは常にClaude
 JWT_SECRET=           # JWT署名シークレット (必須、32文字以上推奨)
 DATABASE_URL=postgresql://...   # Neon(本番) / docker-compose(ローカル)
 FRONTEND_URL=http://localhost:3000   # 本番はカンマ区切りで Vercel ドメインを含める (CORS)

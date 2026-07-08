@@ -91,6 +91,7 @@ export async function salesProposalsRoutes(app: FastifyInstance): Promise<void> 
           org_id: payload.orgId,
           plan,
           json_mode: false,
+          user_email: (request.user as { email?: string }).email ?? null, // 松竹梅ルーティング
         }),
       });
     } catch (e) {

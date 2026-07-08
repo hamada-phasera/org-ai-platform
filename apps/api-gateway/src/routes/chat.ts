@@ -211,6 +211,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
             department: result.data.department ?? null,
             plan,
             context: ragContext,
+            user_email: (request.user as { email?: string }).email ?? null, // 松竹梅ルーティング
           }),
         });
         if (!res.ok) {
@@ -334,6 +335,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
           plan,
           context: ragContext,
           history,
+          user_email: (request.user as { email?: string }).email ?? null, // 松竹梅ルーティング
         }),
       });
 

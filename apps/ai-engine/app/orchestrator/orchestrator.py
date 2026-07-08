@@ -9,6 +9,7 @@ from app.agents.general import GeneralAgent
 from app.orchestrator.intent_classifier import classify_intent
 from app.models.llm import OrchestrateResponse
 from app.governance.audit_logger import log_llm_call
+from app.llm.router import provider_of_model
 
 _agents = {
     "SALES": SalesAgent(),
@@ -28,6 +29,7 @@ class Orchestrator:
         department: Optional[str] = None,
         context: Optional[str] = None,
         history=None,
+        user_email: Optional[str] = None,
     ) -> OrchestrateResponse:
         if department and department in _agents:
             resolved_dept = department
@@ -41,13 +43,14 @@ class Orchestrator:
             plan=plan,
             context=context,
             history=history,
+            user_email=user_email,
         )
 
         # 監査ログを非同期で記録（失敗してもレスポンスは返す）
         asyncio.create_task(log_llm_call(
             org_id=org_id,
             department=resolved_dept,
-            provider="anthropic",
+            provider=provider_of_model(response.model),
             model=response.model,
             input_text=user_message,
             output_text=response.content,

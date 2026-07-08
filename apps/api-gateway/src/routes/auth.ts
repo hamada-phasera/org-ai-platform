@@ -45,7 +45,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     });
 
     const token = app.jwt.sign(
-      { sub: user.id, orgId: org.id, role: user.role },
+      // email は LLM 松竹梅ルーティングの admin 判定（ADMIN_EMAILS）に使う
+      { sub: user.id, orgId: org.id, role: user.role, email: user.email },
       { expiresIn: '7d' },
     );
 
@@ -74,7 +75,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const token = app.jwt.sign(
-      { sub: user.id, orgId: user.orgId, role: user.role },
+      // email は LLM 松竹梅ルーティングの admin 判定（ADMIN_EMAILS）に使う
+      { sub: user.id, orgId: user.orgId, role: user.role, email: user.email },
       { expiresIn: '7d' },
     );
 

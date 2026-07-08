@@ -54,6 +54,11 @@ services:
         sync: false
       - key: API_GATEWAY_URL
         sync: false
+      # 松竹梅ルーティング: 梅/竹=Gemini(無料枠), 松/admin=Claude
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false
 
   - type: web
     name: org-ai-n8n

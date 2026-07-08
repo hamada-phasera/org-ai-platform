@@ -14,7 +14,13 @@ from typing import Any, Optional
 from app.models.llm import OrchestateRequest, OrchestrateResponse, LLMRequest, LLMResponse, ChatMessage
 from app.orchestrator.orchestrator import orchestrator
 from app.orchestrator.intent_classifier import classify_intent
-from app.llm.router import llm_router, _resolve_model
+from app.llm.router import (
+    llm_router,
+    _resolve_model,
+    resolve_provider_model,
+    provider_of_model,
+    AGENT_BUILD_MODEL,
+)
 from app.governance.audit_logger import log_llm_call
 from app.governance.pii_screener import screen
 from app.planner import plan_capability, plan_agent
@@ -33,6 +39,7 @@ class PlanRequest(BaseModel):
     org_id: str
     plan: str = "STARTER"
     available_capabilities: list[PlanCapability]
+    user_email: Optional[str] = None  # 松竹梅ルーティング（admin判定）用
 
 
 class PlanResponse(BaseModel):
@@ -90,9 +97,13 @@ async def health() -> dict:
 @app.get("/ready")
 async def ready() -> dict:
     has_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    has_gemini = bool(os.environ.get("GEMINI_API_KEY"))
     return {
         "status": "ok" if has_key else "degraded",
         "anthropic": has_key,
+        # 松竹梅ルーティング: 梅/竹=Gemini。未設定なら全プラン Anthropic フォールバック
+        "gemini": has_gemini,
+        "admin_emails_configured": bool(os.environ.get("ADMIN_EMAILS")),
         "timestamp": __import__("datetime").datetime.utcnow().isoformat(),
     }
 
@@ -107,6 +118,7 @@ async def orchestrate(request: OrchestateRequest) -> OrchestrateResponse:
             department=request.department,
             context=request.context,
             history=request.history,
+            user_email=request.user_email,
         )
     except RuntimeError as e:
         msg = str(e)
@@ -163,11 +175,13 @@ async def orchestrate_stream(request: OrchestateRequest) -> StreamingResponse:
         # 最初に部署情報を送信
         yield f"data: {json.dumps({'type': 'department', 'department': resolved_dept})}\n\n"
         try:
+            stream_provider, stream_model = resolve_provider_model(request.plan, request.user_email)
             async for token in llm_router.chat_stream(
                 messages=messages,
                 department=resolved_dept,
                 org_id=request.org_id,
                 plan=request.plan,
+                user_email=request.user_email,
             ):
                 full_content += token
                 yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
@@ -180,8 +194,8 @@ async def orchestrate_stream(request: OrchestateRequest) -> StreamingResponse:
             asyncio.create_task(log_llm_call(
                 org_id=request.org_id,
                 department=resolved_dept,
-                provider="anthropic",
-                model=_resolve_model(request.plan),
+                provider=stream_provider,
+                model=stream_model,
                 input_text=request.message,
                 output_text=full_content,
                 tokens=None,
@@ -207,6 +221,7 @@ async def llm_chat(request: LLMRequest) -> LLMResponse:
         org_id=request.org_id,
         plan=request.plan,
         json_mode=request.json_mode,
+        user_email=request.user_email,
     )
     # 監査ログ: /llm/chat を直接叩く経路（ゲートウェイ /api/llm/chat・各部署の生成機能）も
     # 必ず AILog / RiskEvent に残す。CLAUDE.md「すべての AI 入出力を AILog に記録」・
@@ -215,7 +230,7 @@ async def llm_chat(request: LLMRequest) -> LLMResponse:
     asyncio.create_task(log_llm_call(
         org_id=request.org_id,
         department=request.department,
-        provider="anthropic",
+        provider=provider_of_model(response.model),
         model=response.model,
         input_text=input_text,
         output_text=response.content,
@@ -236,12 +251,14 @@ async def plan(request: PlanRequest) -> PlanResponse:
         org_id=request.org_id,
         plan=request.plan,
         capabilities=capabilities,
+        user_email=request.user_email,
     )
+    plan_provider, plan_model = resolve_provider_model(request.plan, request.user_email, json_mode=True)
     asyncio.create_task(log_llm_call(
         org_id=request.org_id,
         department="GENERAL",
-        provider="anthropic",
-        model=_resolve_model(request.plan),
+        provider=plan_provider,
+        model=plan_model,
         input_text=request.message,
         output_text=json.dumps(result, ensure_ascii=False),
         tokens=None,
@@ -346,7 +363,7 @@ async def plan_agent_endpoint(request: PlanAgentRequest) -> PlanAgentResponse:
         org_id=request.org_id,
         department=result.get("department", "GENERAL"),
         provider="anthropic",
-        model=_resolve_model(request.plan),
+        model=AGENT_BUILD_MODEL,  # エージェント構築は全ユーザー Opus 固定（松竹梅の例外）
         input_text=request.description,
         output_text=json.dumps(result, ensure_ascii=False),
         tokens=None,

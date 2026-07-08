@@ -73,6 +73,7 @@ class BaseAgent:
         plan: str = "STARTER",
         history: Optional[List[ChatMessage]] = None,
         context: Optional[str] = None,
+        user_email: Optional[str] = None,
     ) -> Tuple[LLMResponse, bool, List[str]]:
         system_content = _build_system_prompt(self.system_prompt, self.security_extra)
         if context and context.strip():
@@ -91,4 +92,5 @@ class BaseAgent:
             department=self.department,
             org_id=org_id,
             plan=plan,
+            user_email=user_email,
         )

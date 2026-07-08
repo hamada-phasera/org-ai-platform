@@ -154,6 +154,7 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
           org_id: payload.orgId,
           plan,
           department,
+          user_email: (request.user as { email?: string }).email ?? null, // 松竹梅ルーティング
         }),
       });
     } catch (e) {
