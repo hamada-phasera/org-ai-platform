@@ -61,12 +61,16 @@
 ## 🏷 営業部署（feat/sales-dept）
 
 ### サイクル1・R1（縦切りの土台）
-- [ ] S-1: `SalesPage.tsx` 追加 — `department="SALES"` の Agent/Task を read-only 一覧表示（既存 services/store 再利用、配線は B）
-- [ ] S-2: `routes/sales/pipeline.ts` — 商談ステージ（リード→商談→提案→受注）の read/更新 最小API（register は B）
+- [x] S-1: `SalesPage.tsx` 追加 — `department="SALES"` の Agent/Task を read-only 一覧表示（既存 services/store 再利用、配線は B）
+  - 成果物: `apps/web/src/pages/SalesPage.tsx`（useQuery で `/agents`・`/tasks` を取得しクライアント側で department 絞り込み。tsc 追加エラー 0）。配線は integration-requests #2。
+- [x] S-2: `routes/sales/pipeline.ts` — 商談ステージ（リード→商談→提案→受注）の read/更新 最小API（register は B）
+  - 成果物: `apps/api-gateway/src/routes/sales/pipeline.ts`（インメモリ store・prisma 非依存）+ テスト `apps/api-gateway/tests/sales/*.test.ts`（Vitest 12/12 pass）。共有型/DB化は integration-requests #1、登録は #2。
 
 ### サイクル1・R2（主機能＋テスト）
-- [ ] S-3: 提案書ドラフト生成（主機能）— deliverables + LLMRouter で生成。⛓ depends: `ProposalTemplate` 型（integration-requests へ、ローカルモック型で先行）
-- [ ] S-4: S-1〜S-3 のテスト（`tests/sales/`）
+- [x] S-3: 提案書ドラフト生成（主機能）— deliverables + LLMRouter で生成。⛓ depends: `ProposalTemplate` 型（integration-requests へ、ローカルモック型で先行）
+  - 成果物: `apps/api-gateway/src/routes/sales/proposals.ts`（AI Engine `/llm/chat` 経由で生成→AILog記録→`Task(taskType='proposal')` 保存）+ `proposal-templates.ts`（ローカル `ProposalTemplate` + 純粋ロジック）。共有型は integration-requests #4、AILog欠落は #5。
+- [x] S-4: S-1〜S-3 のテスト（`tests/sales/`）
+  - 成果物: `apps/api-gateway/tests/sales/*.test.ts` — Vitest **24/24 pass**（S-2 pipeline 12 + S-3 proposals/templates 12）。※S-1(SalesPage) は web にテストランナーが無く（追加は非所有の apps/web/package.json に触れる）宣言的UIのため単体テストは保留、B の web テスト基盤整備待ち。
 
 ### フェーズ2（深化・後続）
 - [ ] S-5: パイプラインのドラッグ操作UI / 商談確度スコアリング
