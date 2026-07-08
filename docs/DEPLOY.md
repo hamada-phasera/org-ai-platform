@@ -1,0 +1,50 @@
+# デプロイ手順書 — サイクル1統合 2026-07-08
+
+> コードは E2E 合格・統合済み（`main`）。デプロイは **Render 支払い未完了で停止中**のためブロック。
+> Render 復旧後にこの手順で一発仕上げできるようにまとめる。
+
+## 現状
+- 統合コード = `main`（feat/integration と同一）。3部署バーティカル + 配線 + compliance + usage-metrics-svc。
+- ローカルフルE2E合格（営業/SNS/分析すべて実DBで動作確認済み）。
+- コードレビュー用: `preview/cycle1-integration` を origin(hamada-phasera) に push 済み。
+
+## デプロイ構成（実態）
+- **フロント**: Vercel プロジェクト `flow`（team=hamahiro1668s-projects）。**Git自動連携ではなく `vercel` CLI 手動デプロイ**。
+- **バック**: Render `render.yaml` の3サービス（`org-ai-api-gateway` / `org-ai-ai-engine` / `org-ai-n8n`）。**← 支払い未完了で停止中（要復旧）**。
+- env は全て Render/Vercel ダッシュボード管理（`sync:false`）。本番 `DATABASE_URL`=Neon prod（`gentle-flower-96128672` の default 枝）、`ANTHROPIC_API_KEY`、`JWT_SECRET`、`N8N_*` 等。
+
+## ⚠️ ブロッカー / 前提
+1. **Render 支払い解決**（or 代替ホスト）。これが無いとバックが動かず、フロントだけ出しても新API不達。
+2. アカウント差異に注意: Vercel=hamahiro1668 / GitHub origin=hamada-phasera（別）。CLI デプロイは hamahiro1668。
+3. デプロイは**安定ネットワーク環境**から（本セッションのローカルは外向きネットが不安定で Vercel/Render 監視がフレーキー）。
+
+## 手順（Render 復旧後）
+### 1. バックエンド（Render）
+- Render ダッシュボードで支払い復旧 → 3サービスを統合コミット（main）で Deploy。
+  - デプロイ枝を統合に向ける、or 手動 Deploy latest。
+- prod Neon への `prisma migrate deploy` は冪等（既に最新なら no-op）。
+- usage-metrics-svc の独自 `schema.sql`（rollup テーブル）を prod DB に適用（未適用だと rollup worker が警告・raw read は動く）。
+- 復旧確認: `GET https://<api-gateway>/api/...`（401 が返れば起動OK）。
+
+### 2. フロント（Vercel `flow`）
+```bash
+cd <integration worktree>          # main と同一内容のツリー
+# .vercel/project.json が flow を指すこと（無ければ cp ルートの .vercel）
+vercel deploy            # ← Preview。URL で表示確認
+vercel deploy --prod     # ← 本番昇格（or vercel promote <preview-url>）
+```
+- `FRONTEND_URL`（Render api-gateway の CORS）に Vercel 本番ドメインを含める。
+- web の API 参照は本番 api-gateway URL（`VITE_API_URL` or プロキシ）を確認。
+
+### 3. スモークテスト（本番）
+- register/login → `/sales`（商談作成/遷移）→ `/sns`（下書き→承認）→ `/analytics`（部署KPI）。
+- AILog 記録・RiskEvent（PII時）を確認。
+
+## 検証ログ（ローカルE2E・合格）
+- 営業: pipeline 作成/取得/ステージ遷移 + 提案テンプレ → 200/201。
+- SNS: 下書き→queue→承認(APPROVED, 自動投稿なし)→queue消滅 → 実DB確認。
+- 分析: gateway→usage-metrics-svc→AILog集計（コスト/レイテンシKPI）→ 200。
+- ビルド: web `vite build` / api `tsc --noCheck` / go `go test` すべて green。テスト 95/96（1件は既存 agents 債務・Bの回帰でない）。
+
+## 次サイクルの実装予定（n8n・別docs）
+`docs/n8n-integration-design.md` の D1（生成系をTask/dispatch化）・D2（SNS段階1=投稿準備まで）。
