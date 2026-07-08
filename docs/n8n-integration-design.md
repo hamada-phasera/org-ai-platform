@@ -54,9 +54,15 @@
 3. **SNS 投稿準備（段階1・投稿しない）**。
 4. 実投稿（段階2）は経営判断で明示解放。
 
-## 6. 要決定（人間）
-- (D1) 生成系（提案/SNS下書き）を **Task/dispatch モデルに寄せる**か、現状の直呼びを維持するか（推奨: 寄せる）。
-- (D2) SNS 投稿の到達段階（0/1/2 のどこまで今サイクルでやるか。推奨: 段階1まで、実投稿は保留）。
-- (D3) スケジューラは **n8n schedule** か **Vercel Cron** か（フロント Vercel なら Cron が素直）。
-- (D4) n8n ホスティング: Render 無料枠継続 / n8n Cloud（常時稼働・安定）。
-- (D5) 分析 rollup を svc 内 worker のままにするか n8n に寄せるか（推奨: svc 内のまま、二重管理回避）。
+## 6. 決定ログ（2026-07-08）
+- ✅ (D1) **生成系を Task/dispatch モデルに寄せる**（決定）。提案書・SNS下書きを `Task(taskType)` 化し `dispatchQueuedTask` 経由に。n8n加速＋AI Engineフォールバック＋AILog自動記録＋リトライを獲得。実装はデプロイ後の次フェーズ（現状コードも動作・コンプラは/llm/chat中央ロギング済で担保）。
+- ✅ (D2) **SNS投稿は段階1（投稿準備まで）**（決定）。APPROVED+scheduledAt を n8n cron が「投稿準備（プレビュー・キュー）」まで。**実投稿はしない**（段階2は将来の明示解放）。
+- ⏳ (D3) スケジューラ **n8n schedule / Vercel Cron** — 推奨: フロント Vercel なら **Vercel Cron**。デプロイ設計時に確定。
+- ⏳ (D4) n8n ホスティング: Render 無料枠 / n8n Cloud — 稼働安定が要るなら Cloud。運用判断。
+- ⏳ (D5) 分析 rollup: **svc 内 worker のまま**（推奨・二重管理回避）。
+
+## 7. 実装スコープ（次フェーズ・D1/D2 反映）
+1. `proposals.ts` / `sns/posts.ts` の生成を `dispatchQueuedTask` 経由に refactor（Task化）。
+2. dept 用 webhook パス（`sales-proposal`/`sns-draft`）と n8n WF テンプレを追加（best-effort、無くてもフォールバック）。
+3. SNS 段階1: `sns-publish-prep` cron WF（APPROVED+scheduledAt → プレビュー生成・キュー・**投稿しない**）。
+4. 分析アラート cron（Vercel Cron 想定・`/metrics/departments` 閾値通知）。
