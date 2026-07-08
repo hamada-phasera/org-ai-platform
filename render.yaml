@@ -64,9 +64,14 @@ services:
     name: org-ai-n8n
     runtime: image
     image:
+      # ⚠️ :latest は不意のメジャー更新→大量DBマイグレーション+OOM を誘発した実績あり（2026-07-08）。
+      # 稼働バージョンを確認して n8nio/n8n:<version> に固定することを推奨（n8n UI 左下 or deploy ログ）。
       url: docker.io/n8nio/n8n:latest
     plan: free
     envVars:
+      # 512MB プランで Node 既定ヒープ(~256MB)だと migration/高負荷時に OOM → 上限を拡張
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=400"
       - key: N8N_PORT
         value: "5678"
       - key: N8N_PROTOCOL
