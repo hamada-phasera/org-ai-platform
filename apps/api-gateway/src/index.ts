@@ -16,6 +16,10 @@ import { scheduledTaskRoutes } from './routes/scheduled-tasks';
 import { capabilityRoutes } from './routes/capabilities';
 import { dashboardRoutes } from './routes/dashboard';
 import { deliverablesRoutes } from './routes/deliverables';
+import { salesPipelineRoutes } from './routes/sales/pipeline';
+import { salesProposalsRoutes } from './routes/sales/proposals';
+import { snsPostsRoutes } from './routes/sns/posts';
+import { analyticsRoutes } from './routes/analytics';
 import { prisma } from './utils/prisma';
 
 const app = Fastify({ logger: true });
@@ -89,6 +93,10 @@ async function start(): Promise<void> {
   await app.register(capabilityRoutes, { prefix: '/api/capabilities' });
   await app.register(dashboardRoutes, { prefix: '/api/dashboard' });
   await app.register(deliverablesRoutes, { prefix: '/api/deliverables' });
+  await app.register(salesPipelineRoutes, { prefix: '/api/sales/pipeline' });
+  await app.register(salesProposalsRoutes, { prefix: '/api/sales/proposals' });
+  await app.register(snsPostsRoutes, { prefix: '/api/sns/posts' });
+  await app.register(analyticsRoutes, { prefix: '/api/analytics' });
 
   const port = parseInt(process.env.PORT ?? '4000');
   await app.listen({ port, host: '0.0.0.0' });

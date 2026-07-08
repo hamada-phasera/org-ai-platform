@@ -9,6 +9,9 @@ import GovernancePage from './pages/GovernancePage';
 import TaskManagerPage from './pages/TaskManagerPage';
 import DeliverablesPage from './pages/DeliverablesPage';
 import SettingsPage from './pages/SettingsPage';
+import SalesPage from './pages/SalesPage';
+import AnalyticsPage from './pages/AnalyticsPage';
+import SnsPage from './pages/SnsPage';
 import Layout from './components/Layout';
 import { DashboardLayout } from './components/Dashboard/DashboardLayout';
 
@@ -44,6 +47,9 @@ export default function App() {
         <Route path="governance" element={<GovernancePage />} />
         <Route path="tasks" element={<TaskManagerPage />} />
         <Route path="deliverables" element={<DeliverablesPage />} />
+        <Route path="sales" element={<SalesPage />} />
+        <Route path="analytics" element={<AnalyticsPage />} />
+        <Route path="sns" element={<SnsPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
