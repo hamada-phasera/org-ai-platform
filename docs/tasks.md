@@ -17,12 +17,12 @@
 
 ## 📋 進捗ボード（オーガナイザーのみ「割当」欄を編集可）
 
-| 部署 | ブランチ | 割当画面 | サイクル1状態（巡回 2026-07-07 #3） | PR |
+| 部署 | ブランチ | 割当画面 | サイクル1状態（B統合 2026-07-08） | PR |
 |------|---------|---------|------|-----|
-| 営業 | feat/sales-dept | — | ✅ R1+R2完了。B統合待ち（#2=ローカルB統合のみ確定・origin push しない） | — |
-| 分析 | feat/analytics-dept | 画面3 | ✅ R1+R2完了（A-1〜A-4・8commits・25tests+Go全green・配線要求#A3）。B統合待ち | — |
-| SNS | feat/sns-dept | — | ✅ **R1完了**（N-1/N-2・5commits・#S1〜#S3要求・19tests pass） | — |
-| 統合 | feat/integration | 画面1（オーガナイザー） | 🔵 compliance#5 + usage-metrics-svc 統合済。B本番は分析R2後 | — |
+| 営業 | feat/sales-dept | — | ✅ R1+R2完了 → **B統合済**（配線+検証） | — |
+| 分析 | feat/analytics-dept | — | ✅ R1+R2完了（A-1〜A-4）→ **B統合済** | — |
+| SNS | feat/sns-dept | — | ✅ R1+R2完了（N-1〜N-4・37tests）→ **B統合済** | — |
+| 統合 | feat/integration | 画面1（オーガナイザー） | ✅ 3部署マージ+配線+検証（fe786cb・web/api/go build green・95/96 test）。残: prisma/shared-types昇格🟡（→ integration-review.md） | — |
 
 状態: ⚪ 未着手 / 🔵 作業中 / 🟡 ブロック中 / ✅ 完了・PR済み
 
@@ -110,11 +110,11 @@
 
 ## 🔗 統合フェーズ（feat/integration — オーガナイザー / R1完了分から随時配線）
 
-- [ ] I-0: 配線（各部署のR1完了ごとに App.tsx / Layout ナビ / index.ts へ登録）
-- [ ] I-1: 横断整合性レビュー（→ `docs/integration-review.md`）
-- [ ] I-2: integration-requests.md の消化・shared-types 正本確定・shared 昇格
-- [ ] I-3: マージ順序の決定と rebase 指示
-- [ ] I-4: マージ後の統合テスト実行
+- [x] I-0: 配線完了 — App.tsx 3ルート / index.ts 4登録（ナビは phase-2）→ `fe786cb`
+- [x] I-1: 横断整合性レビュー → `docs/integration-review.md`（2026-07-08）
+- [~] I-2: 一部消化（vocab=MARKETING / 配線 / コンプラ#5 解決済）。**shared-types 昇格＋prisma migration は🟡残**（integration-review 参照）
+- [x] I-3: マージ順推奨 — feat/integration を1単位で main 取込 / deploy・origin push は人間（#2）
+- [x] I-4: 統合テスト — web `vite build`✅ / api `tsc --noCheck`✅ + vitest 95/96（1件は既存agents失敗）/ `go test`✅
 
 ## 🧾 統合(B) 決定ログ
 
