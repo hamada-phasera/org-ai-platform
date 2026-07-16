@@ -165,3 +165,47 @@
 - shared-types昇格+prisma migration（Deal/scheduledAt/TaskStatus拡張）→ integration-review.md 🟡
 - n8n D1実装（生成系Task化）+SNS段階1（投稿準備cron）+分析KPIアラート
 - pricing.goにgemini=0円扱い追加（コスト集計）/ 既存agents失敗テスト1件の修繕
+
+## 2026-07-16 — 次スプリント残タスク消化（shared-types 昇格 / n8n D1 / SNS段階1 / KPIアラート / pricing）
+
+ブランチ: `claude/repository-status-catchup-33dy6x`（`main` 2782bc3→062bf2a 起点）。
+integration-review.md 🟡 と n8n-integration-design.md D1/D2 の残タスクを実装。
+
+### 1. shared-types 昇格 + Prisma マイグレーション ✅（🟡#2・営業#1/#4・分析#1・SNS#S4 消化）
+- `packages/shared-types`: `PipelineStage`/`PIPELINE_STAGES`/`PIPELINE_STAGE_LABEL`/`isPipelineStage`/`canTransition`/`Deal`、`ProposalTemplate`/`ProposalSection`、`KpiEvent` 一式 + `DepartmentKpi`、拡張 `TaskStatus`（QUEUED/PENDING_APPROVAL/APPROVED/REJECTED 追加）、`Task.scheduledAt` を正本化。
+- Prisma: `Deal` モデル（orgId スコープ + `@@index([orgId, stage])`）、`Task.scheduledAt DateTime?` + `@@index([status, scheduledAt])`。マイグレーション `20260716000000_add_deal_and_task_scheduled_at`（追加のみ・非破壊。`Task.status` は String 列のため承認語彙の追加に DB 変更は不要）。
+- 営業パイプラインをインメモリ Map → Prisma `Deal` に置換（org スコープ検証付き）。純粋ロジック（ステージ遷移）は shared-types へ移し DB 無しテストを維持。
+- ローカルミラー（gateway kpi-events.ts / web kpiEvents.ts / proposal-templates.ts）を shared-types import に差し替え。
+
+### 2. n8n D1: 生成系を Task/dispatch 化 ✅（直 /llm/chat 廃止・コンプラ#5 の重複ログも解消）
+- 新設 `services/generation-dispatch.ts`: `dispatchGenerationTask`（n8n webhook best-effort → AI Engine `/llm/chat` フォールバック）+ `finalizeGenerationOutput`（taskType 別後処理）。
+- `POST /api/sales/proposals` / `POST /api/sns/posts` は Task(QUEUED) を作成して **202** を返す非同期モデルに変更（`persist` パラメータ廃止）。完了は proposal→DONE(output={proposal,templateId,model})、sns→**PENDING_APPROVAL**(整形済みドラフト+validation)。n8n コールバック側（webhooks.ts task-complete）も同じ finalize を通す。
+- `triggerN8nWorkflowByPath` に `llmOptions`（userPrompt/jsonMode/userEmail=松竹梅）を追加。`isWebhookAvailableByName` を export。
+- WF テンプレ `gen-sales-proposal.json`（path `sales-proposal`）/ `gen-sns-draft.json`（path `sns-draft`）を追加（llmBody 転送の WAF-safe シェル形・node retry 付き）。
+- 両ルートの直 fetch(/llm/chat) と route 側 `aILog.create` を撤去（AILog は ai-engine 集中ロギングで記録）。
+- フロント: SnsPage を非同期生成対応（⏳生成中バッジ + 生成中 3s ポーリング）、SalesPage のステータスラベルを shared TaskStatus 準拠に拡張。
+
+### 3. SNS 段階1: 投稿準備 cron ✅（D2。実投稿はしない）
+- `services/sns-publish-prep.ts` `prepDueSnsPosts`: APPROVED + scheduledAt 到来の下書きに `output.publishPrep`（preparedAt/preview/queued/livePosted=false）を付与 + TaskLog。冪等（prep 済みスキップ）・batch 上限 50。`SNS_LIVE_POST=true` でも投稿せず WARN ログのみ（段階2は未解放）。
+- `POST /api/webhooks/n8n/sns-publish-prep`（token 認証）+ cron WF テンプレ `sns-publish-prep.json`（15分毎）。
+- `PATCH /sns/posts/:id/schedule` は正式カラム `Task.scheduledAt` に保存（output JSON にも UI 互換で複製）。カレンダーはカラム優先で日付解決。
+
+### 4. 分析 KPI アラート ✅（A-6 / 監視系。Task 発火なし・読み取りのみ）
+- `services/kpi-alerts.ts`: `evaluateDepartmentAlerts`（純関数）— コスト超過（>2xで HIGH）/ 失敗率（母数 minExecutions 以上）/ p95 レイテンシを判定。コスト・レイテンシは usage-metrics-svc `/metrics/departments`、失敗率は Task groupBy（svc 不達時は失敗率のみ = 優雅な縮退）。
+- 超過は RiskEvent（COST_ANOMALY/ANOMALY）として記録 → ガバナンス画面に表示。同一説明文の未解決イベントが窓内にあれば再作成しない（cron 冪等）。
+- `POST /api/webhooks/n8n/kpi-alert-check`（token 認証）+ cron WF テンプレ `analytics-alert.json`（毎時）。閾値は env（`KPI_ALERT_*`）。
+
+### 5. pricing gemini=0円 + 既存失敗テスト修繕 ✅
+- `usage-metrics-svc pricing.go`: families に `{"gemini", 0.00}` 追加（梅/竹=Gemini 無料枠。known=true・コスト0）。テスト2件追加。
+- gateway `kpi-events.ts` / web `kpiEvents.ts` の単価表にも gemini 0 を追加（svc と同一値の原則を維持）。
+- 既存失敗テスト（n8n-workflow-builder の 'Build Prompt' ノード参照 = WAF-safe 化 b3714d1 以降の陳腐化）を現行ノード構成（Code ノード無し / llmBody 転送 / Callback POST）の検証に更新。
+
+### 検証
+- gateway vitest: **15 files / 109 tests 全パス**（従来 95/96 + 新規 generation-dispatch/sns-publish-prep/kpi-alerts ほか）。
+- usage-metrics-svc `go test ./...` 全 green。gateway `tsc --noEmit` / `tsc --noCheck` パス。web `vite build` パス。`prisma format/validate/generate` パス。新規 WF JSON 4本 parse OK。
+- 未実施（環境制約）: 実 DB へのマイグレーション適用（`prisma migrate deploy` はデプロイ時に自動）、n8n への WF 取込、本番デプロイ（Render/Vercel 連携張り替えはダッシュボード操作が必要なため残: docs/DEPLOY.md / hamada-phasera-canonical.md）。
+
+### 残タスク（今回スコープ外）
+- Render/Vercel の連携張り替え → 本番デプロイ → スモーク（ダッシュボード操作待ち）。
+- 段階2（SNS 実投稿）は経営判断での明示解放まで実装しない。
+- KPI アラートの Slack/メール通知（現状は RiskEvent = ガバナンス画面連携まで。n8n WF に通知ノードを足せば拡張可能）。

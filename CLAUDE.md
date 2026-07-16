@@ -63,6 +63,13 @@ AI_ENGINE_URL=http://localhost:8000
 N8N_CLOUD_URL=        # or N8N_URL。エージェント実行・ワークフロー生成の宛先
 N8N_API_KEY=          # n8n Public API キー。エージェント専用ワークフローの動的生成にも使用
 N8N_WEBHOOK_AUTH_TOKEN=org-ai-n8n-secret-token   # Webhook Header Auth
+# 分析・SNS (任意)
+METRICS_URL=http://localhost:8080   # usage-metrics-svc。/api/analytics と KPI アラートが参照
+SNS_LIVE_POST=false   # SNS 実投稿の段階2フラグ。段階1では true でも投稿しない (WARN ログのみ)
+KPI_ALERT_MAX_COST_USD=5            # KPI アラート閾値: 部署別 24h コスト USD
+KPI_ALERT_MAX_FAILURE_RATE=0.3      # 同: タスク失敗率 (0-1)
+KPI_ALERT_MIN_EXECUTIONS=5          # 同: 判定に必要な最小実行数
+KPI_ALERT_MAX_P95_LATENCY_MS=20000  # 同: p95 レイテンシ ms
 ```
 
 ## エージェント機能 (業務効率化エージェント)

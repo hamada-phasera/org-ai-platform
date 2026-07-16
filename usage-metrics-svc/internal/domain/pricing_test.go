@@ -15,6 +15,8 @@ func TestPricingCostUSD(t *testing.T) {
 		{"claude-opus-4-8", 1_000_000, 15.0, true},
 		{"claude-fable-5", 1_000_000, 30.0, true},
 		{"claude-haiku-4-5-20251001", 1_000_000, 3.0, true}, // date-suffixed id still resolves
+		{"gemini-2.5-flash-lite", 1_000_000, 0.0, true},     // 梅 tier: Gemini free quota → zero cost, known
+		{"gemini-2.5-flash", 1_000_000, 0.0, true},          // 竹 tier: same
 		{"gpt-4o", 1_000_000, 9.0, false},                   // unknown → fallback, known=false
 		{"claude-haiku-4-5", 0, 0, true},                    // zero tokens → zero cost
 	}

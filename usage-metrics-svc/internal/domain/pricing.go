@@ -13,6 +13,7 @@ import "strings"
 //	claude-sonnet-4-6    3.00    15.00     9.00   (PRO plan)
 //	claude-opus-4-8      5.00    25.00    15.00   (MAX plan)
 //	claude-fable-5      10.00    50.00    30.00
+//	gemini-*             0.00     0.00     0.00   (梅/竹 tiers run on Gemini free quota)
 //
 // These are estimates for an internal KPI dashboard — override per deployment.
 // Matching is by family substring so model-id drift (date suffixes, minor
@@ -39,6 +40,7 @@ func DefaultPricing() Pricing {
 			{"opus", 15.00},
 			{"sonnet", 9.00},
 			{"haiku", 3.00},
+			{"gemini", 0.00}, // 松竹梅 routing: 梅/竹 use the Gemini free tier → zero cost, known=true
 		},
 		fallback: 9.00, // unknown model → assume Sonnet-class; reported in UnknownModels
 	}
