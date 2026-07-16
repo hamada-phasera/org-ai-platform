@@ -116,6 +116,20 @@ export interface SnsGenInputs {
   hashtagCount?: number;
 }
 
+/** LLM 応答本文から {content, hashtags} を取り出す。JSON でなければ全文を content 扱い。 */
+export function parseDraftBody(raw: string): { content: string; hashtags: string[] } {
+  try {
+    const j = JSON.parse(raw) as { content?: unknown; hashtags?: unknown };
+    if (typeof j.content === 'string' && j.content.trim()) {
+      const tags = Array.isArray(j.hashtags) ? (j.hashtags as unknown[]).map(String) : [];
+      return { content: j.content, hashtags: tags };
+    }
+  } catch {
+    /* JSON でない場合は全文を本文として扱う（フォールバック） */
+  }
+  return { content: raw, hashtags: [] };
+}
+
 /**
  * /llm/chat 用の messages を組み立てる（純粋関数, json_mode 前提で JSON 出力を指示）。
  * プラットフォームの文字数上限を system に明示し、モデルに厳守させる。

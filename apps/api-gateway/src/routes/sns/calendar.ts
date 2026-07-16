@@ -8,13 +8,14 @@
 
 export const DEFAULT_TZ = 'Asia/Tokyo';
 
-/** カレンダー集計に必要な最小の Task 形。 */
+/** カレンダー集計に必要な最小の Task 形。scheduledAt は正式カラム（無い旧データは output JSON から補完）。 */
 export interface CalendarTask {
   id: string;
   title: string;
   status: string;
   taskType: string | null;
   output: string | null;
+  scheduledAt?: string | Date | null;
   createdAt: string;
 }
 
@@ -46,9 +47,11 @@ export function extractScheduledAt(output: string | null): string | undefined {
   return undefined;
 }
 
-/** その下書きが属する日付キー（scheduledAt 優先、無ければ createdAt）。 */
+/** その下書きが属する日付キー（scheduledAt カラム → output JSON → createdAt の優先順）。 */
 export function draftDateKey(task: CalendarTask, tz: string = DEFAULT_TZ): string | null {
-  return toDateKey(extractScheduledAt(task.output) ?? task.createdAt, tz);
+  const column =
+    task.scheduledAt instanceof Date ? task.scheduledAt.toISOString() : task.scheduledAt ?? undefined;
+  return toDateKey(column ?? extractScheduledAt(task.output) ?? task.createdAt, tz);
 }
 
 export interface CalendarDay {

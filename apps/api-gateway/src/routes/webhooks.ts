@@ -2,8 +2,13 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma';
 import { dispatchQueuedTask } from '../services/task-executor';
+import { finalizeGenerationOutput, type GenerationTaskType } from '../services/generation-dispatch';
+import { prepDueSnsPosts } from '../services/sns-publish-prep';
+import { runKpiAlertCheck } from '../services/kpi-alerts';
 
 const WEBHOOK_AUTH_TOKEN = process.env.N8N_WEBHOOK_AUTH_TOKEN ?? 'org-ai-n8n-secret-token';
+
+const GENERATION_TASK_TYPES: ReadonlySet<string> = new Set(['proposal', 'sns'] satisfies GenerationTaskType[]);
 
 const taskCompleteSchema = z.object({
   taskId: z.string(),
@@ -31,6 +36,17 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     const task = await prisma.task.findUnique({ where: { id: taskId } });
     if (!task) {
       return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'タスクが見つかりません' } });
+    }
+
+    // 生成系 Task（提案書/SNS下書き・D1）は raw LLM 出力を taskType 別に整形する。
+    // sns は PENDING_APPROVAL に遷移（承認ゲートへ。DONE にしない = 投稿されない）。
+    if (status === 'DONE' && task.taskType && GENERATION_TASK_TYPES.has(task.taskType)) {
+      if (workflowId) {
+        await prisma.task.update({ where: { id: taskId }, data: { n8nWorkflowId: workflowId } });
+      }
+      await finalizeGenerationOutput(taskId, task.taskType as GenerationTaskType, output ?? '');
+      const finalized = await prisma.task.findUnique({ where: { id: taskId } });
+      return reply.send({ success: true, data: finalized });
     }
 
     const updated = await prisma.task.update({
@@ -187,6 +203,27 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     // n8n もしくは AI Engine で実行
     void dispatchQueuedTask(task);
     return reply.send({ success: true, data: { taskId: task.id, scheduledTaskId: st.id } });
+  });
+
+  // SNS 投稿準備 cron（D2 段階1）。APPROVED + scheduledAt 到来の下書きに
+  // プレビュー生成・キュー投入マークを付ける。**実投稿は一切しない**。
+  app.post('/n8n/sns-publish-prep', async (request, reply) => {
+    const authToken = request.headers['x-webhook-token'];
+    if (authToken !== WEBHOOK_AUTH_TOKEN) {
+      return reply.code(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: '認証トークンが無効です' } });
+    }
+    const result = await prepDueSnsPosts();
+    return reply.send({ success: true, data: result });
+  });
+
+  // 分析 KPI アラート cron（A-6 / 監視系）。閾値超過を RiskEvent として記録する。
+  app.post('/n8n/kpi-alert-check', async (request, reply) => {
+    const authToken = request.headers['x-webhook-token'];
+    if (authToken !== WEBHOOK_AUTH_TOKEN) {
+      return reply.code(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: '認証トークンが無効です' } });
+    }
+    const result = await runKpiAlertCheck();
+    return reply.send({ success: true, data: result });
   });
 
   // 定期ジョブ実行完了の callback（lastRunAt を更新）

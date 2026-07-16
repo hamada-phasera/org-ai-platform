@@ -23,10 +23,14 @@ interface SalesTask {
   createdAt: string;
 }
 
-/** Task.status → 表示ラベル（TaskStatus: PENDING/RUNNING/DONE/FAILED）。 */
+/** Task.status → 表示ラベル（shared-types TaskStatus 準拠）。 */
 const TASK_STATUS_LABEL: Record<string, string> = {
   PENDING: '⚪ 待機',
+  QUEUED: '⏳ 実行待ち',
   RUNNING: '🔵 実行中',
+  PENDING_APPROVAL: '🟡 承認待ち',
+  APPROVED: '🟢 承認済み',
+  REJECTED: '⛔ 却下',
   DONE: '🟢 完了',
   FAILED: '🔴 失敗',
 };

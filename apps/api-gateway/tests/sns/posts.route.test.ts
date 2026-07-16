@@ -5,33 +5,29 @@ process.env.AI_ENGINE_URL = 'https://ai.test';
 
 const prismaMock = {
   organization: { findUnique: vi.fn() },
-  aILog: { create: vi.fn() },
   task: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), findMany: vi.fn() },
+  taskLog: { create: vi.fn() },
 };
 vi.mock('../../src/utils/prisma', () => ({ prisma: prismaMock }));
 vi.mock('../../src/middleware/auth', () => ({
   requireAuth: async (req: { user?: unknown }) => {
-    req.user = { orgId: 'org-1', sub: 'user-1', role: 'OWNER' };
+    req.user = { orgId: 'org-1', sub: 'user-1', role: 'OWNER', email: 'boss@example.com' };
   },
   requireOwner: async (req: { user?: unknown }) => {
-    req.user = { orgId: 'org-1', sub: 'user-1', role: 'OWNER' };
+    req.user = { orgId: 'org-1', sub: 'user-1', role: 'OWNER', email: 'boss@example.com' };
   },
+}));
+
+// D1: 生成は dispatchGenerationTask（n8n加速+AI Engineフォールバック）に委譲される。
+const dispatchMock = vi.fn();
+vi.mock('../../src/services/generation-dispatch', () => ({
+  dispatchGenerationTask: dispatchMock,
 }));
 
 const fetchMock = vi.fn();
 vi.stubGlobal('fetch', fetchMock);
 
 const { snsPostsRoutes } = await import('../../src/routes/sns/posts');
-
-/** /llm/chat 応答: content は json_mode の結果 JSON 文字列。 */
-function llmOk(draftJson = JSON.stringify({ content: '新サービスを公開しました！', hashtags: ['ai', '#tech'] })) {
-  return {
-    ok: true,
-    status: 200,
-    text: async () =>
-      JSON.stringify({ content: draftJson, model: 'claude-haiku-4-5', tokens_used: 60, latency_ms: 90, pii_detected: false }),
-  };
-}
 
 async function build(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -43,73 +39,60 @@ async function build(): Promise<FastifyInstance> {
 beforeEach(() => {
   vi.clearAllMocks();
   prismaMock.organization.findUnique.mockResolvedValue({ plan: 'STARTER' });
-  prismaMock.aILog.create.mockResolvedValue({ id: 'log-1' });
-  prismaMock.task.create.mockResolvedValue({ id: 'task-1' });
+  prismaMock.task.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+    id: 'task-1',
+    ...data,
+  }));
+  prismaMock.taskLog.create.mockResolvedValue({ id: 'log-1' });
   prismaMock.task.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
     id: 'task-1',
     ...data,
   }));
+  dispatchMock.mockResolvedValue(undefined);
 });
 
-describe('POST /api/sns/posts (下書き生成 N-1)', () => {
-  it('正常系: PENDING_APPROVAL の sns/MARKETING Task を作成、AILog記録、整形済みドラフト返却', async () => {
-    fetchMock.mockResolvedValue(llmOk());
+describe('POST /api/sns/posts (下書き生成 N-1・D1: Task/dispatch 化)', () => {
+  it('正常系: QUEUED の sns/MARKETING Task を作成して 202 + dispatch に委譲する', async () => {
     const app = await build();
     const res = await app.inject({
       method: 'POST',
       url: '/api/sns/posts',
       payload: { platform: 'twitter', topic: '新サービス告知' },
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(202);
     const d = res.json().data;
-    expect(d.draft.platform).toBe('twitter');
-    expect(d.draft.content).toContain('新サービス');
-    expect(d.draft.hashtags).toEqual(['ai', 'tech']); // '#tech' は整形されて 'tech'
-    expect(d.validation.ok).toBe(true);
     expect(d.taskId).toBe('task-1');
+    expect(d.status).toBe('QUEUED');
+    expect(d.platform).toBe('twitter');
 
-    // json_mode で MARKETING として呼ぶ
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body.department).toBe('MARKETING');
-    expect(body.json_mode).toBe(true);
-
-    // 保存は PENDING_APPROVAL / taskType=sns / department=MARKETING
+    // 保存は QUEUED / taskType=sns / department=MARKETING（PENDING_APPROVAL への遷移は finalize 側）
     const taskData = prismaMock.task.create.mock.calls[0][0].data;
-    expect(taskData.status).toBe('PENDING_APPROVAL');
+    expect(taskData.status).toBe('QUEUED');
     expect(taskData.taskType).toBe('sns');
     expect(taskData.department).toBe('MARKETING');
-    expect(prismaMock.aILog.create).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(taskData.input).platform).toBe('twitter');
+
+    // dispatch には json_mode=true / MARKETING 向け spec が渡る
+    expect(dispatchMock).toHaveBeenCalledTimes(1);
+    const [task, spec] = dispatchMock.mock.calls[0];
+    expect(task.department).toBe('MARKETING');
+    expect(spec.taskType).toBe('sns');
+    expect(spec.jsonMode).toBe(true);
+    expect(spec.systemPrompt).toContain('X (Twitter)');
+    expect(spec.userPrompt).toContain('新サービス告知');
+    expect(spec.userEmail).toBe('boss@example.com');
+
+    // ルートは直接 LLM/外部を呼ばない
+    expect(fetchMock).not.toHaveBeenCalled();
     await app.close();
   });
 
-  it('エッジ: LLM応答が非JSONでも全文を本文にフォールバック', async () => {
-    fetchMock.mockResolvedValue(llmOk('ただのテキスト応答（JSONではない）'));
-    const app = await build();
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/sns/posts',
-      payload: { platform: 'instagram', topic: 'x' },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json().data.draft.content).toContain('ただのテキスト応答');
-    expect(res.json().data.draft.hashtags).toEqual([]);
-    await app.close();
-  });
-
-  it('エッジ: topic 欠落 → 400、AI Engine 到達不可 → 502', async () => {
+  it('エッジ: topic 欠落 → 400（Task も dispatch も作らない）', async () => {
     const app = await build();
     const bad = await app.inject({ method: 'POST', url: '/api/sns/posts', payload: { platform: 'twitter' } });
     expect(bad.statusCode).toBe(400);
-    expect(fetchMock).not.toHaveBeenCalled();
-
-    fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
-    const down = await app.inject({
-      method: 'POST',
-      url: '/api/sns/posts',
-      payload: { platform: 'twitter', topic: 'x' },
-    });
-    expect(down.statusCode).toBe(502);
-    expect(down.json().error.code).toBe('AI_ENGINE_UNAVAILABLE');
+    expect(prismaMock.task.create).not.toHaveBeenCalled();
+    expect(dispatchMock).not.toHaveBeenCalled();
     await app.close();
   });
 });
@@ -213,7 +196,7 @@ describe('GET /api/sns/posts/calendar (N-3)', () => {
 });
 
 describe('PATCH /api/sns/posts/:id/schedule (N-3・投稿はしない)', () => {
-  it('正常系: output に scheduledAt を差し込む（status は変えない）', async () => {
+  it('正常系: scheduledAt カラムに保存し output にも複製する（status は変えない）', async () => {
     prismaMock.task.findUnique.mockResolvedValue({
       id: 'task-1',
       orgId: 'org-1',
@@ -229,10 +212,12 @@ describe('PATCH /api/sns/posts/:id/schedule (N-3・投稿はしない)', () => {
     });
     expect(res.statusCode).toBe(200);
     const data = prismaMock.task.update.mock.calls[0][0].data;
-    expect(JSON.parse(data.output).scheduledAt).toBe('2026-08-01T10:00:00+09:00');
+    expect(data.scheduledAt).toEqual(new Date('2026-08-01T10:00:00+09:00')); // 正式カラム（SNS#S4）
+    expect(JSON.parse(data.output).scheduledAt).toBe('2026-08-01T10:00:00+09:00'); // UI 互換の複製
     expect(JSON.parse(data.output).content).toBe('本文'); // 既存フィールドは保持
     expect(data.status).toBeUndefined(); // status は変更しない
     expect(fetchMock).not.toHaveBeenCalled(); // 投稿・実行はしない
+    expect(dispatchMock).not.toHaveBeenCalled();
     await app.close();
   });
 

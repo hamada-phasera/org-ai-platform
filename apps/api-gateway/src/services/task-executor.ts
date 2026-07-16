@@ -70,12 +70,23 @@ interface TriggerableTask {
   taskType?: string | null;
 }
 
+/** llmBody 組み立ての追加オプション（生成系 dept 操作 = D1 で使用）。 */
+export interface TriggerLlmOptions {
+  /** LLM への user メッセージ。未指定なら task.input をそのまま使う。 */
+  userPrompt?: string;
+  /** /llm/chat の json_mode（SNS 下書き等の構造化出力用）。既定 false。 */
+  jsonMode?: boolean;
+  /** 松竹梅ルーティング用の user_email。 */
+  userEmail?: string | null;
+}
+
 /** 任意の webhook パスへ POST する共通実装。systemPrompt を渡すとエージェント workflow が優先利用する。 */
 export async function triggerN8nWorkflowByPath(
   path: string,
   task: TriggerableTask,
   systemPrompt?: string,
   agentSteps?: { capabilityName: string }[],
+  llmOptions?: TriggerLlmOptions,
 ): Promise<boolean> {
   const org = await prisma.organization.findUnique({
     where: { id: task.orgId },
@@ -96,12 +107,13 @@ export async function triggerN8nWorkflowByPath(
     ? JSON.stringify({
         messages: [
           { role: 'system', content: systemForLlm },
-          { role: 'user', content: task.input },
+          { role: 'user', content: llmOptions?.userPrompt ?? task.input },
         ],
         department: task.department,
         org_id: task.orgId,
         plan,
-        json_mode: false,
+        json_mode: llmOptions?.jsonMode ?? false,
+        ...(llmOptions?.userEmail ? { user_email: llmOptions.userEmail } : {}),
       })
     : undefined;
   try {
@@ -217,10 +229,10 @@ export async function dispatchQueuedTask(task: {
 
 // ───────────────────────── エージェント実行 ─────────────────────────
 
-/** 名前 (org-ai Agent <id>) でアクティブな n8n ワークフローが存在するか判定。
- *  保存エージェントの専用 webhook 用。API キー無しなら true 扱い（404 は呼び出し側でフォールバック）。
+/** 名前 (org-ai Agent <id> / org-ai Sales Proposal 等) でアクティブな n8n ワークフローが存在するか判定。
+ *  保存エージェント・生成系 dept 操作の専用 webhook 用。API キー無しなら true 扱い（404 は呼び出し側でフォールバック）。
  */
-async function isWebhookAvailableByName(workflowName: string): Promise<boolean> {
+export async function isWebhookAvailableByName(workflowName: string): Promise<boolean> {
   if (cachedActiveWebhooks.has(workflowName)) return cachedActiveWebhooks.get(workflowName)!;
   if (!N8N_API_KEY) {
     cachedActiveWebhooks.set(workflowName, true);

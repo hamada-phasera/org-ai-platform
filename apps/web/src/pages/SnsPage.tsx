@@ -36,11 +36,16 @@ interface SnsDraft {
 }
 
 const STATUS_BADGE: Record<string, string> = {
+  QUEUED: '⏳ 生成中',
+  RUNNING: '⏳ 生成中',
   PENDING_APPROVAL: '🟡 承認待ち',
   APPROVED: '🟢 承認済み',
   REJECTED: '⛔ 却下',
   DONE: '✅ 完了',
+  FAILED: '🔴 失敗',
 };
+
+const GENERATING_STATUSES = new Set(['QUEUED', 'RUNNING']);
 
 function parseDraft(output: string | null): SnsDraft | null {
   if (!output) return null;
@@ -110,7 +115,13 @@ export default function SnsPage() {
   const [topic, setTopic] = useState('');
   const [view, setView] = useState<'list' | 'calendar'>('list');
 
-  const tasksQ = useQuery({ queryKey: ['sns-tasks'], queryFn: fetchSnsTasks });
+  // 生成は非同期 Task（202 → QUEUED → PENDING_APPROVAL）のため、生成中はポーリングで追う。
+  const tasksQ = useQuery({
+    queryKey: ['sns-tasks'],
+    queryFn: fetchSnsTasks,
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some((t) => GENERATING_STATUSES.has(t.status)) ? 3000 : false,
+  });
   const invalidate = () => qc.invalidateQueries({ queryKey: ['sns-tasks'] });
 
   const genMut = useMutation({
@@ -130,8 +141,9 @@ export default function SnsPage() {
   });
 
   const all = tasksQ.data ?? [];
+  const generating = all.filter((t) => GENERATING_STATUSES.has(t.status));
   const pending = all.filter((t) => t.status === 'PENDING_APPROVAL');
-  const history = all.filter((t) => t.status !== 'PENDING_APPROVAL');
+  const history = all.filter((t) => t.status !== 'PENDING_APPROVAL' && !GENERATING_STATUSES.has(t.status));
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-28">
@@ -209,13 +221,21 @@ export default function SnsPage() {
           <span className="text-[11px] text-muted">{pending.length}件</span>
         </div>
 
+        {generating.length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
+            {generating.map((task) => (
+              <DraftCard key={task.id} task={task} />
+            ))}
+          </div>
+        )}
+
         {tasksQ.isLoading ? (
           <div className="flex justify-center py-12">
             <Spinner />
           </div>
         ) : tasksQ.isError ? (
           <EmptyState icon={<Share2 size={28} />} title="読み込みに失敗しました" />
-        ) : pending.length === 0 ? (
+        ) : pending.length === 0 && generating.length > 0 ? null : pending.length === 0 ? (
           <EmptyState
             icon={<Share2 size={28} />}
             title="承認待ちの下書きはありません"
