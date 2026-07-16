@@ -1,6 +1,43 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 
+// prisma は import 時に DATABASE_URL を要求するためモックする。
+// インメモリ実装を Prisma Deal に正式化したため、Deal CRUD をインメモリ配列で模擬する。
+interface FakeDeal {
+  id: string;
+  orgId: string;
+  title: string;
+  company: string | null;
+  amount: number;
+  stage: string;
+  ownerId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+let store: FakeDeal[] = [];
+let seq = 0;
+
+const prismaMock = {
+  deal: {
+    findMany: vi.fn(async ({ where }: { where: { orgId: string; stage?: string } }) =>
+      store.filter((d) => d.orgId === where.orgId && (where.stage === undefined || d.stage === where.stage)),
+    ),
+    findUnique: vi.fn(async ({ where }: { where: { id: string } }) => store.find((d) => d.id === where.id) ?? null),
+    create: vi.fn(async ({ data }: { data: Omit<FakeDeal, 'id' | 'createdAt' | 'updatedAt'> }) => {
+      const deal: FakeDeal = { ...data, id: `deal-${++seq}`, createdAt: new Date(), updatedAt: new Date() };
+      store.push(deal);
+      return deal;
+    }),
+    update: vi.fn(async ({ where, data }: { where: { id: string }; data: Partial<FakeDeal> }) => {
+      const deal = store.find((d) => d.id === where.id);
+      if (!deal) throw new Error('not found');
+      Object.assign(deal, data, { updatedAt: new Date() });
+      return deal;
+    }),
+  },
+};
+vi.mock('../../src/utils/prisma', () => ({ prisma: prismaMock }));
+
 // 認証ミドルウェアをモックし、request.user を注入する（JWT を発行せずに済む）。
 vi.mock('../../src/middleware/auth', () => ({
   requireAuth: async (req: { user?: unknown }) => {
@@ -11,7 +48,7 @@ vi.mock('../../src/middleware/auth', () => ({
   },
 }));
 
-const { salesPipelineRoutes, _resetPipelineStore } = await import('../../src/routes/sales/pipeline');
+const { salesPipelineRoutes } = await import('../../src/routes/sales/pipeline');
 
 async function build(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -21,7 +58,8 @@ async function build(): Promise<FastifyInstance> {
 }
 
 beforeEach(() => {
-  _resetPipelineStore();
+  store = [];
+  seq = 0;
   vi.clearAllMocks();
 });
 
@@ -81,6 +119,27 @@ describe('GET /api/sales/pipeline', () => {
     const res = await app.inject({ method: 'GET', url: '/api/sales/pipeline?stage=LOST' });
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe('VALIDATION_ERROR');
+    await app.close();
+  });
+
+  it('エッジ: 他 org の商談は見えない（orgId スコープ）', async () => {
+    store.push({
+      id: 'deal-other',
+      orgId: 'org-2',
+      title: '他社の商談',
+      company: null,
+      amount: 0,
+      stage: 'LEAD',
+      ownerId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const app = await build();
+    const res = await app.inject({ method: 'GET', url: '/api/sales/pipeline' });
+    expect(res.json().data).toHaveLength(0);
+
+    const detail = await app.inject({ method: 'GET', url: '/api/sales/pipeline/deal-other' });
+    expect(detail.statusCode).toBe(404);
     await app.close();
   });
 });

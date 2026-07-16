@@ -1,29 +1,17 @@
 /**
  * 提案書テンプレート & プロンプト組み立て（S-3 の純粋ロジック）。
  *
- * 共有の `ProposalTemplate` 型はまだ存在しない（B=統合フェーズで正式化）。
- * ここではローカル型 + 組み込みテンプレートで暫定実装する（integration-requests #4 に起票）。
+ * 型の正本は `@org-ai/shared-types` の `ProposalTemplate` / `ProposalSection`
+ * （integration-requests 営業#4 を消化）。
  * このファイルは prisma / fastify を import しない = DB 無しで単体テスト可能。
  */
+import type { ProposalTemplate, ProposalSection } from '@org-ai/shared-types';
+
+export type { ProposalTemplate, ProposalSection };
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
-}
-
-export interface ProposalSection {
-  key: string;
-  title: string;
-  /** その章に何を書くかの指示（LLM へのガイド）。 */
-  guidance: string;
-}
-
-export interface ProposalTemplate {
-  id: string;
-  name: string;
-  tone: 'formal' | 'casual';
-  language: 'ja';
-  sections: ProposalSection[];
 }
 
 /** 提案の入力（顧客・背景・要件など）。すべて任意だが customerName は実質必須。 */

@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
+// 純粋ロジックの正本は shared-types（route ファイルは prisma を import するため、
+// DB 無しテストはここから直接 import する）。
 import {
   isPipelineStage,
   canTransition,
   PIPELINE_STAGES,
   type PipelineStage,
-} from '../../src/routes/sales/pipeline';
+} from '@org-ai/shared-types';
 
 describe('isPipelineStage', () => {
   it('正常系: 有効なステージ文字列を true と判定する', () => {

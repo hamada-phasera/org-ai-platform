@@ -1,25 +1,35 @@
-// KPI イベント発火モジュール (A-4) — A-1 スキーマ準拠のローカルモック実装。
+// KPI イベント発火モジュール (A-4)。
 //
-// ⚠️ 型の正本は integration-requests #1 の提案（統合フェーズ B で
-// packages/shared-types へ昇格予定）。昇格後はこのローカル型を import に差し替える。
-// フロント側ミラー: apps/web/src/components/Analytics/kpiEvents.ts
+// 型の正本は `@org-ai/shared-types` の `KpiEvent` / `DepartmentKpi`（A-1 提案から昇格済み。
+// integration-requests 分析#1 を消化）。フロント側ミラー: apps/web/src/components/Analytics/kpiEvents.ts
 //
 // 「発火」= 既存レコード（AILog / Task / ExecutionLog / RiskEvent）から
 // KPI イベントを構築する純関数群。DB への書き込みは行わない（read-only 設計）。
 // コスト単価は usage-metrics-svc の DefaultPricing と同一値
-// （ブレンド USD/MTok: haiku 3.0 / sonnet 9.0 / opus 15.0 / fable 30.0, fallback 9.0）。
+// （ブレンド USD/MTok: haiku 3.0 / sonnet 9.0 / opus 15.0 / fable 30.0, gemini 0.0(無料枠), fallback 9.0）。
+import {
+  AGENT_DEPARTMENTS,
+  type AgentDepartment,
+  type KpiEvent,
+  type LlmCallEvent,
+  type TaskCompletedEvent,
+  type TaskFailedEvent,
+  type CapabilityExecutedEvent,
+  type RiskFlaggedEvent,
+  type DepartmentKpi,
+} from '@org-ai/shared-types';
 
-// ---- 部署語彙（shared-types AgentDepartment のローカルミラー） ----
-
-export type AgentDepartment = 'SALES' | 'MARKETING' | 'ACCOUNTING' | 'ANALYTICS' | 'GENERAL';
-
-export const AGENT_DEPARTMENTS: AgentDepartment[] = [
-  'SALES',
-  'MARKETING',
-  'ACCOUNTING',
-  'ANALYTICS',
-  'GENERAL',
-];
+export {
+  AGENT_DEPARTMENTS,
+  type AgentDepartment,
+  type KpiEvent,
+  type LlmCallEvent,
+  type TaskCompletedEvent,
+  type TaskFailedEvent,
+  type CapabilityExecutedEvent,
+  type RiskFlaggedEvent,
+  type DepartmentKpi,
+};
 
 /** レガシー日本語部署名 → 正本コードの正規化表（DB の department は自由文字列のため）。 */
 const LEGACY_DEPARTMENT_ALIASES: Record<string, AgentDepartment> = {
@@ -43,82 +53,18 @@ export function normalizeDepartment(raw: string | null | undefined): AgentDepart
   return LEGACY_DEPARTMENT_ALIASES[trimmed] ?? 'GENERAL';
 }
 
-// ---- KPI イベント型（A-1 提案の discriminated union・ローカルモック） ----
-
-export interface KpiEventBase {
-  id: string;
-  orgId: string;
-  department: AgentDepartment;
-  occurredAt: string; // ISO 8601
-}
-
-export interface LlmCallEvent extends KpiEventBase {
-  kind: 'llm.call';
-  provider: string;
-  model: string;
-  tokens: number | null;
-  latencyMs: number | null;
-  riskScore: number | null;
-  costUsd: number | null; // 導出値（DB にコスト列は無い）
-}
-
-export interface TaskCompletedEvent extends KpiEventBase {
-  kind: 'task.completed';
-  taskId: string;
-  agentId: string | null;
-  taskType: string | null;
-  latencyMs: number | null; // executedAt − createdAt の導出
-}
-
-export interface TaskFailedEvent extends KpiEventBase {
-  kind: 'task.failed';
-  taskId: string;
-  agentId: string | null;
-  taskType: string | null;
-  lastError: string | null;
-}
-
-export interface CapabilityExecutedEvent extends KpiEventBase {
-  kind: 'capability.executed';
-  capabilityId: string | null;
-  status: string;
-  errorType: string | null;
-}
-
-export interface RiskFlaggedEvent extends KpiEventBase {
-  kind: 'risk.flagged';
-  riskType: string;
-  severity: string;
-  aiLogId: string | null;
-}
-
-export type KpiEvent =
-  | LlmCallEvent
-  | TaskCompletedEvent
-  | TaskFailedEvent
-  | CapabilityExecutedEvent
-  | RiskFlaggedEvent;
-
-/** 部署別ロールアップ（A-1 提案の DepartmentKpi）。母数0の率・データ無しの値は null。 */
-export interface DepartmentKpi {
-  department: AgentDepartment;
-  executions: number;
-  succeeded: number;
-  failed: number;
-  successRate: number | null;
-  costUsd: number | null;
-  avgLatencyMs: number | null;
-  riskEvents: number;
-}
-
 // ---- コスト導出（usage-metrics-svc DefaultPricing と同一値） ----
 
-/** ブレンド単価 USD / 1M tokens。正式単価表は統合フェーズで確定（#1）。 */
-export const BLENDED_RATE_USD_PER_MTOK: Record<'haiku' | 'sonnet' | 'opus' | 'fable' | 'fallback', number> = {
+/** ブレンド単価 USD / 1M tokens。gemini は松竹梅ルーティングの無料枠のため 0 円扱い。 */
+export const BLENDED_RATE_USD_PER_MTOK: Record<
+  'haiku' | 'sonnet' | 'opus' | 'fable' | 'gemini' | 'fallback',
+  number
+> = {
   fable: 30.0,
   opus: 15.0,
   sonnet: 9.0,
   haiku: 3.0,
+  gemini: 0.0, // 梅/竹 = Gemini 無料枠（コスト 0 として集計）
   fallback: 9.0,
 };
 
@@ -135,6 +81,8 @@ export function deriveCostUsd(model: string, tokens: number | null): number | nu
     ? BLENDED_RATE_USD_PER_MTOK.sonnet
     : m.includes('haiku')
     ? BLENDED_RATE_USD_PER_MTOK.haiku
+    : m.includes('gemini')
+    ? BLENDED_RATE_USD_PER_MTOK.gemini
     : BLENDED_RATE_USD_PER_MTOK.fallback;
   return (tokens / 1_000_000) * rate;
 }

@@ -31,6 +31,7 @@ model Organization {
   files          UploadedFile[]
   scheduledTasks ScheduledTask[]
   agents         Agent[]
+  deals          Deal[]
   createdAt      DateTime        @default(now())
 }
 
@@ -70,6 +71,7 @@ model Task {
   retryCount      Int          @default(0)
   lastError       String?
   executedAt      DateTime?
+  scheduledAt     DateTime? // 予約日時（SNS 投稿準備 cron 等が status と組で走査する）
   agentId         String?
   agent           Agent?       @relation(fields: [agentId], references: [id])
   logs            TaskLog[]
@@ -77,6 +79,7 @@ model Task {
   updatedAt       DateTime     @updatedAt
 
   @@index([orgId, agentId])
+  @@index([status, scheduledAt])
 }
 
 model TaskLog {
@@ -129,14 +132,14 @@ model UploadedFile {
 /// RAG: アップロードファイルをチャンク分割し埋め込みベクトルを保持する。
 /// embedding は pgvector の vector 型（Prisma 未対応のため Unsupported）。読み書きは $queryRaw / $executeRaw。
 model FileChunk {
-  id         String                  @id @default(cuid())
+  id         String                       @id @default(cuid())
   orgId      String
   fileId     String
-  file       UploadedFile            @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  file       UploadedFile                 @relation(fields: [fileId], references: [id], onDelete: Cascade)
   chunkIndex Int
   content    String
   embedding  Unsupported("vector(1024)")?
-  createdAt  DateTime                @default(now())
+  createdAt  DateTime                     @default(now())
 
   @@index([orgId])
   @@index([fileId])
@@ -288,4 +291,21 @@ model Agent {
 
   @@unique([orgId, name])
   @@index([orgId, enabled])
+}
+
+/// 営業パイプラインの商談（サイクル1 R1 のインメモリ実装を正式スキーマ化）。
+/// stage の値域は shared-types の PIPELINE_STAGES (LEAD/NEGOTIATION/PROPOSAL/WON)。
+model Deal {
+  id        String       @id @default(cuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id])
+  title     String
+  company   String?
+  amount    Int          @default(0)
+  stage     String       @default("LEAD")
+  ownerId   String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([orgId, stage])
 }
