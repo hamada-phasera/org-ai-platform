@@ -17,8 +17,16 @@ API Gateway (Fastify)
 ```
 
 - `apps/n8n-workflows/dept-*.json` — 各部署のワークフロー (Webhook 起動)
+- `apps/n8n-workflows/gen-sales-proposal.json` / `gen-sns-draft.json` — 生成系 dept 操作 (D1)。
+  gateway の `dispatchGenerationTask` が `/webhook/sales-proposal` / `/webhook/sns-draft` を叩く。
+  gateway が組み立てた `llmBody` をそのまま `/llm/chat` へ転送する WAF-safe 形（Code ノード無し）。
+- `apps/n8n-workflows/sns-publish-prep.json` — SNS 投稿準備 cron (D2 段階1・15分毎)。
+  gateway `/api/webhooks/n8n/sns-publish-prep` を叩き、APPROVED + scheduledAt 到来の下書きに
+  プレビュー生成・キュー投入マークを付ける。**実投稿はしない**。
+- `apps/n8n-workflows/analytics-alert.json` — 分析 KPI アラート cron (毎時)。
+  gateway `/api/webhooks/n8n/kpi-alert-check` を叩き、閾値超過を RiskEvent に記録する。
 - `apps/api-gateway/src/services/task-executor.ts` — Webhook を呼ぶ実装
-- フォールバック: Webhook が到達不可なら AI Engine を直接呼ぶ
+- フォールバック: Webhook が到達不可なら AI Engine を直接呼ぶ（cron 系は n8n が寝ていれば単に次回実行に持ち越し）
 
 ---
 

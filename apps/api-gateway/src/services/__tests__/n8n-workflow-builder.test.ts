@@ -24,7 +24,7 @@ beforeEach(() => {
 });
 
 describe('buildAgentWorkflowJson', () => {
-  it('name / webhook path / headerAuth / instructions を正しく構築する', () => {
+  it('name / webhook path / headerAuth / WAF-safe ノード構成を正しく構築する', () => {
     const wf = buildAgentWorkflowJson(AGENT) as {
       name: string;
       nodes: { name: string; type: string; parameters: Record<string, unknown> }[];
@@ -35,9 +35,13 @@ describe('buildAgentWorkflowJson', () => {
     expect(webhook.parameters.path).toBe('agent-abc123');
     expect(webhook.parameters.authentication).toBe('headerAuth');
 
-    const build = wf.nodes.find((n) => n.name === 'Build Prompt')!;
-    // JSON.stringify 済みの文字列リテラルがそのまま jsCode に含まれる（エスケープ安全）
-    expect(build.parameters.jsCode as string).toContain(JSON.stringify(AGENT.instructions));
+    // WAF-safe 形（b3714d1）: Code ノードを含まず、instructions は生成時に埋め込まない。
+    // LLM リクエストは gateway が組む webhook body の llmBody を AI Engine Chat がそのまま転送する。
+    expect(wf.nodes.some((n) => n.type === 'n8n-nodes-base.code')).toBe(false);
+    const aiChat = wf.nodes.find((n) => n.name === 'AI Engine Chat')!;
+    expect(aiChat.parameters.body).toBe('={{ $json.body.llmBody }}');
+    const callback = wf.nodes.find((n) => n.name === 'Callback (Done)')!;
+    expect(callback.parameters.method).toBe('POST'); // n8n httpRequest の既定 GET では 404 になる (babb750)
 
     expect(agentWebhookPath('x')).toBe('agent-x');
     expect(agentWorkflowName('x')).toBe('org-ai Agent x');

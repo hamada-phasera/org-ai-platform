@@ -1,0 +1,80 @@
+{
+  "name": "org-ai SNS Draft",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sns-draft",
+        "responseMode": "onReceived",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "id": "trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "5f4f5a9e-1f52-4a53-9a3f-gensnsdraft1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.body.aiEngineUrl }}/llm/chat",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body.llmBody }}",
+        "options": {}
+      },
+      "id": "ai-chat",
+      "name": "AI Engine Chat",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [520, 300],
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Webhook').item.json.body.callbackUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "x-webhook-token", "value": "={{ $env.N8N_WEBHOOK_AUTH_TOKEN || 'org-ai-n8n-secret-token' }}" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "taskId", "value": "={{ $('Webhook').item.json.body.taskId }}" },
+            { "name": "status", "value": "DONE" },
+            { "name": "output", "value": "={{ $('AI Engine Chat').item.json.content }}" },
+            { "name": "workflowId", "value": "={{ $workflow.id }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "callback-done",
+      "name": "Callback (Done)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [800, 300],
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 3000
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "AI Engine Chat", "type": "main", "index": 0 }]] },
+    "AI Engine Chat": { "main": [[{ "node": "Callback (Done)", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "saveManualExecutions": true },
+  "staticData": null
+}

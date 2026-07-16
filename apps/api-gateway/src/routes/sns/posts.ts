@@ -2,38 +2,24 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
 import { requireAuth } from '../../middleware/auth';
-import {
-  PLATFORM_CONSTRAINTS,
-  buildSnsMessages,
-  normalizeHashtags,
-  validatePost,
-  type SnsDraft,
-  type SnsGenInputs,
-} from './format';
+import { dispatchGenerationTask } from '../../services/generation-dispatch';
+import { buildSnsMessages, type SnsGenInputs } from './format';
 import { groupDraftsByDate, type CalendarTask } from './calendar';
 
 /**
- * SNS投稿 下書き生成 & 承認待ちキュー（N-1 / N-2）。
+ * SNS投稿 下書き生成 & 承認待ちキュー（N-1 / N-2）— n8n 統合設計 D1 準拠。
  *
  * 【最重要・厳守】SNSへの実投稿は一切実装しない。ここでできるのは
- *   下書き生成 → 承認待ち(PENDING_APPROVAL) → 承認/却下(状態遷移のみ) まで。
+ *   下書き生成 → 承認待ち(PENDING_APPROVAL) → 承認/却下(状態遷移のみ) → 予約(scheduledAt) まで。
  * 承認しても投稿はされない。既存の POST /tasks/:id/approve は承認時に
- * dispatchQueuedTask() で実行に回すため **絶対に流用しない**（本ファイルは dispatch を import しない）。
+ * dispatchQueuedTask() で実行に回すため **絶対に流用しない**。
  *
- * LLM は AI Engine `/llm/chat` 経由（規約準拠）。`/llm/chat` は AILog を書かないので
- * 本ルートで prisma.aILog.create する（integration-requests 参照）。
- * 下書きは `Task(department='MARKETING', taskType='sns', status='PENDING_APPROVAL', output=JSON)` として保存し、
- * 既存フロントの deliverable 'sns' レンダラにそのまま載る。
- * ルート登録(index.ts)は統合フェーズ(B)。prefix 例: `/api/sns/posts`。
+ * 生成は Task(taskType='sns', status='QUEUED') を作成して 202 を返し、
+ * dispatchGenerationTask（n8n 加速 + AI Engine フォールバック）が実行する。
+ * 完了時の後処理（finalizeGenerationOutput）がドラフトを整形して
+ * **PENDING_APPROVAL** に遷移させる（DONE にはしない = 勝手に実行されない）。
+ * AILog は ai-engine `/llm/chat` の集中ロギングで記録（本ルートの重複 aILog.create は廃止）。
  */
-
-interface LLMChatResponse {
-  content: string;
-  model: string;
-  tokens_used: number;
-  latency_ms: number;
-  pii_detected: boolean;
-}
 
 const SNS_DEPARTMENT = 'MARKETING'; // 実 enum に 'SNS' は無い。SNS=マーケ機能として MARKETING に集約。
 const SNS_TASK_TYPE = 'sns';
@@ -46,7 +32,6 @@ const generateSchema = z.object({
   tone: z.string().max(100).optional(),
   keywords: z.string().max(1000).optional(),
   hashtagCount: z.number().int().min(0).max(30).optional(),
-  persist: z.boolean().optional(),
 });
 
 const rejectSchema = z.object({ reason: z.string().max(500).optional() });
@@ -56,24 +41,10 @@ const scheduleSchema = z.object({
     .refine((s) => !Number.isNaN(new Date(s).getTime()), { message: '日付が不正です' }),
 });
 
-type AuthPayload = { orgId: string; sub?: string };
-
-/** LLM 応答本文から {content, hashtags} を取り出す。JSON でなければ全文を content 扱い。 */
-function parseDraftBody(raw: string): { content: string; hashtags: string[] } {
-  try {
-    const j = JSON.parse(raw) as { content?: unknown; hashtags?: unknown };
-    if (typeof j.content === 'string' && j.content.trim()) {
-      const tags = Array.isArray(j.hashtags) ? (j.hashtags as unknown[]).map(String) : [];
-      return { content: j.content, hashtags: tags };
-    }
-  } catch {
-    /* JSON でない場合は全文を本文として扱う（フォールバック） */
-  }
-  return { content: raw, hashtags: [] };
-}
+type AuthPayload = { orgId: string; sub?: string; email?: string };
 
 export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
-  // ── N-1: 投稿下書き生成 ──────────────────────────────
+  // ── N-1: 投稿下書き生成（非同期 Task 化・D1） ─────────────
   app.post('/', { preHandler: requireAuth }, async (request, reply) => {
     const payload = request.user as AuthPayload;
     const parsed = generateSchema.safeParse(request.body);
@@ -85,98 +56,34 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
 
     const { platform, topic, tone, keywords, hashtagCount } = parsed.data;
     const inputs: SnsGenInputs = { topic, tone, keywords, hashtagCount };
-    const org = await prisma.organization.findUnique({ where: { id: payload.orgId } });
-    const plan = org?.plan ?? 'STARTER';
     const messages = buildSnsMessages(platform, inputs);
-
-    const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
-    let res: Response;
-    try {
-      res = await fetch(`${aiEngineUrl}/llm/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages,
-          department: SNS_DEPARTMENT,
-          org_id: payload.orgId,
-          plan,
-          json_mode: true,
-          user_email: (request.user as { email?: string }).email ?? null, // 松竹梅ルーティング
-        }),
-      });
-    } catch (e) {
-      request.log.error({ err: e }, '[sns/posts] ai-engine unreachable');
-      return reply.code(502).send({
-        success: false,
-        error: { code: 'AI_ENGINE_UNAVAILABLE', message: 'AI エンジンに接続できません。' },
-      });
-    }
-
-    const text = await res.text();
-    if (!res.ok) {
-      return reply.code(res.status >= 500 ? 502 : res.status).send({
-        success: false,
-        error: { code: 'LLM_UPSTREAM_ERROR', message: text.slice(0, 800) },
-      });
-    }
-
-    let llm: LLMChatResponse;
-    try {
-      llm = JSON.parse(text) as LLMChatResponse;
-    } catch {
-      return reply.code(502).send({
-        success: false,
-        error: { code: 'LLM_BAD_RESPONSE', message: 'AI エンジンの応答を解釈できませんでした。' },
-      });
-    }
-
-    const body = parseDraftBody(llm.content ?? '');
-    const hashtags = normalizeHashtags(body.hashtags).slice(0, PLATFORM_CONSTRAINTS[platform].maxHashtags ?? undefined);
-    const draft: SnsDraft = { platform, content: body.content, hashtags };
-    const validation = validatePost(platform, draft.content, draft.hashtags);
+    const systemPrompt = messages.find((m) => m.role === 'system')?.content ?? '';
     const userPrompt = messages.find((m) => m.role === 'user')?.content ?? '';
 
-    // AILog（必須・best-effort）
-    try {
-      await prisma.aILog.create({
-        data: {
-          orgId: payload.orgId,
-          department: SNS_DEPARTMENT,
-          provider: 'anthropic',
-          model: llm.model,
-          inputText: userPrompt.slice(0, 4000),
-          outputText: (llm.content ?? '').slice(0, 4000),
-          tokens: llm.tokens_used ?? null,
-          latencyMs: llm.latency_ms ?? null,
-          riskScore: null,
-        },
-      });
-    } catch (e) {
-      request.log.error({ err: e }, '[sns/posts] AILog 記録に失敗');
-    }
+    const task = await prisma.task.create({
+      data: {
+        orgId: payload.orgId,
+        title: `SNS下書き(${platform}): ${topic.slice(0, 40)}`,
+        status: 'QUEUED',
+        department: SNS_DEPARTMENT,
+        taskType: SNS_TASK_TYPE,
+        input: JSON.stringify({ platform, ...inputs }),
+      },
+    });
+    await prisma.taskLog.create({
+      data: { taskId: task.id, message: 'SNS下書き生成をキューに投入しました', level: 'INFO' },
+    });
 
-    // 承認待ち Task として保存（既定 true）。※投稿はしない。承認は別途キューで。
-    let taskId: string | null = null;
-    if (parsed.data.persist !== false) {
-      try {
-        const task = await prisma.task.create({
-          data: {
-            orgId: payload.orgId,
-            title: `SNS下書き(${platform}): ${topic.slice(0, 40)}`,
-            status: 'PENDING_APPROVAL',
-            department: SNS_DEPARTMENT,
-            taskType: SNS_TASK_TYPE,
-            input: JSON.stringify(inputs),
-            output: JSON.stringify(draft),
-          },
-        });
-        taskId = task.id;
-      } catch (e) {
-        request.log.error({ err: e }, '[sns/posts] 下書き Task 保存に失敗');
-      }
-    }
+    // 生成完了時に finalizeGenerationOutput が PENDING_APPROVAL に遷移させる（投稿はしない）
+    dispatchGenerationTask(task, {
+      taskType: 'sns',
+      systemPrompt,
+      userPrompt,
+      jsonMode: true,
+      userEmail: payload.email ?? null,
+    }).catch((e) => request.log.error({ err: e }, '[sns/posts] dispatch failed'));
 
-    return reply.send({ success: true, data: { draft, validation, taskId, model: llm.model } });
+    return reply.code(202).send({ success: true, data: { taskId: task.id, status: 'QUEUED', platform } });
   });
 
   // ── N-2: 承認待ちキュー（read） ──────────────────────
@@ -281,7 +188,8 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
         .code(404)
         .send({ success: false, error: { code: 'NOT_FOUND', message: 'SNS下書きが見つかりません' } });
     }
-    // 既存 output(下書きJSON)に scheduledAt を差し込む。status は変えない・投稿もしない。
+    // 正式カラム Task.scheduledAt に保存（SNS#S4 消化。投稿準備 cron が status と組で走査する）。
+    // 既存 UI との互換のため output(下書きJSON) にも複製する。status は変えない・投稿もしない。
     let draft: Record<string, unknown> = {};
     try {
       draft = task.output ? (JSON.parse(task.output) as Record<string, unknown>) : {};
@@ -291,7 +199,7 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
     draft.scheduledAt = parsed.data.scheduledAt;
     const updated = await prisma.task.update({
       where: { id: taskId },
-      data: { output: JSON.stringify(draft) },
+      data: { scheduledAt: new Date(parsed.data.scheduledAt), output: JSON.stringify(draft) },
     });
     return reply.send({ success: true, data: updated });
   });

@@ -1,0 +1,45 @@
+{
+  "name": "org-ai SNS Publish Prep",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "*/15 * * * *" }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 15 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.API_GATEWAY_URL || 'http://api-gateway:4000' }}/api/webhooks/n8n/sns-publish-prep",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-webhook-token", "value": "={{ $env.N8N_WEBHOOK_AUTH_TOKEN || 'org-ai-n8n-secret-token' }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "prep-request",
+      "name": "Publish Prep (No Live Post)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "Every 15 Minutes": { "main": [[{ "node": "Publish Prep (No Live Post)", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "saveManualExecutions": true },
+  "staticData": null
+}

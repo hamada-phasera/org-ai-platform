@@ -5,35 +5,28 @@ process.env.AI_ENGINE_URL = 'https://ai.test';
 
 // prisma は import 時に DATABASE_URL を要求するためモックする。
 const prismaMock = {
-  organization: { findUnique: vi.fn() },
-  aILog: { create: vi.fn() },
   task: { create: vi.fn() },
+  taskLog: { create: vi.fn() },
 };
 vi.mock('../../src/utils/prisma', () => ({ prisma: prismaMock }));
 
 // 認証はモックして request.user を注入。
 vi.mock('../../src/middleware/auth', () => ({
   requireAuth: async (req: { user?: unknown }) => {
-    req.user = { orgId: 'org-1', sub: 'user-1', role: 'OWNER' };
+    req.user = { orgId: 'org-1', sub: 'user-1', role: 'OWNER', email: 'boss@example.com' };
   },
   requireOwner: async (req: { user?: unknown }) => {
-    req.user = { orgId: 'org-1', sub: 'user-1', role: 'OWNER' };
+    req.user = { orgId: 'org-1', sub: 'user-1', role: 'OWNER', email: 'boss@example.com' };
   },
 }));
 
-const fetchMock = vi.fn();
-vi.stubGlobal('fetch', fetchMock);
+// D1: 生成は dispatchGenerationTask（n8n加速+AI Engineフォールバック）に委譲される。
+const dispatchMock = vi.fn();
+vi.mock('../../src/services/generation-dispatch', () => ({
+  dispatchGenerationTask: dispatchMock,
+}));
 
 const { salesProposalsRoutes } = await import('../../src/routes/sales/proposals');
-
-function llmOk(content = '## エグゼクティブサマリー\n提案です。'): { ok: boolean; status: number; text: () => Promise<string> } {
-  return {
-    ok: true,
-    status: 200,
-    text: async () =>
-      JSON.stringify({ content, model: 'claude-sonnet-5', tokens_used: 321, latency_ms: 654, pii_detected: false }),
-  };
-}
 
 async function build(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -44,81 +37,60 @@ async function build(): Promise<FastifyInstance> {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  prismaMock.organization.findUnique.mockResolvedValue({ plan: 'PRO' });
-  prismaMock.aILog.create.mockResolvedValue({ id: 'log-1' });
-  prismaMock.task.create.mockResolvedValue({ id: 'task-1' });
+  prismaMock.task.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+    id: 'task-1',
+    ...data,
+  }));
+  prismaMock.taskLog.create.mockResolvedValue({ id: 'log-1' });
+  dispatchMock.mockResolvedValue(undefined);
 });
 
-describe('POST /api/sales/proposals', () => {
-  it('正常系: 生成→ドラフト返却、AILog記録・Task保存が呼ばれる', async () => {
-    fetchMock.mockResolvedValue(llmOk());
+describe('POST /api/sales/proposals (D1: Task/dispatch 化)', () => {
+  it('正常系: QUEUED Task を作成して 202 + dispatch に委譲する', async () => {
     const app = await build();
     const res = await app.inject({
       method: 'POST',
       url: '/api/sales/proposals',
       payload: { customerName: '株式会社Acme', background: '紙業務が多い', requirements: '自動化したい' },
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(202);
     const body = res.json();
     expect(body.success).toBe(true);
-    expect(body.data.proposal).toContain('提案です');
-    expect(body.data.model).toBe('claude-sonnet-5');
     expect(body.data.taskId).toBe('task-1');
+    expect(body.data.status).toBe('QUEUED');
+    expect(body.data.templateId).toBe('standard');
 
-    // /llm/chat 経由で department=SALES を送っている
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, opts] = fetchMock.mock.calls[0];
-    expect(String(url)).toContain('/llm/chat');
-    expect(JSON.parse(opts.body).department).toBe('SALES');
-    expect(JSON.parse(opts.body).json_mode).toBe(false);
+    // Task は QUEUED / SALES / taskType=proposal で作成される
+    const taskData = prismaMock.task.create.mock.calls[0][0].data;
+    expect(taskData.status).toBe('QUEUED');
+    expect(taskData.department).toBe('SALES');
+    expect(taskData.taskType).toBe('proposal');
+    expect(JSON.parse(taskData.input).customerName).toBe('株式会社Acme');
+    expect(JSON.parse(taskData.input).templateId).toBe('standard');
 
-    // AILog(必須) と Task(既定保存) が記録される
-    expect(prismaMock.aILog.create).toHaveBeenCalledTimes(1);
-    expect(prismaMock.aILog.create.mock.calls[0][0].data.department).toBe('SALES');
-    expect(prismaMock.task.create).toHaveBeenCalledTimes(1);
-    expect(prismaMock.task.create.mock.calls[0][0].data.taskType).toBe('proposal');
+    // dispatch には system/user プロンプトと松竹梅ルーティング用 email が渡る
+    expect(dispatchMock).toHaveBeenCalledTimes(1);
+    const [task, spec] = dispatchMock.mock.calls[0];
+    expect(task.id).toBe('task-1');
+    expect(spec.taskType).toBe('proposal');
+    expect(spec.jsonMode).toBe(false);
+    expect(spec.systemPrompt).toContain('株式会社Acme');
+    expect(spec.userPrompt).toContain('紙業務が多い');
+    expect(spec.userEmail).toBe('boss@example.com');
     await app.close();
   });
 
-  it('正常系: persist=false なら Task は保存せず AILog は記録する', async () => {
-    fetchMock.mockResolvedValue(llmOk());
-    const app = await build();
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/sales/proposals',
-      payload: { customerName: 'A社', persist: false },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json().data.taskId).toBeNull();
-    expect(prismaMock.task.create).not.toHaveBeenCalled();
-    expect(prismaMock.aILog.create).toHaveBeenCalledTimes(1);
-    await app.close();
-  });
-
-  it('正常系: AILog記録が失敗しても生成結果は返す(best-effort)', async () => {
-    fetchMock.mockResolvedValue(llmOk());
-    prismaMock.aILog.create.mockRejectedValue(new Error('db down'));
-    const app = await build();
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/sales/proposals',
-      payload: { customerName: 'A社' },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json().data.proposal).toContain('提案です');
-    await app.close();
-  });
-
-  it('エッジ: customerName 欠落 → 400 VALIDATION_ERROR(LLMは呼ばない)', async () => {
+  it('エッジ: customerName 欠落 → 400 VALIDATION_ERROR(Task も dispatch も作らない)', async () => {
     const app = await build();
     const res = await app.inject({ method: 'POST', url: '/api/sales/proposals', payload: {} });
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe('VALIDATION_ERROR');
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(prismaMock.task.create).not.toHaveBeenCalled();
+    expect(dispatchMock).not.toHaveBeenCalled();
     await app.close();
   });
 
-  it('エッジ: 未知の templateId → 400(LLMは呼ばない)', async () => {
+  it('エッジ: 未知の templateId → 400(Task も dispatch も作らない)', async () => {
     const app = await build();
     const res = await app.inject({
       method: 'POST',
@@ -127,33 +99,20 @@ describe('POST /api/sales/proposals', () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe('VALIDATION_ERROR');
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(prismaMock.task.create).not.toHaveBeenCalled();
+    expect(dispatchMock).not.toHaveBeenCalled();
     await app.close();
   });
 
-  it('エッジ: AI Engine 到達不可 → 502 AI_ENGINE_UNAVAILABLE', async () => {
-    fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
+  it('エッジ: dispatch が失敗しても 202 は返る（実行系のエラーは Task/TaskLog 側で記録）', async () => {
+    dispatchMock.mockRejectedValue(new Error('n8n down'));
     const app = await build();
     const res = await app.inject({
       method: 'POST',
       url: '/api/sales/proposals',
       payload: { customerName: 'A社' },
     });
-    expect(res.statusCode).toBe(502);
-    expect(res.json().error.code).toBe('AI_ENGINE_UNAVAILABLE');
-    await app.close();
-  });
-
-  it('エッジ: 上流エラー(500) → 502 LLM_UPSTREAM_ERROR', async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
-    const app = await build();
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/sales/proposals',
-      payload: { customerName: 'A社' },
-    });
-    expect(res.statusCode).toBe(502);
-    expect(res.json().error.code).toBe('LLM_UPSTREAM_ERROR');
+    expect(res.statusCode).toBe(202);
     await app.close();
   });
 });

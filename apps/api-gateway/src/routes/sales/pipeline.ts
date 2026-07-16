@@ -1,75 +1,23 @@
-import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import {
+  PIPELINE_STAGES,
+  PIPELINE_STAGE_LABEL,
+  isPipelineStage,
+  canTransition,
+  type PipelineStage,
+} from '@org-ai/shared-types';
+import { prisma } from '../../utils/prisma';
 import { requireAuth } from '../../middleware/auth';
 
 /**
- * 営業パイプライン（商談ステージ）最小API — R1 縦切り。
+ * 営業パイプライン（商談ステージ）API — R1 縦切りのインメモリ実装を Prisma `Deal` に正式化。
  *
- * 共有の Deal / PipelineStage 型や Prisma モデルはまだ存在しないため（B=統合フェーズで正式化）、
- * ここではローカル型 + orgId 単位のインメモリストアで暫定実装する。
- * schema 化の要求は docs/integration-requests.md #1 に起票済み。
- *
- * ルート登録（index.ts の app.register）は統合フェーズ(B)が行う。
- * 本ファイルは prisma を import しない（DATABASE_URL 依存を持たず、DB 無しで単体テスト可能）。
+ * 型・ステージ遷移ロジックの正本は `@org-ai/shared-types` の
+ * `Deal` / `PipelineStage` / `canTransition`（integration-requests 営業#1 を消化）。
  */
 
-// ── 商談ステージ（リード→商談→提案→受注） ─────────────────────────
-export const PIPELINE_STAGES = ['LEAD', 'NEGOTIATION', 'PROPOSAL', 'WON'] as const;
-export type PipelineStage = (typeof PIPELINE_STAGES)[number];
-
-export const STAGE_LABEL: Record<PipelineStage, string> = {
-  LEAD: 'リード',
-  NEGOTIATION: '商談',
-  PROPOSAL: '提案',
-  WON: '受注',
-};
-
-/** 値が有効な商談ステージかどうかの型ガード。 */
-export function isPipelineStage(value: unknown): value is PipelineStage {
-  return typeof value === 'string' && (PIPELINE_STAGES as readonly string[]).includes(value);
-}
-
-/**
- * ステージ遷移が許可されるか。
- * 受注(WON)は終端ステージなので、そこから他ステージへは戻せない。
- * それ以外は前後どちらへの移動も許可（差し戻し・再交渉を想定）。
- */
-export function canTransition(from: PipelineStage, to: PipelineStage): boolean {
-  if (!isPipelineStage(from) || !isPipelineStage(to)) return false;
-  if (from === 'WON' && to !== 'WON') return false;
-  return true;
-}
-
-// ── Deal（商談） ───────────────────────────────────────────────
-export interface Deal {
-  id: string;
-  orgId: string;
-  title: string;
-  company: string | null;
-  amount: number;
-  stage: PipelineStage;
-  ownerId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-// ── インメモリストア（orgId 単位。テナント分離を保つ） ───────────────
-const dealsByOrg = new Map<string, Deal[]>();
-
-function orgDeals(orgId: string): Deal[] {
-  let deals = dealsByOrg.get(orgId);
-  if (!deals) {
-    deals = [];
-    dealsByOrg.set(orgId, deals);
-  }
-  return deals;
-}
-
-/** テスト用: ストアを初期化する。 */
-export function _resetPipelineStore(): void {
-  dealsByOrg.clear();
-}
+export { PIPELINE_STAGES, PIPELINE_STAGE_LABEL as STAGE_LABEL, isPipelineStage, canTransition, type PipelineStage };
 
 // ── バリデーション（zod。既存ルート規約に合わせる） ─────────────────
 const createDealSchema = z.object({
@@ -92,7 +40,7 @@ type AuthPayload = { orgId: string; sub?: string };
 
 /**
  * 営業パイプライン ルートプラグイン。
- * 登録時 prefix 例: `/api/sales/pipeline`（B が index.ts で app.register する）。
+ * 登録時 prefix 例: `/api/sales/pipeline`。
  */
 export async function salesPipelineRoutes(app: FastifyInstance): Promise<void> {
   // 商談一覧（?stage= で絞り込み可）
@@ -100,15 +48,15 @@ export async function salesPipelineRoutes(app: FastifyInstance): Promise<void> {
     const payload = request.user as AuthPayload;
     const { stage } = request.query as { stage?: string };
 
-    let deals = orgDeals(payload.orgId);
-    if (stage !== undefined) {
-      if (!isPipelineStage(stage)) {
-        return reply
-          .code(400)
-          .send({ success: false, error: { code: 'VALIDATION_ERROR', message: `不正なステージ: ${stage}` } });
-      }
-      deals = deals.filter((d) => d.stage === stage);
+    if (stage !== undefined && !isPipelineStage(stage)) {
+      return reply
+        .code(400)
+        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: `不正なステージ: ${stage}` } });
     }
+    const deals = await prisma.deal.findMany({
+      where: { orgId: payload.orgId, ...(stage !== undefined ? { stage } : {}) },
+      orderBy: { createdAt: 'desc' },
+    });
     return reply.send({ success: true, data: deals });
   });
 
@@ -116,8 +64,8 @@ export async function salesPipelineRoutes(app: FastifyInstance): Promise<void> {
   app.get('/:dealId', { preHandler: requireAuth }, async (request, reply) => {
     const payload = request.user as AuthPayload;
     const { dealId } = request.params as { dealId: string };
-    const deal = orgDeals(payload.orgId).find((d) => d.id === dealId);
-    if (!deal) {
+    const deal = await prisma.deal.findUnique({ where: { id: dealId } });
+    if (!deal || deal.orgId !== payload.orgId) {
       return reply
         .code(404)
         .send({ success: false, error: { code: 'NOT_FOUND', message: '商談が見つかりません' } });
@@ -134,19 +82,16 @@ export async function salesPipelineRoutes(app: FastifyInstance): Promise<void> {
         .code(400)
         .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
     }
-    const now = new Date().toISOString();
-    const deal: Deal = {
-      id: randomUUID(),
-      orgId: payload.orgId,
-      title: parsed.data.title,
-      company: parsed.data.company ?? null,
-      amount: parsed.data.amount ?? 0,
-      stage: parsed.data.stage ?? 'LEAD',
-      ownerId: payload.sub ?? null,
-      createdAt: now,
-      updatedAt: now,
-    };
-    orgDeals(payload.orgId).push(deal);
+    const deal = await prisma.deal.create({
+      data: {
+        orgId: payload.orgId,
+        title: parsed.data.title,
+        company: parsed.data.company ?? null,
+        amount: parsed.data.amount ?? 0,
+        stage: parsed.data.stage ?? 'LEAD',
+        ownerId: payload.sub ?? null,
+      },
+    });
     return reply.code(201).send({ success: true, data: deal });
   });
 
@@ -161,30 +106,33 @@ export async function salesPipelineRoutes(app: FastifyInstance): Promise<void> {
         .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
     }
 
-    const deal = orgDeals(payload.orgId).find((d) => d.id === dealId);
-    if (!deal) {
+    const deal = await prisma.deal.findUnique({ where: { id: dealId } });
+    if (!deal || deal.orgId !== payload.orgId) {
       return reply
         .code(404)
         .send({ success: false, error: { code: 'NOT_FOUND', message: '商談が見つかりません' } });
     }
 
     const { title, company, amount, stage } = parsed.data;
-    if (stage !== undefined && !canTransition(deal.stage, stage)) {
+    if (stage !== undefined && !canTransition(deal.stage as PipelineStage, stage)) {
       return reply.code(409).send({
         success: false,
         error: {
           code: 'INVALID_TRANSITION',
-          message: `${STAGE_LABEL[deal.stage]}から${STAGE_LABEL[stage]}へは変更できません`,
+          message: `${PIPELINE_STAGE_LABEL[deal.stage as PipelineStage]}から${PIPELINE_STAGE_LABEL[stage]}へは変更できません`,
         },
       });
     }
 
-    if (title !== undefined) deal.title = title;
-    if (company !== undefined) deal.company = company;
-    if (amount !== undefined) deal.amount = amount;
-    if (stage !== undefined) deal.stage = stage;
-    deal.updatedAt = new Date().toISOString();
-
-    return reply.send({ success: true, data: deal });
+    const updated = await prisma.deal.update({
+      where: { id: dealId },
+      data: {
+        ...(title !== undefined ? { title } : {}),
+        ...(company !== undefined ? { company } : {}),
+        ...(amount !== undefined ? { amount } : {}),
+        ...(stage !== undefined ? { stage } : {}),
+      },
+    });
+    return reply.send({ success: true, data: updated });
   });
 }
