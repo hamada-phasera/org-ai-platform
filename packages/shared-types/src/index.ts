@@ -25,7 +25,18 @@ export type AgentDepartment = 'SALES' | 'MARKETING' | 'ACCOUNTING' | 'ANALYTICS'
 export const AGENT_DEPARTMENTS: AgentDepartment[] = ['SALES', 'MARKETING', 'ACCOUNTING', 'ANALYTICS', 'GENERAL'];
 
 export type ScheduleFrequency = 'daily' | 'weekly' | 'monthly';
-export type TaskStatus = 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED';
+// Task.status の値域（DB は String カラムで運用。DB enum 化は本番の migrate deploy 失敗リスクを避けて見送り）。
+// - 実行系: PENDING → QUEUED（n8n dispatch 待ち）→ RUNNING → DONE / FAILED
+// - 承認系（SNS 下書き等・自動実行しない）: PENDING_APPROVAL → APPROVED / REJECTED
+export type TaskStatus =
+  | 'PENDING'
+  | 'QUEUED'
+  | 'RUNNING'
+  | 'DONE'
+  | 'FAILED'
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'REJECTED';
 export type RiskSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type RiskType = 'PII_DETECTED' | 'HARMFUL_CONTENT' | 'ANOMALY' | 'COST_ANOMALY';
 export type MessageRole = 'user' | 'assistant' | 'system';
@@ -77,6 +88,8 @@ export interface Task {
   department: AgentDepartment;
   input: string;
   output: string | null;
+  /** 予約投稿日時（SNS 下書き等）。Prisma の scheduledAt カラム。未設定は null。 */
+  scheduledAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

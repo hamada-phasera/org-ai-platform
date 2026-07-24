@@ -8,6 +8,8 @@ export interface CalendarDraft {
   id: string;
   status: string;
   output: string | null;
+  /** 予約投稿日時（Prisma の DateTime カラム）。旧データは無く、その場合は output JSON にフォールバック。 */
+  scheduledAt?: string | null;
   createdAt: string;
 }
 
@@ -20,22 +22,37 @@ const STATUS_DOT: Record<string, string> = {
   DONE: '#10B981',
 };
 
-/** scheduledAt(あれば) or createdAt を JST の YYYY-MM-DD に丸める。 */
+/**
+ * 日付キーを JST の YYYY-MM-DD で返す。優先順位:
+ *   1. scheduledAt カラム（新方式）
+ *   2. output JSON の scheduledAt（旧データの後方互換）
+ *   3. createdAt
+ */
 function dateKeyOf(task: CalendarDraft): string | null {
   let iso: string | undefined = task.createdAt;
-  if (task.output) {
-    try {
-      const j = JSON.parse(task.output) as { scheduledAt?: unknown };
-      if (typeof j.scheduledAt === 'string' && !Number.isNaN(new Date(j.scheduledAt).getTime())) {
-        iso = j.scheduledAt;
-      }
-    } catch {
-      /* ignore */
-    }
+  // 3 → 2 → 1 の順に上書きすることで、存在するものほど優先される。
+  const fromOutput = extractScheduledAtFromOutput(task.output);
+  if (fromOutput) iso = fromOutput;
+  if (typeof task.scheduledAt === 'string' && !Number.isNaN(new Date(task.scheduledAt).getTime())) {
+    iso = task.scheduledAt;
   }
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
   return d.toLocaleDateString('en-CA', { timeZone: TZ });
+}
+
+/** 旧データ後方互換: output JSON 内の scheduledAt を取り出す（無効なら undefined）。 */
+function extractScheduledAtFromOutput(output: string | null): string | undefined {
+  if (!output) return undefined;
+  try {
+    const j = JSON.parse(output) as { scheduledAt?: unknown };
+    if (typeof j.scheduledAt === 'string' && !Number.isNaN(new Date(j.scheduledAt).getTime())) {
+      return j.scheduledAt;
+    }
+  } catch {
+    /* ignore */
+  }
+  return undefined;
 }
 
 function keyFor(year: number, month0: number, day: number): string {

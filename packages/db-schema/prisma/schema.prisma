@@ -31,6 +31,7 @@ model Organization {
   files          UploadedFile[]
   scheduledTasks ScheduledTask[]
   agents         Agent[]
+  deals          Deal[]
   createdAt      DateTime        @default(now())
 }
 
@@ -70,6 +71,9 @@ model Task {
   retryCount      Int          @default(0)
   lastError       String?
   executedAt      DateTime?
+  // SNS 下書き等の予約投稿日時。従来は output JSON 内に持っていたが、索引・カレンダー集計のためカラム化。
+  // 実投稿はしない（メタデータのみ）。status は String のまま（DB enum 化は本番の migrate deploy 失敗リスクを避けるため見送り）。
+  scheduledAt     DateTime?
   agentId         String?
   agent           Agent?       @relation(fields: [agentId], references: [id])
   logs            TaskLog[]
@@ -77,6 +81,7 @@ model Task {
   updatedAt       DateTime     @updatedAt
 
   @@index([orgId, agentId])
+  @@index([orgId, scheduledAt])
 }
 
 model TaskLog {
@@ -288,4 +293,22 @@ model Agent {
 
   @@unique([orgId, name])
   @@index([orgId, enabled])
+}
+
+/// 営業パイプラインの商談。従来は routes/sales/pipeline.ts のインメモリ Map（再起動で消える）だったが、
+/// 永続化のためテーブル化。stage は String（'LEAD' | 'NEGOTIATION' | 'PROPOSAL' | 'WON'）で、
+/// 値域の enforcement は shared-types の PipelineStage 型 + zod で行う（DB enum にはしない）。
+model Deal {
+  id        String       @id @default(cuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id])
+  title     String
+  company   String?
+  amount    Int          @default(0)
+  stage     String       @default("LEAD")
+  ownerId   String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([orgId, stage])
 }

@@ -1,8 +1,9 @@
 /**
  * SNSコンテンツカレンダーの日付ロジック（N-3 の純粋部分）。
  *
- * 下書き Task を「日付」にひも付けて集計する。日付は output.scheduledAt があればそれ、
- * 無ければ createdAt を採用し、指定タイムゾーン（既定 JST）の YYYY-MM-DD で丸める。
+ * 下書き Task を「日付」にひも付けて集計する。日付は scheduledAt（新カラム）を最優先し、
+ * 無ければ旧来の output.scheduledAt（後方互換）、それも無ければ createdAt を採用し、
+ * 指定タイムゾーン（既定 JST）の YYYY-MM-DD で丸める。
  * prisma/fastify を import しない = DB 無しで単体テスト可能。
  */
 
@@ -15,13 +16,15 @@ export interface CalendarTask {
   status: string;
   taskType: string | null;
   output: string | null;
-  createdAt: string;
+  /** 予約投稿日時（Prisma の DateTime カラム）。旧データは null で、その場合は output JSON にフォールバックする。 */
+  scheduledAt?: string | Date | null;
+  createdAt: string | Date;
 }
 
-/** ISO 文字列を指定TZの 'YYYY-MM-DD' に丸める。無効な入力は null。 */
-export function toDateKey(iso: string | null | undefined, tz: string = DEFAULT_TZ): string | null {
+/** ISO 文字列 / Date を指定TZの 'YYYY-MM-DD' に丸める。無効な入力は null。 */
+export function toDateKey(iso: string | Date | null | undefined, tz: string = DEFAULT_TZ): string | null {
   if (!iso) return null;
-  const d = new Date(iso);
+  const d = iso instanceof Date ? iso : new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
   // en-CA ロケールは YYYY-MM-DD 形式。timeZone でその地域の暦日に丸める。
   return new Intl.DateTimeFormat('en-CA', {
@@ -46,9 +49,15 @@ export function extractScheduledAt(output: string | null): string | undefined {
   return undefined;
 }
 
-/** その下書きが属する日付キー（scheduledAt 優先、無ければ createdAt）。 */
+/**
+ * その下書きが属する日付キー。優先順位:
+ *   1. scheduledAt カラム（新方式）
+ *   2. output JSON の scheduledAt（旧データの後方互換）
+ *   3. createdAt
+ */
 export function draftDateKey(task: CalendarTask, tz: string = DEFAULT_TZ): string | null {
-  return toDateKey(extractScheduledAt(task.output) ?? task.createdAt, tz);
+  const scheduled = task.scheduledAt ?? extractScheduledAt(task.output);
+  return toDateKey(scheduled ?? task.createdAt, tz);
 }
 
 export interface CalendarDay {
