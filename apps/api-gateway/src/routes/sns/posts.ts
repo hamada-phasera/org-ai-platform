@@ -281,17 +281,11 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
         .code(404)
         .send({ success: false, error: { code: 'NOT_FOUND', message: 'SNS下書きが見つかりません' } });
     }
-    // 既存 output(下書きJSON)に scheduledAt を差し込む。status は変えない・投稿もしない。
-    let draft: Record<string, unknown> = {};
-    try {
-      draft = task.output ? (JSON.parse(task.output) as Record<string, unknown>) : {};
-    } catch {
-      draft = {};
-    }
-    draft.scheduledAt = parsed.data.scheduledAt;
+    // scheduledAt カラム（新方式）に予約日時を設定。output(下書きJSON)は汚さない。
+    // status は変えない・投稿もしない（メタデータのみ）。
     const updated = await prisma.task.update({
       where: { id: taskId },
-      data: { output: JSON.stringify(draft) },
+      data: { scheduledAt: new Date(parsed.data.scheduledAt) },
     });
     return reply.send({ success: true, data: updated });
   });

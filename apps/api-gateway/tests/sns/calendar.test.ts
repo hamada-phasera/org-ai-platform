@@ -27,6 +27,10 @@ describe('toDateKey (JST)', () => {
     expect(toDateKey('2026-07-07T14:59:00Z')).toBe('2026-07-07');
   });
 
+  it('正常系: Date オブジェクト入力も受け付ける（scheduledAt カラム由来）', () => {
+    expect(toDateKey(new Date('2026-07-07T16:00:00Z'))).toBe('2026-07-08');
+  });
+
   it('エッジ: 無効/空は null', () => {
     expect(toDateKey('not-a-date')).toBeNull();
     expect(toDateKey(null)).toBeNull();
@@ -49,13 +53,25 @@ describe('extractScheduledAt', () => {
 });
 
 describe('draftDateKey', () => {
-  it('正常系: scheduledAt を優先し、無ければ createdAt', () => {
+  it('正常系: scheduledAt カラムを最優先（output/createdAt より優先）', () => {
     expect(
       draftDateKey(
-        task({ output: JSON.stringify({ scheduledAt: '2026-08-15T10:00:00+09:00' }), createdAt: '2026-07-01T00:00:00+09:00' }),
+        task({
+          scheduledAt: new Date('2026-09-20T10:00:00+09:00'),
+          output: JSON.stringify({ scheduledAt: '2026-08-15T10:00:00+09:00' }),
+          createdAt: '2026-07-01T00:00:00+09:00',
+        }),
+      ),
+    ).toBe('2026-09-20');
+  });
+
+  it('後方互換: scheduledAt カラムが無ければ旧 output JSON の scheduledAt、無ければ createdAt', () => {
+    expect(
+      draftDateKey(
+        task({ scheduledAt: null, output: JSON.stringify({ scheduledAt: '2026-08-15T10:00:00+09:00' }), createdAt: '2026-07-01T00:00:00+09:00' }),
       ),
     ).toBe('2026-08-15');
-    expect(draftDateKey(task({ output: null, createdAt: '2026-07-03T09:00:00+09:00' }))).toBe('2026-07-03');
+    expect(draftDateKey(task({ scheduledAt: null, output: null, createdAt: '2026-07-03T09:00:00+09:00' }))).toBe('2026-07-03');
   });
 });
 

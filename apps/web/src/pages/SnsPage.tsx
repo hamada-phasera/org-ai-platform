@@ -26,6 +26,8 @@ interface SnsTask {
   department: string;
   taskType: string | null;
   output: string | null;
+  /** 予約投稿日時（Prisma の scheduledAt カラム。旧データは null）。 */
+  scheduledAt?: string | null;
   createdAt: string;
 }
 

@@ -4,7 +4,7 @@ import {
   canTransition,
   PIPELINE_STAGES,
   type PipelineStage,
-} from '../../src/routes/sales/pipeline';
+} from '../../src/routes/sales/pipeline-core';
 
 describe('isPipelineStage', () => {
   it('正常系: 有効なステージ文字列を true と判定する', () => {

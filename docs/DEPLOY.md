@@ -3,6 +3,31 @@
 > コードは E2E 合格・統合済み（`main`）。デプロイは **Render 支払い未完了で停止中**のためブロック。
 > Render 復旧後にこの手順で一発仕上げできるようにまとめる。
 
+---
+
+## 追記 2026-07-24 — スキーマ昇格（Deal / Task.scheduledAt）を含むデプロイ
+
+ブランチ `claude/current-status-check-bwez6d` で **Prisma スキーマ昇格**を実施済み。次回デプロイで自動反映される。
+
+### 何が変わったか
+- **新マイグレーション** `packages/db-schema/prisma/migrations/20260724000000_add_deal_and_task_scheduled_at/`
+  - `Deal` テーブル新設（営業パイプラインの商談。従来はインメモリ Map で再起動消滅 → 永続化）。
+  - `Task.scheduledAt TIMESTAMP(3)` カラム + `@@index([orgId, scheduledAt])`（SNS 予約投稿日時。従来は output JSON 内）。
+- **すべて追加操作のみ**（`ADD COLUMN`(NULL可) / `CREATE TABLE` / `CREATE INDEX` / 新規テーブルへの `FK`）。
+  既存行に破壊的変更なし。`prisma migrate diff` で Prisma 生成物と一致することを確認済み。
+- `routes/sales/pipeline.ts` は `prisma.deal` を使用（純粋ロジックは `pipeline-core.ts` に分離）。
+  SNS `PATCH /schedule` は `scheduledAt` カラムに書き込み、`calendar.ts`/フロントは
+  **カラム優先 → 旧 output JSON フォールバック**で読むため既存下書きも消えない。
+- `Task.status` は **String カラムのまま**（`shared-types` の `TaskStatus` を8値に拡張して型で担保）。
+  DB enum 化は本番 `migrate deploy` 失敗リスク（既存行に想定外値があるとキャスト失敗＝gateway 起動不能）を避けて**意図的に見送り**。
+
+### デプロイ時の追加確認（本体手順は下記「手順」節に従う）
+- Render gateway の `startCommand` は `prisma migrate deploy` を含む → 起動時に `20260724000000` が自動適用される（追加のみなので冪等・安全）。
+- ローカル検証済み: api-gateway `vitest` **100/100 pass** / `tsc --noEmit` クリーン / gateway `tsc --noCheck` / web `vite build` すべて green。
+- **スモーク追加項目**:
+  - `/sales`: 商談を作成 → **サービス再起動後も一覧に残る**（永続化の確認。従来は消えていた）。
+  - `/sns`: 下書き → `PATCH /schedule` で日付設定 → カレンダーに反映。旧下書き（output JSON に日付）も引き続き表示されること。
+
 ## 現状
 - 統合コード = `main`（feat/integration と同一）。3部署バーティカル + 配線 + compliance + usage-metrics-svc。
 - ローカルフルE2E合格（営業/SNS/分析すべて実DBで動作確認済み）。

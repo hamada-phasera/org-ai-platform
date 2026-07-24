@@ -213,7 +213,7 @@ describe('GET /api/sns/posts/calendar (N-3)', () => {
 });
 
 describe('PATCH /api/sns/posts/:id/schedule (N-3・投稿はしない)', () => {
-  it('正常系: output に scheduledAt を差し込む（status は変えない）', async () => {
+  it('正常系: scheduledAt カラムに予約日時を設定（output/status は変えない）', async () => {
     prismaMock.task.findUnique.mockResolvedValue({
       id: 'task-1',
       orgId: 'org-1',
@@ -229,8 +229,10 @@ describe('PATCH /api/sns/posts/:id/schedule (N-3・投稿はしない)', () => {
     });
     expect(res.statusCode).toBe(200);
     const data = prismaMock.task.update.mock.calls[0][0].data;
-    expect(JSON.parse(data.output).scheduledAt).toBe('2026-08-01T10:00:00+09:00');
-    expect(JSON.parse(data.output).content).toBe('本文'); // 既存フィールドは保持
+    // scheduledAt カラム（Date）に設定される
+    expect(data.scheduledAt).toBeInstanceOf(Date);
+    expect((data.scheduledAt as Date).toISOString()).toBe(new Date('2026-08-01T10:00:00+09:00').toISOString());
+    expect(data.output).toBeUndefined(); // output(下書きJSON)は汚さない
     expect(data.status).toBeUndefined(); // status は変更しない
     expect(fetchMock).not.toHaveBeenCalled(); // 投稿・実行はしない
     await app.close();
