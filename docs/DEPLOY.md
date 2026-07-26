@@ -28,6 +28,32 @@
   - `/sales`: 商談を作成 → **サービス再起動後も一覧に残る**（永続化の確認。従来は消えていた）。
   - `/sns`: 下書き → `PATCH /schedule` で日付設定 → カレンダーに反映。旧下書き（output JSON に日付）も引き続き表示されること。
 
+---
+
+## 追記 2026-07-26 — `scripts/render-deploy.mjs` で Render 操作を 1 コマンド化
+
+Render の API は開発コンテナのネットワークポリシーから到達できない（`api.render.com` が 403）。
+そのため **手元のマシンから実行する**前提のヘルパーを用意した。依存ゼロ・`.env` 自動読込。
+
+```bash
+# .env か シェルに RENDER_API_KEY（Render → Account Settings → API Keys）を設定してから:
+npm run render:status     # 読み取りのみ。各サービスの repo/branch/plan/env キーを一覧（既定・安全）
+npm run render:set-env    # ai-engine に GEMINI_API_KEY / ADMIN_EMAILS を投入（キー単位更新＝他の env は消えない）
+npm run render:rewire     # 3サービスの接続先を hamada-phasera/org-ai-platform · main へ張り替え
+npm run render:deploy     # デプロイ実行（gateway 起動時に prisma migrate deploy が走る）
+npm run render:verify     # 各サービスの /health をポーリング（401 は「起動済み・認証必須」＝正常）
+```
+
+推奨順序: `status` → `set-env` → `rewire` → `deploy` → `verify`。
+変更系は明示のサブコマンドが必要で、既定は読み取りのみ。シークレットは値を表示しない。
+
+### 松竹梅ルーティングに必要な env（ai-engine）
+| キー | 必要性 | 効果 |
+|---|---|---|
+| `GEMINI_API_KEY` | 梅(STARTER)/竹(PRO) を無料枠で動かすなら**必須** | 未設定だと**全プランが Claude にフォールバック＝課金**（`router.py` の安全フォールバック） |
+| `ADMIN_EMAILS` | 任意 | 一致する email は常に Claude。**未設定なら全ユーザーが Gemini** |
+| `ANTHROPIC_API_KEY` | 松(MAX)/admin/エージェント構築に**必須** | `/plan/agent` は全ユーザー Opus 固定のため、未設定だとエージェント構築のみ失敗する |
+
 ## 現状
 - 統合コード = `main`（feat/integration と同一）。3部署バーティカル + 配線 + compliance + usage-metrics-svc。
 - ローカルフルE2E合格（営業/SNS/分析すべて実DBで動作確認済み）。
