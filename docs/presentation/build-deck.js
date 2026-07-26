@@ -92,11 +92,17 @@ function hArrow(s, x, y, w) {
     x, y, w: w || 0.42, h: 0.28, fill: { color: C.line }, line: { width: 0 },
   });
 }
-function connector(s, x, y, w, h) { // 細い接続線
+// 細い接続線。塗りと同色の輪郭を付けないと LibreOffice 等で中空の二重線に見える。
+function connector(s, x, y, w, h) {
   s.addShape(pres.ShapeType.rect, {
-    x, y, w, h, fill: { color: C.line }, line: { width: 0 },
+    x, y, w, h, fill: { color: C.line }, line: { color: C.line, width: 0.75 },
   });
 }
+// 3カラム / 5カラムの共通幅（右端を本文幅 W-M*2 にきっちり合わせる）
+const CONTENT_W = W - M * 2;
+const COL3_GAP = 0.235, COL3_W = (CONTENT_W - COL3_GAP * 2) / 3;
+const COL5_GAP = 0.16, COL5_W = (CONTENT_W - COL5_GAP * 4) / 5;
+const HALF_GAP = 0.25, HALF_W = (CONTENT_W - HALF_GAP) / 2;
 
 /* ───────────── 1. タイトル ───────────── */
 {
@@ -142,7 +148,7 @@ function connector(s, x, y, w, h) { // 細い接続線
   box(s, 5.27, 1.95, 2.8, 1.0, '社長（ユーザー）', '指示を出すだけ', C.deep, C.white);
   vArrow(s, 6.53, 3.08, 0.42);
   const depts = [['営業部AI', '提案・商談'], ['SNSマーケ部AI', '投稿下書き'], ['経理部AI', '経費・集計'], ['分析部AI', 'KPI可視化']];
-  const dw = 2.55, dstep = 2.98, dx0 = 0.98;
+  const dw = 2.72, dstep = 3.07, dx0 = M;
   // 横線は両端の縦線ちょうどで止める（はみ出さない）
   const dFirst = dx0 + dw / 2, dLast = dx0 + 3 * dstep + dw / 2;
   connector(s, dFirst, 3.62, dLast - dFirst, 0.03);
@@ -168,7 +174,7 @@ function connector(s, x, y, w, h) { // 細い接続線
     ['可用性', '自動化基盤に依存すると、\nそれが止まれば業務も止まる', '外部サービスの停止＝業務停止'],
     ['信頼性', '無確認の外部発信、\n個人情報のLLM送信', '仕組みで抑える必要がある'],
   ];
-  const cw = 3.87, cg = 0.23;
+  const cw = COL3_W, cg = COL3_GAP;
   items.forEach(([t, d, note], i) => {
     const x = M + i * (cw + cg);
     card(s, x, BODY_TOP, cw, BODY_BOT - BODY_TOP, C.soft);
@@ -190,7 +196,7 @@ function connector(s, x, y, w, h) { // 細い接続線
     ['単機能AI SaaS', ['個別には優秀', 'しかし互いに連携しない']],
     ['RPA', ['決められた手順は正確', 'しかし判断はできない']],
   ];
-  const cw = 3.87, cg = 0.23, ch = 3.0;
+  const cw = COL3_W, cg = COL3_GAP, ch = 3.0;
   cols.forEach(([h, lines], i) => {
     const x = M + i * (cw + cg);
     card(s, x, BODY_TOP, cw, ch);
@@ -221,11 +227,11 @@ function connector(s, x, y, w, h) { // 細い接続線
   const lh = 0.92, lgap = 0.26;
   layers.forEach(([n, d], i) => {
     const y = BODY_TOP + i * (lh + lgap);
-    box(s, 0.95, y, 5.6, lh, n, d, i === 3 ? C.deep : C.soft, i === 3 ? C.white : null);
-    if (i < 3) vArrow(s, 3.61, y + lh + 0.02, 0.22);
+    box(s, M, y, 5.85, lh, n, d, i === 3 ? C.deep : C.soft, i === 3 ? C.white : null);
+    if (i < 3) vArrow(s, M + 5.85 / 2 - 0.14, y + lh + 0.02, 0.22);
   });
   box(s, 7.2, BODY_TOP + 1.4, 2.4, 0.92, 'n8n', '自動化の加速層', C.white);
-  connector(s, 6.55, BODY_TOP + 1.85, 0.65, 0.03);
+  connector(s, M + 5.85, BODY_TOP + 1.85, 7.2 - (M + 5.85), 0.03);
   s.addText('補助的な位置づけ', { x: 7.2, y: BODY_TOP + 2.42, w: 2.4, h: 0.3, fontFace: F, fontSize: 10.5, color: C.muted, align: 'center', margin: 0 });
   const pillars = [['① コスト設計', C.accent, 'LLMの出し分け'], ['② 縮退設計', C.ok, '依存しない実行'], ['③ ガバナンス', C.warn, '安全性をコードに']];
   pillars.forEach(([t, col, d], i) => {
@@ -248,7 +254,7 @@ function connector(s, x, y, w, h) { // 細い接続線
     ['松・管理者', 'Claude（高性能）', C.accent],
     ['エージェント構築', 'Opus 固定', C.warn],
   ];
-  const cw = 3.87, cg = 0.23, cy = BODY_TOP + 1.72;
+  const cw = COL3_W, cg = COL3_GAP, cy = BODY_TOP + 1.72;
   // 分岐の接続線（縦→横→縦）。横線は両端の縦線ちょうどで止める。
   const firstCx = M + cw / 2, lastCx = M + 2 * (cw + cg) + cw / 2;
   connector(s, 6.65, BODY_TOP + 1.0, 0.03, 0.34);
@@ -278,15 +284,24 @@ function connector(s, x, y, w, h) { // 細い接続線
 /* ───────────── 8. 提案② 縮退設計 ───────────── */
 {
   const s = lightSlide('自動化基盤に「依存しない」', 'PROPOSAL ②｜縮退設計');
-  const fy = BODY_TOP + 0.5;
-  box(s, 0.95, fy + 0.55, 2.7, 1.0, 'タスク発生', null, C.soft);
-  box(s, 4.5, fy, 3.2, 1.0, 'n8n 経由', '通常はこちら', C.soft);
-  box(s, 4.5, fy + 1.35, 3.2, 1.0, 'AIエンジン直接', 'n8n 停止時', C.ok, C.white);
-  box(s, 8.6, fy + 0.55, 2.7, 1.0, '完了', 'DBに記録', C.deep, C.white);
-  hArrow(s, 3.78, fy + 0.91, 0.6);
-  hArrow(s, 7.82, fy + 0.36, 0.65);
-  hArrow(s, 7.82, fy + 1.71, 0.65);
-  s.addText('自動で切替', { x: 4.5, y: fy + 2.45, w: 3.2, h: 0.32, fontFace: F, fontSize: 12, bold: true, color: C.ok, align: 'center', margin: 0 });
+  // 分岐は「縦の合流線」で結ぶ。矢印を箱の中心へ直接引くと上下の分岐に届かず宙に浮くため。
+  const fy = BODY_TOP + 0.25;
+  const upY = fy + 0.5, dnY = fy + 1.85, midY = fy + 1.175; // 各段の中心
+  const jL = 3.95, jR = 8.45;                                // 左右の合流線の x
+  box(s, M, midY - 0.5, 2.6, 1.0, 'タスク発生', null, C.soft);
+  box(s, 4.45, upY - 0.5, 3.3, 1.0, 'n8n 経由', '通常はこちら', C.soft);
+  box(s, 4.45, dnY - 0.5, 3.3, 1.0, 'AIエンジン直接', 'n8n 停止時', C.ok, C.white);
+  box(s, 8.95, midY - 0.5, 2.6, 1.0, '完了', 'DBに記録', C.deep, C.white);
+  // 左：タスク発生 → 合流線 → 上下の分岐へ
+  connector(s, M + 2.6, midY - 0.015, jL - (M + 2.6), 0.03);
+  connector(s, jL - 0.015, upY, 0.03, dnY - upY);
+  hArrow(s, jL, upY - 0.14, 0.5);
+  hArrow(s, jL, dnY - 0.14, 0.5);
+  // 右：上下の分岐 → 合流線 → 完了へ
+  connector(s, 7.75, upY - 0.015, jR - 7.75, 0.03);
+  connector(s, 7.75, dnY - 0.015, jR - 7.75, 0.03);
+  connector(s, jR - 0.015, upY, 0.03, dnY - upY);
+  hArrow(s, jR, midY - 0.14, 0.5);
   const by = BODY_TOP + 3.35;
   card(s, M, by, W - M * 2, BODY_BOT - by, C.soft);
   const pts = [
@@ -340,7 +355,7 @@ function connector(s, x, y, w, h) { // 細い接続線
 {
   const s = lightSlide('実装規模と検証結果', 'EXPERIMENT & EVALUATION｜実験・評価');
   const stats = [['18', 'DBテーブル'], ['22', 'APIルート'], ['6', '部署AI'], ['15', '画面'], ['100', '自動テスト全成功']];
-  const sw = 2.32, sg = 0.16;
+  const sw = COL5_W, sg = COL5_GAP;
   stats.forEach(([v, l], i) => {
     const x = M + i * (sw + sg);
     card(s, x, BODY_TOP, sw, 1.75, i === 4 ? C.deep : C.soft);
@@ -348,19 +363,19 @@ function connector(s, x, y, w, h) { // 細い接続線
     s.addText(l, { x, y: BODY_TOP + 1.12, w: sw, h: 0.4, fontFace: F, fontSize: 11.5, color: i === 4 ? 'C7D2FE' : C.muted, align: 'center', margin: 0 });
   });
   const by = BODY_TOP + 2.15;
-  card(s, M, by, 5.95, BODY_BOT - by, C.soft);
+  card(s, M, by, HALF_W, BODY_BOT - by, C.soft);
   s.addText('開発規模', { x: M + 0.4, y: by + 0.25, w: 5, h: 0.4, fontFace: F, fontSize: 17, bold: true, color: C.ink, margin: 0 });
-  connector(s, M + 0.4, by + 0.78, 5.15, 0.02);
+  connector(s, M + 0.4, by + 0.78, HALF_W - 0.8, 0.02);
   const l1 = ['約4か月 / 113コミット', '約22,400行（TypeScript・Python・Go）', '18テーブル / 7マイグレーション'];
   s.addText(l1.map((t, i) => ({ text: t, options: { bullet: true, breakLine: i !== l1.length - 1 } })), {
-    x: M + 0.4, y: by + 1.0, w: 5.2, h: BODY_BOT - by - 1.2, fontFace: F, fontSize: 14, color: C.ink, margin: 0, paraSpaceAfter: 9,
+    x: M + 0.4, y: by + 1.0, w: HALF_W - 0.8, h: BODY_BOT - by - 1.2, fontFace: F, fontSize: 14, color: C.ink, margin: 0, paraSpaceAfter: 9,
   });
-  card(s, 6.9, by, 5.73, BODY_BOT - by, C.soft);
-  s.addText('RAG：組織知の蓄積', { x: 7.3, y: by + 0.25, w: 5, h: 0.4, fontFace: F, fontSize: 17, bold: true, color: C.ink, margin: 0 });
-  connector(s, 7.3, by + 0.78, 4.95, 0.02);
-  const l2 = ['1024次元ベクトルで文章を索引', '別セッションで伝えた社内ルールを想起（実証済み）', '埋め込みも同じGemini → 追加契約ゼロ'];
+  card(s, M + HALF_W + HALF_GAP, by, HALF_W, BODY_BOT - by, C.soft);
+  s.addText('RAG：組織知の蓄積', { x: M + HALF_W + HALF_GAP + 0.4, y: by + 0.25, w: 5, h: 0.4, fontFace: F, fontSize: 17, bold: true, color: C.ink, margin: 0 });
+  connector(s, M + HALF_W + HALF_GAP + 0.4, by + 0.78, HALF_W - 0.8, 0.02);
+  const l2 = ['1024次元ベクトルで文章を索引', '別セッションの内容を想起（実証済み）', '埋め込みも同じGemini → 追加契約ゼロ'];
   s.addText(l2.map((t, i) => ({ text: t, options: { bullet: true, breakLine: i !== l2.length - 1 } })), {
-    x: 7.3, y: by + 1.0, w: 5.0, h: BODY_BOT - by - 1.2, fontFace: F, fontSize: 14, color: C.ink, margin: 0, paraSpaceAfter: 9,
+    x: M + HALF_W + HALF_GAP + 0.4, y: by + 1.0, w: HALF_W - 0.8, h: BODY_BOT - by - 1.2, fontFace: F, fontSize: 14, color: C.ink, margin: 0, paraSpaceAfter: 9,
   });
   pageNum(s, 10);
   s.addNotes('実装と検証の結果です。約4か月、113コミットで、データベース18テーブル、API22ルート、部署AI6種類、画面15枚を実装しました。自動テストは100件すべて成功しています。また社内知識の蓄積のため、ベクトル検索による情報検索を組み込みました。1024次元のベクトルで文章を索引し、あるセッションで伝えた社内ルールを、別のセッションから正しく思い出せることを確認しています。埋め込みの生成にも同じGeminiを使うため、追加の契約は不要です。');
@@ -370,22 +385,22 @@ function connector(s, x, y, w, h) { // 細い接続線
 {
   const s = lightSlide('得られた知見と、残る限界', 'DISCUSSION｜考察');
   const ch = BODY_BOT - BODY_TOP;
-  card(s, M, BODY_TOP, 5.95, ch, C.soft);
+  card(s, M, BODY_TOP, HALF_W, ch, C.soft);
   s.addShape(pres.ShapeType.ellipse, { x: M + 0.4, y: BODY_TOP + 0.35, w: 0.42, h: 0.42, fill: { color: C.ok }, line: { width: 0 } });
   s.addText('効果', { x: M + 0.98, y: BODY_TOP + 0.3, w: 4, h: 0.5, fontFace: F, fontSize: 21, bold: true, color: C.ink, valign: 'middle', margin: 0 });
-  connector(s, M + 0.4, BODY_TOP + 1.0, 5.15, 0.02);
+  connector(s, M + 0.4, BODY_TOP + 1.0, HALF_W - 0.8, 0.02);
   // 箇条書き内で \n を使うと別項目として弾点が付くため、改行を入れず自然折り返しに任せる
   const eff = ['コストは「単価」でなく「出し分けの構造」で解ける', '可用性は「依存しない設計」で確保できる', '安全性はコードの制約として持てる'];
   s.addText(eff.map((t, i) => ({ text: t, options: { bullet: true, breakLine: i !== eff.length - 1 } })), {
-    x: M + 0.4, y: BODY_TOP + 1.2, w: 5.2, h: ch - 1.45, fontFace: F, fontSize: 15, color: C.ink, margin: 0, paraSpaceAfter: 20,
+    x: M + 0.4, y: BODY_TOP + 1.2, w: HALF_W - 0.8, h: ch - 1.45, fontFace: F, fontSize: 15, color: C.ink, margin: 0, paraSpaceAfter: 20,
   });
-  card(s, 6.9, BODY_TOP, 5.73, ch, C.soft);
-  s.addShape(pres.ShapeType.ellipse, { x: 7.3, y: BODY_TOP + 0.35, w: 0.42, h: 0.42, fill: { color: C.warn }, line: { width: 0 } });
-  s.addText('限界', { x: 7.88, y: BODY_TOP + 0.3, w: 4, h: 0.5, fontFace: F, fontSize: 21, bold: true, color: C.ink, valign: 'middle', margin: 0 });
-  connector(s, 7.3, BODY_TOP + 1.0, 4.95, 0.02);
+  card(s, M + HALF_W + HALF_GAP, BODY_TOP, HALF_W, ch, C.soft);
+  s.addShape(pres.ShapeType.ellipse, { x: M + HALF_W + HALF_GAP + 0.4, y: BODY_TOP + 0.35, w: 0.42, h: 0.42, fill: { color: C.warn }, line: { width: 0 } });
+  s.addText('限界', { x: M + HALF_W + HALF_GAP + 0.98, y: BODY_TOP + 0.3, w: 4, h: 0.5, fontFace: F, fontSize: 21, bold: true, color: C.ink, valign: 'middle', margin: 0 });
+  connector(s, M + HALF_W + HALF_GAP + 0.4, BODY_TOP + 1.0, HALF_W - 0.8, 0.02);
   const lim = ['無料枠には上限あり — 実際に到達しサービス停止を経験', '評価は実装と自動テストまで', '実利用者による有効性検証は未実施'];
   s.addText(lim.map((t, i) => ({ text: t, options: { bullet: true, breakLine: i !== lim.length - 1 } })), {
-    x: 7.3, y: BODY_TOP + 1.2, w: 5.0, h: ch - 1.45, fontFace: F, fontSize: 15, color: C.ink, margin: 0, paraSpaceAfter: 20,
+    x: M + HALF_W + HALF_GAP + 0.4, y: BODY_TOP + 1.2, w: HALF_W - 0.8, h: ch - 1.45, fontFace: F, fontSize: 15, color: C.ink, margin: 0, paraSpaceAfter: 20,
   });
   pageNum(s, 11);
   s.addNotes('考察です。コストの問題は、単価を下げるのではなく、出し分けの構造によって解けることが確認できました。可用性についても、依存しないという設計方針によって確保できています。一方で限界もあります。無料枠には上限があり、実際に上限へ到達してサービスが停止する事象を経験しました。また本発表での評価は、実装と自動テストまでです。実際の利用者による有効性の検証は、これからの課題です。');
