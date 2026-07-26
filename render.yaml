@@ -1,3 +1,8 @@
+# プラン方針（2026-07-26 決定）: 3 サービスとも starter = スリープ無しの常時稼働。
+#   - free はアイドル ~15 分でスリープし、復帰に 30-50s かかる（gateway が寝ると全 API が無反応に見える）。
+#   - starter でもインスタンスの RAM は増えない想定のため、n8n の NODE_OPTIONS ヒープ調整は据え置く。
+#     さらに余裕が要る場合はプランを上げる（現行スペック/価格は Render の料金ページで要確認）。
+#   - 常時稼働になるので .github/workflows/keepalive.yml の定期実行は停止済み（手動実行のみ残置）。
 services:
   - type: web
     name: org-ai-api-gateway
@@ -7,8 +12,25 @@ services:
       npx prisma generate --schema=packages/db-schema/prisma/schema.prisma &&
       npm run build --workspace=packages/shared-types &&
       npm run build --workspace=apps/api-gateway
-    startCommand: npx prisma migrate deploy --schema=packages/db-schema/prisma/schema.prisma && node apps/api-gateway/dist/index.js
-    plan: free
+    # Neon は scale-to-zero でアイドル時に compute が停止する。デプロイ直後の 1 発目が
+    # 起動待ちに当たると P1001 (Can't reach database server) で即 exit し、デプロイ全体が
+    # 失敗する（実際に 2026-07-26 のデプロイがこれで落ちた）。復帰を待てるよう指数バックオフで
+    # リトライする。全滅した場合は exit 1 = 未マイグレーションのまま起動させない（Render は
+    # 直前のデプロイを生かしたままにする）。
+    startCommand: |
+      attempt=1; max=5
+      until npx prisma migrate deploy --schema=packages/db-schema/prisma/schema.prisma; do
+        if [ "$attempt" -ge "$max" ]; then
+          echo "migrate deploy failed after ${max} attempts - aborting"
+          exit 1
+        fi
+        wait=$((attempt * 10))
+        echo "migrate deploy failed (attempt ${attempt}/${max}) - DB may be waking; retrying in ${wait}s"
+        sleep "$wait"
+        attempt=$((attempt + 1))
+      done
+      exec node apps/api-gateway/dist/index.js
+    plan: starter
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
@@ -23,13 +45,19 @@ services:
         sync: false
       - key: AI_ENGINE_URL
         sync: false
-      # RAG: 埋め込みプロバイダ。未設定なら RAG は no-op（チャットは従来通り）。
+      # RAG: 埋め込みプロバイダ。キーが無ければ RAG は no-op（チャットは従来通り）。
+      # 既定は gemini＝LLM 用の GEMINI_API_KEY を流用できるので追加契約が不要。
+      # gemini-embedding-001 は outputDimensionality=1024 に対応し DB の vector(1024) と一致する。
+      - key: EMBEDDING_PROVIDER
+        value: gemini
+      - key: EMBEDDING_MODEL
+        value: gemini-embedding-001
+      # 埋め込み用キー。未設定なら下の GEMINI_API_KEY を流用する。
       - key: EMBEDDING_API_KEY
         sync: false
-      - key: EMBEDDING_PROVIDER
-        value: voyage
-      - key: EMBEDDING_MODEL
-        value: voyage-3
+      # gateway 側でも埋め込み生成に Gemini を呼ぶため必要（ai-engine と同じキーで可）。
+      - key: GEMINI_API_KEY
+        sync: false
       - key: N8N_CLOUD_URL
         sync: false
       - key: N8N_API_KEY
@@ -45,7 +73,7 @@ services:
     rootDir: apps/ai-engine
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
-    plan: free
+    plan: starter
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
@@ -67,9 +95,10 @@ services:
       # ⚠️ :latest は不意のメジャー更新→大量DBマイグレーション+OOM を誘発した実績あり（2026-07-08）。
       # 稼働バージョンを確認して n8nio/n8n:<version> に固定することを推奨（n8n UI 左下 or deploy ログ）。
       url: docker.io/n8nio/n8n:latest
-    plan: free
+    plan: starter
     envVars:
-      # 512MB プランで Node 既定ヒープ(~256MB)だと migration/高負荷時に OOM → 上限を拡張
+      # Node 既定ヒープ(~256MB)だと migration/高負荷時に OOM → 上限を拡張。
+      # starter でも RAM は増えない想定のため、この調整は引き続き必要。
       - key: NODE_OPTIONS
         value: "--max-old-space-size=400"
       - key: N8N_PORT
@@ -92,6 +121,11 @@ services:
         value: "5432"
       - key: DB_POSTGRESDB_DATABASE
         sync: false
+      # n8n は起動時に約40テーブルを自分で作る。専用スキーマに隔離してアプリの public と
+      # 混ぜない（n8n だけ作り直したいときは DROP SCHEMA n8n CASCADE で済む）。
+      # 既存の Neon から移行する場合、n8n は新スキーマに作り直しになる。
+      - key: DB_POSTGRESDB_SCHEMA
+        value: n8n
       - key: DB_POSTGRESDB_USER
         sync: false
       - key: DB_POSTGRESDB_PASSWORD

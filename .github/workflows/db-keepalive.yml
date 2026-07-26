@@ -1,0 +1,52 @@
+# Supabase の「7日間アクセスが無いとプロジェクト一時停止」を予防する。
+#
+# 停止すると手動で再開するまで DB に到達できず、アプリ全体が落ちる。数日に一度
+# 軽いクエリを投げれば無活動カウンタがリセットされ続けるので、そもそも停止しない。
+#
+# アプリ内タイマー（FastAPI 等）ではなく CI に置いている理由:
+#   アプリが停止している時こそ「無活動」が進む。アプリ内で回すと、一番必要な場面で
+#   一緒に止まっている。GitHub Actions ならアプリの生死と無関係に動く。
+#
+# ⚠️ Neon を使っている間は有効にしないこと。
+#   Neon は compute 時間の従量制で、この ping が compute を起こして無料枠を消費する
+#   （2026-07-26 に枠を使い切って本番が停止した）。Supabase は常時稼働型なので問題ない。
+#   → DATABASE_URL シークレット未設定の間は何もせず終了するので、移行が終わるまでは無害。
+#
+# セットアップ: Settings → Secrets and variables → Actions → New repository secret
+#   名前 DATABASE_URL / 値 Supabase の接続文字列（pooler 経由でよい）
+
+name: db-keepalive
+
+on:
+  schedule:
+    # 3 日ごと 03:00 UTC（= JST 12:00）。7 日の停止条件に対して十分な余裕がある。
+    - cron: '0 3 */3 * *'
+  workflow_dispatch: {} # 手動でも疎通確認に使える
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL シークレットが未設定のためスキップします。"
+            echo "（Supabase 移行後に設定してください。Neon 利用中は設定しないこと）"
+            exit 0
+          fi
+
+          command -v psql >/dev/null 2>&1 || {
+            echo "psql が無いので導入します"
+            sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          }
+
+          # 失敗したらジョブを落とす = DB 到達不能に気付ける簡易モニタとしても機能する。
+          # ランナー既定シェルの set -e に頼らず明示的に判定する（シェルが変わっても壊れない）。
+          # 接続文字列はシークレットなので Actions のログ上で自動マスクされる。
+          if ! psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'select 1;'; then
+            echo "::error::DB へ到達できませんでした。Supabase プロジェクトが一時停止/削除されていないか確認してください。"
+            exit 1
+          fi
+          echo "DB へ到達できました。無活動カウンタはリセットされました。"

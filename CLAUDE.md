@@ -75,12 +75,18 @@ N8N_WEBHOOK_AUTH_TOKEN=org-ai-n8n-secret-token   # Webhook Header Auth
 - フロント: `/agents` ページ (一覧/作成/実行)、`CreateAgentModal` / `AgentRunModal`。
 - DB が真実の源。n8n は自動化の加速レイヤーであって依存先ではない。
 
-## n8n 稼働とコールドスタート
+## Render プランと稼働方針
 
-Render 無料枠は ~15分でスリープ・全サービス合計 750h/月の制約があり 3 サービスの 24h 常時稼働は不可。
-- 緩和: `.github/workflows/keepalive.yml` が平日 JST 9-19 のみ health を叩く（月 ~220h で枠内）。
+**現行: 3 サービスとも `starter`（スリープ無しの常時稼働）** — `render.yaml` で宣言。
+- `starter` でも RAM は増えない想定なので、n8n の `NODE_OPTIONS` ヒープ調整は据え置き（OOM 対策）。
+- 常時稼働のため `.github/workflows/keepalive.yml` の定期実行は停止済み（手動実行のみ残置）。
+- 価格・スペックは変動するので、課金前に Render の料金ページで要確認。
+
+`free` に戻す場合の制約と緩和策:
+- ~15分でスリープ・750h/月の枠があり 3 サービスの 24h 常時稼働は不可。
+- keepalive.yml の `schedule` を復活（平日 JST 9-19 のみ health を叩く＝月 ~220h/サービスで枠内）。
 - 実行は常に AI Engine フォールバックで完了するため n8n スリープ中でも動く。
-- 安定性が必要なら有料化: Render Standard ($7/月/サービス, スリープ無し) または n8n Cloud（常時稼働・Postgres 90日削除問題も解消）。
+- 課金優先度は **api-gateway > ai-engine > n8n**（gateway は全 API の入口、n8n はフォールバックがあるため最後）。
 
 ## タスク実行順序
 

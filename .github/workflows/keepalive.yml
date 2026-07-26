@@ -1,8 +1,13 @@
-# Render 無料枠サービス (api-gateway / ai-engine / n8n) のコールドスタート緩和。
+# Render サービス (api-gateway / ai-engine / n8n) の health ping。
 #
-# 無料枠は 1 サービス 750 インスタンス時間/月。3 サービスを 24h 常時稼働させると枠を超えるため、
-# 平日 JST 9:00-19:00 のみ ~12 分間隔で health を叩いて暖機する（月 ~220 時間/サービスで枠内）。
-# それ以外の時間はスリープを許容し、実行時は task-executor のリトライ + AI Engine フォールバックで吸収する。
+# 【定期実行は停止中 — 2026-07-26】3 サービスを starter プランに変更したため、
+# スリープしなくなり暖機の必要が無くなった（render.yaml の冒頭コメント参照）。
+# 手動実行 (workflow_dispatch) は疎通確認に使えるので残してある。
+#
+# ▼ free プランに戻す場合は下の schedule のコメントを外す
+#   free は 1 サービス 750 インスタンス時間/月。3 サービスを 24h 常時稼働させると枠を超えるため、
+#   平日 JST 9:00-19:00 のみ ~12 分間隔で暖機する（月 ~220 時間/サービスで枠内）。
+#   スリープ中でも実行は task-executor のリトライ + AI Engine フォールバックで吸収される。
 #
 # URL はリポジトリ Variables (Settings → Secrets and variables → Actions → Variables) で上書き可能。
 # 未設定時は docs/n8n-setup.md / DEPLOYMENT_RUNBOOK.md の既定 Render URL を使う。
@@ -10,10 +15,10 @@
 name: keepalive
 
 on:
-  schedule:
-    # UTC 00:00-10:59 = JST 09:00-19:59、平日 (月-金)、12 分間隔
-    - cron: '*/12 0-10 * * 1-5'
-  workflow_dispatch: {} # 手動でも叩けるように
+  # schedule:
+  #   # UTC 00:00-10:59 = JST 09:00-19:59、平日 (月-金)、12 分間隔
+  #   - cron: '*/12 0-10 * * 1-5'
+  workflow_dispatch: {} # 手動実行のみ（定期実行は上記のとおり停止中）
 
 jobs:
   ping:

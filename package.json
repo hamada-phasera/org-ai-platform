@@ -2,13 +2,25 @@
   "name": "org-ai-platform",
   "private": true,
   "packageManager": "npm@10.9.2",
-  "workspaces": ["apps/web", "apps/api-gateway", "packages/*"],
+  "workspaces": [
+    "apps/web",
+    "apps/api-gateway",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "concurrently \"npm run dev --workspace=apps/api-gateway\" \"npm run dev --workspace=apps/web\"",
     "build": "turbo build",
     "n8n:status": "node scripts/n8n-status.mjs",
     "n8n:convert": "node scripts/n8n-convert-webhook.mjs",
-    "n8n:import": "node scripts/n8n-import-workflows.mjs"
+    "n8n:import": "node scripts/n8n-import-workflows.mjs",
+    "render:status": "node scripts/render-deploy.mjs status",
+    "render:set-env": "node scripts/render-deploy.mjs set-env",
+    "render:set-plan": "node scripts/render-deploy.mjs set-plan",
+    "render:rewire": "node scripts/render-deploy.mjs rewire",
+    "render:deploy": "node scripts/render-deploy.mjs deploy",
+    "render:verify": "node scripts/render-deploy.mjs verify",
+    "supabase:check": "node scripts/supabase-setup.mjs",
+    "supabase:setup": "node scripts/supabase-setup.mjs --apply"
   },
   "devDependencies": {
     "concurrently": "^8.0.0",
