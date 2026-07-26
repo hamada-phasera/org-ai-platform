@@ -45,13 +45,19 @@ services:
         sync: false
       - key: AI_ENGINE_URL
         sync: false
-      # RAG: 埋め込みプロバイダ。未設定なら RAG は no-op（チャットは従来通り）。
+      # RAG: 埋め込みプロバイダ。キーが無ければ RAG は no-op（チャットは従来通り）。
+      # 既定は gemini＝LLM 用の GEMINI_API_KEY を流用できるので追加契約が不要。
+      # gemini-embedding-001 は outputDimensionality=1024 に対応し DB の vector(1024) と一致する。
+      - key: EMBEDDING_PROVIDER
+        value: gemini
+      - key: EMBEDDING_MODEL
+        value: gemini-embedding-001
+      # 埋め込み用キー。未設定なら下の GEMINI_API_KEY を流用する。
       - key: EMBEDDING_API_KEY
         sync: false
-      - key: EMBEDDING_PROVIDER
-        value: voyage
-      - key: EMBEDDING_MODEL
-        value: voyage-3
+      # gateway 側でも埋め込み生成に Gemini を呼ぶため必要（ai-engine と同じキーで可）。
+      - key: GEMINI_API_KEY
+        sync: false
       - key: N8N_CLOUD_URL
         sync: false
       - key: N8N_API_KEY
