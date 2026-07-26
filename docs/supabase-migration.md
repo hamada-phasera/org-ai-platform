@@ -31,19 +31,32 @@ Supabase 無料枠は**小さいインスタンスが常時稼働**し、**7 日
 
 ### 1. vector 拡張を Supabase の画面から有効化しないこと
 
-Supabase は拡張を `extensions` スキーマに置く。その状態だと:
+Supabase は拡張を `extensions` スキーマに置く。その状態で新規 DB にマイグレーションをかけると:
 
-1. マイグレーションの `CREATE EXTENSION IF NOT EXISTS vector;` が **NOTICE で素通り**（エラーにならない）
-2. マイグレーションは**成功**と表示される
-3. デプロイも成功し、アプリも起動する
-4. **RAG だけが実行時に `ERROR: type "vector" does not exist` で静かに壊れる**
+1. `CREATE EXTENSION IF NOT EXISTS vector;` は「既にある」と判断して **NOTICE で素通り**する
+2. しかし次の `CREATE TABLE ... "embedding" vector(1024)` で **`vector` 型が search_path に無く失敗**
+3. `Error: P3018` / DB エラー `42704`（`type "vector" does not exist`）で**デプロイが止まる**
+4. 以降は失敗が記録され、再デプロイのたびに **`P3009`（failed migration が残っている）で詰まる**
 
-**対策: 何もしないこと。** 拡張を事前に有効化しなければ、マイグレーションが `public` スキーマに
-作成し、コード変更ゼロで正常動作する（実 PostgreSQL 16 で確認済み）。
+つまり**静かに壊れるのではなく、明示的に落ちて先へ進めなくなる**（実 PostgreSQL 16 で再現確認済み）。
+気付けるのは良いが、復旧作業が必要になるので**踏まないのが一番よい**。
 
-もし既に `extensions` に作ってしまった場合は、接続文字列に
-`?options=-csearch_path%3Dpublic,extensions` を足せば解決するが、ai-engine 側（asyncpg）で
-追加対応が要る可能性があるため、**作り直す方が早い**。
+**対策: 何もしないこと。** Supabase の新規プロジェクトで `vector` は既定では有効化されていない。
+そのまま放置すればマイグレーションが `public` スキーマに作成し、コード変更ゼロで正常動作する。
+
+**踏んでしまった場合の復旧**:
+```bash
+# 失敗記録を取り消す
+npx prisma migrate resolve --rolled-back 20260622000000_add_pgvector_rag \
+  --schema=packages/db-schema/prisma/schema.prisma
+```
+```sql
+-- extensions 側の vector を外し、public に作り直す
+DROP EXTENSION vector CASCADE;
+CREATE EXTENSION vector WITH SCHEMA public;
+```
+その後 `npx prisma migrate deploy` を再実行する。
+（プロジェクトを作り直せる段階なら、作り直す方が確実で早い）
 
 ### 2. n8n は専用スキーマに隔離する
 
