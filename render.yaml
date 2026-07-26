@@ -121,6 +121,11 @@ services:
         value: "5432"
       - key: DB_POSTGRESDB_DATABASE
         sync: false
+      # n8n は起動時に約40テーブルを自分で作る。専用スキーマに隔離してアプリの public と
+      # 混ぜない（n8n だけ作り直したいときは DROP SCHEMA n8n CASCADE で済む）。
+      # 既存の Neon から移行する場合、n8n は新スキーマに作り直しになる。
+      - key: DB_POSTGRESDB_SCHEMA
+        value: n8n
       - key: DB_POSTGRESDB_USER
         sync: false
       - key: DB_POSTGRESDB_PASSWORD

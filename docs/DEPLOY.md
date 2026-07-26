@@ -48,6 +48,9 @@ npm run render:verify     # 各サービスの /health をポーリング（401 
 推奨順序: `status` → `set-env` → `rewire` → `deploy` → `verify`。
 変更系は明示のサブコマンドが必要で、既定は読み取りのみ。シークレットは値を表示しない。
 
+> **2026-07-26 以降**: この P1001 の根本原因は Neon 無料枠の compute 時間枯渇だった。
+> Supabase への移行を決定済み。手順は **[docs/supabase-migration.md](./supabase-migration.md)**。
+
 ### トラブルシュート: デプロイが `P1001: Can't reach database server` で落ちる
 
 2026-07-26 の本番デプロイで実際に発生。**ビルドは成功していて、失敗は起動時の DB 接続**:
