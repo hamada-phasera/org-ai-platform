@@ -52,10 +52,32 @@ n8n は起動時に約 40 テーブルを自分で作る。`DB_POSTGRESDB_SCHEMA
 テーブル名は衝突しない（n8n は `snake_case` / アプリは `"PascalCase"`）が、
 隔離しておくと `DROP SCHEMA n8n CASCADE` で n8n だけ作り直せる。
 
-### 3. マイグレーションは direct 接続で行う
+### 3. direct 接続は IPv6 のみ。**Session pooler を使う**
 
-Supabase には 2 つの接続経路がある。Prisma の `migrate deploy` は
-**セッションを張る direct 接続（5432）**が必要で、transaction pooler（6543）では失敗する。
+**実測（2026-07-26, project ref `ejrcmnebkjaliebfnuqg`）**:
+
+| ホスト | IPv4 | IPv6 |
+|---|---|---|
+| `db.<ref>.supabase.co`（direct） | **無し** | あり |
+| `aws-0-<region>.pooler.supabase.com`（Supavisor） | **あり** | あり |
+
+direct 接続は IPv4 アドレスを持たない（IPv4 は有料アドオン）。Render の外向き通信は IPv4 なので、
+direct を `DATABASE_URL` に指定すると **Neon で踏んだのと同じ `P1001: Can't reach database server`**
+になる。ホスト名は解決するのに繋がらないため、原因を見誤りやすい。
+
+接続経路は 3 つあり、選べるのは実質 1 つ:
+
+| 経路 | ポート | IPv4 | Prisma migrate | 判定 |
+|---|---|---|---|---|
+| direct | 5432 | ❌ | ○ | Render から到達不能 |
+| pooler / transaction | 6543 | ✅ | **✕** | マイグレーション不可 |
+| **pooler / session** | **5432** | ✅ | ○ | **これを使う** |
+
+transaction モード（6543）が使えない理由は、Prisma がマイグレーション時に
+**セッションスコープの advisory lock** を取るため。トランザクション単位で接続が切り替わる
+transaction モードではロックが維持できず失敗する。session モードなら問題ない。
+
+→ **`DATABASE_URL` は Session pooler の 1 本で統一する**（gateway・ai-engine とも）。
 
 ---
 
@@ -72,16 +94,22 @@ Supabase の SQL Editor で:
 CREATE SCHEMA IF NOT EXISTS n8n;
 ```
 
-### 3. 接続文字列を 2 種類控える
-Supabase の **Connect** から取得する。
+### 3. 接続文字列を控える（**Session pooler 一本**）
+Supabase の **Connect** → **Session pooler** の文字列をコピーする。形はこうなる:
 
-| 用途 | 経路 | 使う場所 |
-|---|---|---|
-| マイグレーション | **direct**（ポート 5432） | Render gateway の `DATABASE_URL` |
-| アプリの通常接続 | pooler（ポート 6543）でも可 | 同上（迷ったら direct 一本で問題ない） |
+```
+postgresql://postgres.<project-ref>:<PASSWORD>@aws-0-<region>.pooler.supabase.com:5432/postgres
+                     ↑ユーザ名にrefが付く              ↑poolerホスト        ↑5432=session
+```
 
-> gateway は起動時に `prisma migrate deploy` を実行するため、**direct を含む URL を使うこと**。
-> 迷ったら direct 一本で始めてよい。接続数が問題になったら pooler を検討する。
+**確認すべき点**（間違えると必ず落ちる）:
+- ホストが `pooler.supabase.com` であること（`db.<ref>.supabase.co` は IPv6 のみで **Render から到達不能**）
+- ポートが **5432**（6543 は transaction モードでマイグレーションが失敗する）
+- ユーザ名が `postgres.<project-ref>` 形式（pooler ではこの形になる）
+- 末尾に `?sslmode=require` を付ける
+
+> Connect 画面には Direct / Transaction pooler / Session pooler が並ぶ。**Session pooler を選ぶこと。**
+> gateway は起動時に `prisma migrate deploy` を実行するため、session モードが必須。
 
 ### 4. Render の環境変数を差し替え
 `npm run render:status` で現状確認 → ダッシュボードまたは API で更新。
@@ -89,18 +117,22 @@ Supabase の **Connect** から取得する。
 **org-ai-api-gateway**
 | キー | 値 |
 |---|---|
-| `DATABASE_URL` | Supabase の direct 接続文字列 |
+| `DATABASE_URL` | **Session pooler** の接続文字列（手順 3）+ `?sslmode=require` |
 | `GEMINI_API_KEY` | RAG の埋め込み生成に必要（ai-engine と同じキーで可）**← 追加** |
 
 **org-ai-ai-engine**
 | キー | 値 |
 |---|---|
-| `DATABASE_URL` | 同上（AILog 記録用） |
+| `DATABASE_URL` | 同上（AILog 記録用）。`sslmode` は db.py が asyncpg 用に自動変換する |
 
-**org-ai-n8n**
+**org-ai-n8n**（n8n も IPv4 が要るので **pooler ホスト**を指定する）
 | キー | 値 |
 |---|---|
-| `DB_POSTGRESDB_HOST` / `DB_POSTGRESDB_DATABASE` / `DB_POSTGRESDB_USER` / `DB_POSTGRESDB_PASSWORD` | Supabase の値 |
+| `DB_POSTGRESDB_HOST` | `aws-0-<region>.pooler.supabase.com` |
+| `DB_POSTGRESDB_PORT` | `5432` |
+| `DB_POSTGRESDB_DATABASE` | `postgres` |
+| `DB_POSTGRESDB_USER` | `postgres.<project-ref>` |
+| `DB_POSTGRESDB_PASSWORD` | DB パスワード |
 | `DB_POSTGRESDB_SCHEMA` | `n8n` **← 追加** |
 
 ### 5. デプロイ
