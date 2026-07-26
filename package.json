@@ -11,6 +11,7 @@
     "n8n:import": "node scripts/n8n-import-workflows.mjs",
     "render:status": "node scripts/render-deploy.mjs status",
     "render:set-env": "node scripts/render-deploy.mjs set-env",
+    "render:set-plan": "node scripts/render-deploy.mjs set-plan",
     "render:rewire": "node scripts/render-deploy.mjs rewire",
     "render:deploy": "node scripts/render-deploy.mjs deploy",
     "render:verify": "node scripts/render-deploy.mjs verify"

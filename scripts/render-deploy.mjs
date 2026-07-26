@@ -2,12 +2,13 @@
 // Render の 3 サービス（gateway / ai-engine / n8n）を 1 コマンドで
 // 診断・環境変数設定・リポジトリ張り替え・デプロイ・検証する。
 //
-//   node scripts/render-deploy.mjs            # = status（読み取りのみ・既定）
+//   node scripts/render-deploy.mjs             # = status（読み取りのみ・既定）
 //   node scripts/render-deploy.mjs status
-//   node scripts/render-deploy.mjs set-env    # GEMINI_API_KEY / ADMIN_EMAILS 等を反映
-//   node scripts/render-deploy.mjs rewire     # 接続リポジトリ/ブランチを正準へ張り替え
-//   node scripts/render-deploy.mjs deploy     # デプロイ実行
-//   node scripts/render-deploy.mjs verify     # /health をポーリング
+//   node scripts/render-deploy.mjs set-env     # GEMINI_API_KEY / ADMIN_EMAILS 等を反映
+//   node scripts/render-deploy.mjs set-plan    # プラン変更（既定 starter。render.yaml と揃える）
+//   node scripts/render-deploy.mjs rewire      # 接続リポジトリ/ブランチを正準へ張り替え
+//   node scripts/render-deploy.mjs deploy      # デプロイ実行
+//   node scripts/render-deploy.mjs verify      # /health をポーリング
 //
 // 必要な env（.env か シェルで）:
 //   RENDER_API_KEY   … Render ダッシュボード → Account Settings → API Keys
@@ -56,6 +57,10 @@ const ROLES = [
 
 // set-env で ai-engine に投入する env（値は環境変数から取る）。
 const AI_ENGINE_ENV = ['GEMINI_API_KEY', 'ADMIN_EMAILS'];
+
+// set-plan の既定。render.yaml の `plan:` と揃えること（render.yaml が正本）。
+const DEFAULT_PLAN = 'starter';
+const KNOWN_PLANS = ['free', 'starter', 'standard', 'pro'];
 
 function mask(v) {
   if (!v) return '(未設定)';
@@ -168,6 +173,34 @@ async function cmdSetEnv() {
   console.log('\n※ 反映にはデプロイ（または再起動）が必要です → node scripts/render-deploy.mjs deploy\n');
 }
 
+async function cmdSetPlan() {
+  const plan = (process.argv[3] ?? DEFAULT_PLAN).toLowerCase();
+  if (!KNOWN_PLANS.includes(plan)) {
+    die(`不明なプラン: ${plan}（想定: ${KNOWN_PLANS.join(' / ')}）`);
+  }
+  const services = await listServices();
+  const targets = services.filter((s) => s.role);
+  if (!targets.length) die('対象サービスが見つかりません。');
+
+  for (const s of targets) {
+    const current = s.serviceDetails?.plan;
+    if (current === plan) {
+      console.log(`－ ${s.name} は既に ${plan}（変更なし）`);
+      continue;
+    }
+    await api(`/services/${s.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ serviceDetails: { plan } }),
+    });
+    console.log(`✔ ${s.name}: ${current ?? '?'} → ${plan}`);
+  }
+  console.log(
+    '\n※ 有料プランへの変更には Render 側に支払い方法の登録が必要（未登録だと' +
+      '\n   "Plan requires payment information on file" で 400 になる）。' +
+      '\n※ render.yaml の `plan:` も同じ値に揃えておくこと（Blueprint 同期で戻されるため）。\n',
+  );
+}
+
 async function cmdRewire() {
   const services = await listServices();
   const targets = services.filter((s) => s.role);
@@ -228,6 +261,7 @@ async function cmdVerify() {
 const CMDS = {
   status: cmdStatus,
   'set-env': cmdSetEnv,
+  'set-plan': cmdSetPlan,
   rewire: cmdRewire,
   deploy: cmdDeploy,
   verify: cmdVerify,

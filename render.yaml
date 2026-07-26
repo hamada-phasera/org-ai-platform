@@ -1,3 +1,8 @@
+# プラン方針（2026-07-26 決定）: 3 サービスとも starter = スリープ無しの常時稼働。
+#   - free はアイドル ~15 分でスリープし、復帰に 30-50s かかる（gateway が寝ると全 API が無反応に見える）。
+#   - starter でもインスタンスの RAM は増えない想定のため、n8n の NODE_OPTIONS ヒープ調整は据え置く。
+#     さらに余裕が要る場合はプランを上げる（現行スペック/価格は Render の料金ページで要確認）。
+#   - 常時稼働になるので .github/workflows/keepalive.yml の定期実行は停止済み（手動実行のみ残置）。
 services:
   - type: web
     name: org-ai-api-gateway
@@ -8,7 +13,7 @@ services:
       npm run build --workspace=packages/shared-types &&
       npm run build --workspace=apps/api-gateway
     startCommand: npx prisma migrate deploy --schema=packages/db-schema/prisma/schema.prisma && node apps/api-gateway/dist/index.js
-    plan: free
+    plan: starter
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
@@ -45,7 +50,7 @@ services:
     rootDir: apps/ai-engine
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
-    plan: free
+    plan: starter
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
@@ -67,9 +72,10 @@ services:
       # ⚠️ :latest は不意のメジャー更新→大量DBマイグレーション+OOM を誘発した実績あり（2026-07-08）。
       # 稼働バージョンを確認して n8nio/n8n:<version> に固定することを推奨（n8n UI 左下 or deploy ログ）。
       url: docker.io/n8nio/n8n:latest
-    plan: free
+    plan: starter
     envVars:
-      # 512MB プランで Node 既定ヒープ(~256MB)だと migration/高負荷時に OOM → 上限を拡張
+      # Node 既定ヒープ(~256MB)だと migration/高負荷時に OOM → 上限を拡張。
+      # starter でも RAM は増えない想定のため、この調整は引き続き必要。
       - key: NODE_OPTIONS
         value: "--max-old-space-size=400"
       - key: N8N_PORT

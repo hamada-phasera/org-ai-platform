@@ -39,6 +39,7 @@ Render の API は開発コンテナのネットワークポリシーから到�
 # .env か シェルに RENDER_API_KEY（Render → Account Settings → API Keys）を設定してから:
 npm run render:status     # 読み取りのみ。各サービスの repo/branch/plan/env キーを一覧（既定・安全）
 npm run render:set-env    # ai-engine に GEMINI_API_KEY / ADMIN_EMAILS を投入（キー単位更新＝他の env は消えない）
+npm run render:set-plan   # 3サービスを starter に変更（引数でプラン指定可: ... set-plan free）
 npm run render:rewire     # 3サービスの接続先を hamada-phasera/org-ai-platform · main へ張り替え
 npm run render:deploy     # デプロイ実行（gateway 起動時に prisma migrate deploy が走る）
 npm run render:verify     # 各サービスの /health をポーリング（401 は「起動済み・認証必須」＝正常）
@@ -46,6 +47,17 @@ npm run render:verify     # 各サービスの /health をポーリング（401 
 
 推奨順序: `status` → `set-env` → `rewire` → `deploy` → `verify`。
 変更系は明示のサブコマンドが必要で、既定は読み取りのみ。シークレットは値を表示しない。
+
+### Render プラン（2026-07-26 決定: 3 サービスとも starter）
+`render.yaml` は宣言的で `plan` も管理対象。ダッシュボードだけで変更すると **Blueprint 同期時に
+render.yaml の値へ戻される**ため、プランはコード側を正本にする（今回 free → starter に更新済み）。
+
+- 課金優先度の考え方: **api-gateway > ai-engine > n8n**。
+  gateway は全 API の入口でスリープ＝アプリ全体が無反応に見える。n8n は
+  `task-executor` の AI Engine フォールバックがあるため寝ていても実行は完走する。
+- starter は「スリープしない」であって「RAM が増える」わけではない想定 → n8n の
+  `NODE_OPTIONS=--max-old-space-size=400`（OOM 対策）は残す。
+- 常時稼働に伴い `keepalive.yml` の定期実行は停止（手動実行のみ）。free に戻すなら `schedule` を復活。
 
 ### 松竹梅ルーティングに必要な env（ai-engine）
 | キー | 必要性 | 効果 |
