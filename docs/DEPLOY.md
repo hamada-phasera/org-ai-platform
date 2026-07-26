@@ -48,6 +48,37 @@ npm run render:verify     # 各サービスの /health をポーリング（401 
 推奨順序: `status` → `set-env` → `rewire` → `deploy` → `verify`。
 変更系は明示のサブコマンドが必要で、既定は読み取りのみ。シークレットは値を表示しない。
 
+### トラブルシュート: デプロイが `P1001: Can't reach database server` で落ちる
+
+2026-07-26 の本番デプロイで実際に発生。**ビルドは成功していて、失敗は起動時の DB 接続**:
+
+```
+==> Build successful 🎉
+==> Running 'npx prisma migrate deploy ... && node apps/api-gateway/dist/index.js'
+Error: P1001: Can't reach database server at `ep-....us-east-1.aws.neon.tech:5432`
+==> Exited with status 1
+```
+
+コードやマイグレーションの問題ではない（同一コミットで fresh / 既存データありの両経路とも
+ローカルの実 PostgreSQL 16 + pgvector で `migrate deploy` 成功を確認済み）。
+
+**対策（実装済み）**: `startCommand` を指数バックオフ付きリトライにした。Neon は scale-to-zero で
+アイドル時に compute が停止するため、デプロイ直後の 1 発目が起動待ちに当たると即死していた。
+10/20/30/40 秒で最大 5 回リトライし、全滅時のみ `exit 1`（未マイグレーションのままサーバーを
+起動させない。Render は直前のデプロイを生かしたままにする）。
+
+**それでも P1001 が続く場合のチェック順**:
+1. Neon コンソールでプロジェクト／ブランチが存在するか（削除・サスペンドされていないか）。
+   Neon はワイルドカード DNS なので、**名前が解決できても存在証明にはならない**。
+2. 無料枠の compute 時間・ストレージ上限を超えていないか（超過すると compute が起動しない）。
+3. Render の `DATABASE_URL` が現行エンドポイントと一致しているか。
+   ブランチを作り直すとエンドポイント ID (`ep-...`) が変わり、古い URL は永久に到達不能になる。
+4. 接続文字列に `?sslmode=require` が付いているか。
+5. Neon 側で IP Allow を有効にしている場合、Render の egress IP が許可されているか。
+
+手元での切り分け: `psql "$DATABASE_URL" -c 'select 1'` または
+`npx prisma migrate status --schema=packages/db-schema/prisma/schema.prisma`。
+
 ### Render プラン（2026-07-26 決定: 3 サービスとも starter）
 `render.yaml` は宣言的で `plan` も管理対象。ダッシュボードだけで変更すると **Blueprint 同期時に
 render.yaml の値へ戻される**ため、プランはコード側を正本にする（今回 free → starter に更新済み）。

@@ -12,7 +12,24 @@ services:
       npx prisma generate --schema=packages/db-schema/prisma/schema.prisma &&
       npm run build --workspace=packages/shared-types &&
       npm run build --workspace=apps/api-gateway
-    startCommand: npx prisma migrate deploy --schema=packages/db-schema/prisma/schema.prisma && node apps/api-gateway/dist/index.js
+    # Neon は scale-to-zero でアイドル時に compute が停止する。デプロイ直後の 1 発目が
+    # 起動待ちに当たると P1001 (Can't reach database server) で即 exit し、デプロイ全体が
+    # 失敗する（実際に 2026-07-26 のデプロイがこれで落ちた）。復帰を待てるよう指数バックオフで
+    # リトライする。全滅した場合は exit 1 = 未マイグレーションのまま起動させない（Render は
+    # 直前のデプロイを生かしたままにする）。
+    startCommand: |
+      attempt=1; max=5
+      until npx prisma migrate deploy --schema=packages/db-schema/prisma/schema.prisma; do
+        if [ "$attempt" -ge "$max" ]; then
+          echo "migrate deploy failed after ${max} attempts - aborting"
+          exit 1
+        fi
+        wait=$((attempt * 10))
+        echo "migrate deploy failed (attempt ${attempt}/${max}) - DB may be waking; retrying in ${wait}s"
+        sleep "$wait"
+        attempt=$((attempt + 1))
+      done
+      exec node apps/api-gateway/dist/index.js
     plan: starter
     healthCheckPath: /health
     envVars:
