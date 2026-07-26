@@ -110,7 +110,49 @@ npm run render:deploy
 gateway の起動時に `prisma migrate deploy` が走り、**全テーブルと pgvector が自動作成される**
 （マイグレーションは追加操作のみで、まっさらな DB / 既存データありの両方で検証済み）。
 
-### 6. キープアライブを有効化
+### 6. セキュリティ設定（RLS と Data API）— **必ずやること**
+
+Supabase は Neon と違い、**`public` スキーマを自動生成 REST API（Data API / PostgREST）で公開する**。
+`anon` キーはブラウザに配る前提の**公開キー**なので、この経路が開いたままだと外部から
+テーブルを直接読める可能性がある。このアプリの `public` には次の列がある:
+
+| テーブル.カラム | 漏れた場合 |
+|---|---|
+| `User.passwordHash` | **致命的**（パスワードハッシュ） |
+| `User.email` | 個人情報 |
+| `AILog.inputText` / `outputText` | 利用者の入力・AI応答（PII を含みうる） |
+
+**対策は 2 つ。両方やる（多層防御）。**
+
+**(a) Data API を無効化する** — このアプリは自動生成 API を一切使わない（ブラウザは必ず
+Fastify gateway 経由で DB に触れる）。Settings → API から Data API を無効化するか、
+公開スキーマから `public` を外す。これが最も確実。
+
+**(b) 全テーブルで RLS を有効化する（ポリシーは作らない）**
+```sql
+-- public の全テーブルに RLS を有効化（ポリシー無し = 原則拒否）
+DO $$ DECLARE t record; BEGIN
+  FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+  LOOP EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t.tablename); END LOOP;
+END $$;
+```
+
+**アプリは壊れない。**実 PostgreSQL で検証済み:
+
+| 接続元 | RLS 有効時の結果 |
+|---|---|
+| 所有者ロール（Prisma / gateway の接続） | **読める**（テーブル所有者は RLS をバイパスする） |
+| `anon` 相当の別ロール | **0 件**（原則拒否が効く） |
+
+> **RLS ポリシーは書かないこと。** RLS は本来 Supabase Auth の `auth.uid()` を前提とするが、
+> このアプリは**独自 JWT** で認証し、テナント分離は gateway 側の `where: { orgId }` で行っている。
+> `auth.uid()` は常に NULL なので、ポリシーを書いても意味を成さない。
+> ここでの RLS は「Data API 経由の直アクセスを塞ぐ蓋」としてのみ使う。
+
+> n8n を `n8n` スキーマに隔離してあるのも効いている。Data API が公開するのは既定で `public`
+> だけなので、n8n のテーブルは最初から露出しない。
+
+### 7. キープアライブを有効化
 1. GitHub → Settings → Secrets and variables → Actions → **New repository secret**
 2. 名前 `DATABASE_URL` / 値 Supabase の接続文字列
 3. `.github/workflows/db-keepalive.yml` が 3 日ごとに `select 1` を実行し、
@@ -134,6 +176,21 @@ gateway の起動時に `prisma migrate deploy` が走り、**全テーブルと
 | 7 | SQL Editor で `select count(*) from "AILog";` | 1 以上（監査ログが記録されている） |
 | 8 | SQL Editor で `select '[1,2,3]'::vector;` | エラーにならない（**落とし穴 1 の確認**） |
 | 9 | n8n 管理画面が開く | `n8n` スキーマにテーブルが作られている |
+| 10 | **RLS が全テーブルで有効か**（下記 SQL） | `rls_disabled` が 0 件 |
+| 11 | **anon キーで直接叩けないこと**（下記 curl） | データが返らない（401 / 空配列） |
+
+```sql
+-- RLS が漏れているテーブルが無いか（0 件であること）
+SELECT tablename AS rls_disabled FROM pg_tables t
+WHERE schemaname = 'public'
+  AND NOT (SELECT relrowsecurity FROM pg_class WHERE oid = format('public.%I', t.tablename)::regclass);
+```
+
+```bash
+# anon キーで User テーブルを直接読めてしまわないか（Data API を無効化していれば 404）
+curl -s "https://<project>.supabase.co/rest/v1/User?select=email" \
+  -H "apikey: <anon key>" | head -c 200
+```
 
 ### RAG が動かないときの切り分け
 ```sql
