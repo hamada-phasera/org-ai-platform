@@ -191,6 +191,37 @@ P3  動的ワークフロー再採用    … 静的サブWF + Plan-as-Data Runne
 9. GitHub Secrets に DATABASE_URL を登録（db-keepalive 用）
 ```
 
+#### 実施結果（2026-08-06・MCP で検証）
+
+| 項目 | 結果 |
+|---|---|
+| マイグレーション | 7 本すべて `finished_at` あり・ロールバック無し |
+| `public` テーブル | 19（`User` / `Organization` / `Task` / `Agent` / `Deal` / `MessageEmbedding` 他） |
+| `vector` 拡張 | `public` スキーマ（正しい配置） |
+| RLS | 19/19 で有効・ポリシー 0 件（原則拒否） |
+| `n8n` スキーマ | 124 テーブル（n8n が自分で作成。`public` と分離できている） |
+| `User` / `Organization` | 0 件（新規 DB のため。登録からやり直し） |
+
+#### ⚠️ 既知の穴: 新しいテーブルには RLS が付かない
+
+RLS は「今あるテーブル」に対して一括で有効化した。**今後のマイグレーションで
+テーブルが増えると、そのテーブルだけ RLS 無しになる**（＝ Data API 経由で読める）。
+
+PR #2 の作り直し（P1-1）で `Deal` 以外のテーブルが増える可能性があるため、対処が要る。
+
+**推奨**: gateway の起動時、`prisma migrate deploy` の直後に同じ DO ブロックを流す。
+`apps/api-gateway/src/index.ts` の起動処理で `$executeRawUnsafe` を 1 回叩くのが最小。
+冪等なので毎回走っても問題ない。
+
+**暫定**: マイグレーションを追加したデプロイの後、MCP か SQL Editor で下記を再実行する。
+
+```sql
+DO $$ DECLARE t record; BEGIN
+  FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+  LOOP EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t.tablename); END LOOP;
+END $$;
+```
+
 #### 受け入れ条件（[supabase-migration.md](./supabase-migration.md) の確認表 11 項目に加えて）
 - [ ] `select '[1,2,3]'::vector;` が通る（vector が `public` にある）
 - [ ] `rls_disabled` が 0 件
