@@ -77,9 +77,22 @@ N8N_WEBHOOK_AUTH_TOKEN=org-ai-n8n-secret-token   # Webhook Header Auth
 
 ## Render プランと稼働方針
 
-**現行: 3 サービスとも `starter`（スリープ無しの常時稼働）** — `render.yaml` で宣言。
+**宣言: 3 サービスとも `starter`（`render.yaml`）／ 実態: `free`（2026-08-06 時点で未適用）**
+
+⚠️ **宣言と実態が乖離している。** `render.yaml` は `plan: starter` だが、Render ダッシュボード上の
+`org-ai-api-gateway` は **`Free` のまま**で「free instance は無活動でスピンダウンする」バナーが出ている。
+原因は支払い方法未登録による適用失敗（`set-plan` が `Plan requires payment information on file` で 400）。
+
+**したがって「スリープしない」前提のコードや設計判断は、まだ成立していない**:
+- `task-executor.ts` の webhook リトライ（0/5/15秒 sleep）は**まだ必要**。撤去してはいけない。
+- 「n8n が寝ていても全機能が成立する」という不変条件は**まだ有効**。
+- 常時稼働を前提にする作業（動的ワークフロー再採用など）は、実際に starter へ上がるまで着手しない。
+
+適用手順: Render に支払い方法を登録 → `npm run render:set-plan` → ダッシュボードで `Starter` 表示を確認。
+`render.yaml` は Blueprint 同期で `plan` を管理するため、ダッシュボードだけで変えても戻される（宣言側は既に starter）。
+
 - `starter` でも RAM は増えない想定なので、n8n の `NODE_OPTIONS` ヒープ調整は据え置き（OOM 対策）。
-- 常時稼働のため `.github/workflows/keepalive.yml` の定期実行は停止済み（手動実行のみ残置）。
+- `.github/workflows/keepalive.yml` の定期実行は停止済み（手動実行のみ残置）。**free のままなら復活させること。**
 - 価格・スペックは変動するので、課金前に Render の料金ページで要確認。
 
 `free` に戻す場合の制約と緩和策:
