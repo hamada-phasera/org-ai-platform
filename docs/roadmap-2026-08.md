@@ -123,7 +123,36 @@ P3  動的ワークフロー再採用    … 静的サブWF + Plan-as-Data Runne
 > ⚠️ **この作業は開発コンテナからは実行できない。** `api.render.com` / `supabase.com` ともに
 > ネットワークポリシーで到達不可。**手元のマシン**で実行すること。
 
-#### 実行順（各ステップに「止まる条件」を付ける）
+#### 推奨: ローカルから DB に繋がない経路（2026-08-06 に方針変更）
+
+`render.yaml` の `startCommand` は **起動のたびに `prisma migrate deploy` を実行する**。
+つまりテーブルと pgvector の作成は Render が勝手にやる。**手元から DB に繋ぐ必要はない。**
+
+`supabase-setup.mjs` が担う 3 つのうち、実際に手元での接続が要るのは 1 つもない:
+
+| やること | 誰がやるか |
+|---|---|
+| `CREATE SCHEMA n8n` | Supabase の SQL Editor（ブラウザ・1 回きり） |
+| テーブル + pgvector 作成 | **Render の `prisma migrate deploy`**（デプロイ時に自動） |
+| RLS 適用・検証 | **Supabase MCP**（`execute_sql`） |
+
+手元での `DATABASE_URL` 設定は、`.env` の既存行との衝突・接続文字列の組み立て・
+パスワードの扱いなど**事故点が多い**（実際に本番 Neon へ誤接続しかけた）。
+ブラウザ + MCP に寄せた方が、手数も事故も少ない。
+
+```
+1. Supabase: Settings → Database → Reset database password（値を控える）
+2. Render: 3 サービスの env を差し替え（下記「4. Render の環境変数を差し替え」）
+   ※ 差し替え前に Neon の値を控える（ロールバック用）
+3. Render: Manual Deploy → 起動時に migrate deploy が走る
+4. MCP で検証 + RLS 適用
+5. Supabase: Settings → API → Data API を無効化
+```
+
+`supabase:check` / `supabase:setup` は、手元から接続したい場合のために残す。
+**どちらの経路でも結果は同じ**（migrate は冪等）。
+
+#### 参考: 手元から実行する経路 — 各ステップに「止まる条件」を付ける
 
 ```
 1. Supabase プロジェクト作成
