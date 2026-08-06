@@ -73,16 +73,28 @@ P3  動的ワークフロー再採用    … 静的サブWF + Plan-as-Data Runne
 手順そのものは [supabase-migration.md](./supabase-migration.md) に検証済みで揃っている。
 ここでは **実行順・判断ポイント・戻し方**だけを定める。
 
-#### 実測で判明したこと（2026-08-06・Supabase MCP 経由）
+#### 現行プロジェクト（2026-08-06 作成・MCP で検証済み）
 
-既に Supabase プロジェクトは存在する。ただし 2 点の問題がある。
+| 項目 | 値 |
+|---|---|
+| name / ref | `org-ai-platform` / **`cshpzbnezqtmmwrywgpt`** |
+| **region** | **`us-west-2`（Oregon）** — Render と同一リージョン ✅ |
+| status | `ACTIVE_HEALTHY` |
+| Postgres | 17.6 |
+| `n8n` スキーマ | 作成済み ✅ |
+| `public` のテーブル | 0 件（`supabase:setup` 待ち） |
+| `vector` 拡張 | **未インストール ✅**（画面から有効化していない＝正しい状態） |
+
+#### 破棄した旧プロジェクト（記録）
 
 | 項目 | 実測値 |
 |---|---|
-| project ref | `ejrcmnebkjaliebfnuqg`（`.mcp.json` に設定済み） |
+| project ref | `ejrcmnebkjaliebfnuqg` |
 | 作成日 | 2026-07-26 |
 | **status** | **`INACTIVE`** — 7 日無活動で一時停止済み。DB は `connection timeout` |
-| **region** | **`ap-southeast-1`（シンガポール）** |
+| **region** | **`ap-southeast-1`（シンガポール）** — Render(oregon) から往復 170ms 前後 |
+
+新環境で `supabase:setup` が通り、本番が新 DB で動くまでは削除しないこと（戻り道として残す）。
 
 - **一時停止**: `db-keepalive.yml` が既定ブランチの問題（P0-2）で一度も発火しておらず、
   予防が機能しなかった。データは消えていないのでダッシュボードから復帰できる。
