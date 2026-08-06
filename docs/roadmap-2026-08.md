@@ -27,12 +27,34 @@ P3  動的ワークフロー再採用    … 静的サブWF + Plan-as-Data Runne
 手順そのものは [supabase-migration.md](./supabase-migration.md) に検証済みで揃っている。
 ここでは **実行順・判断ポイント・戻し方**だけを定める。
 
+#### 実測で判明したこと（2026-08-06・Supabase MCP 経由）
+
+既に Supabase プロジェクトは存在する。ただし 2 点の問題がある。
+
+| 項目 | 実測値 |
+|---|---|
+| project ref | `ejrcmnebkjaliebfnuqg`（`.mcp.json` に設定済み） |
+| 作成日 | 2026-07-26 |
+| **status** | **`INACTIVE`** — 7 日無活動で一時停止済み。DB は `connection timeout` |
+| **region** | **`ap-southeast-1`（シンガポール）** |
+
+- **一時停止**: `db-keepalive.yml` が既定ブランチの問題（P0-2）で一度も発火しておらず、
+  予防が機能しなかった。データは消えていないのでダッシュボードから復帰できる。
+- **リージョン**: 旧 Neon は `us-east-1`（`P1001` のエラーログより）、`render.yaml` に
+  `region:` 指定が無いため Render は既定リージョン。**アプリと DB が別大陸だと全クエリに
+  往復レイテンシが乗り続ける**（1 リクエストで数回問い合わせるため体感に出る）。
+
 #### 事前準備（作業前に手元に用意する）
 | # | 用意するもの | 入手先 |
 |---|---|---|
+| 0 | **Render のリージョン** | `npm run render:status` の `region` 行（本コミットで表示を追加） |
 | 1 | Supabase アカウント | https://supabase.com |
 | 2 | `RENDER_API_KEY` | Render → Account Settings → API Keys |
 | 3 | 現行 Render env のバックアップ | `npm run render:status`（値は表示されないのでダッシュボードで控える） |
+
+> **リージョンが一致しない場合はプロジェクトを作り直す。**
+> 本移行は「既存データは破棄して作り直す」方針のため、作り直しのコストはほぼゼロ。
+> 直すなら移行前が最も安い。一致していれば既存プロジェクトを復帰させてそのまま使う。
 
 > ⚠️ **この作業は開発コンテナからは実行できない。** `api.render.com` / `supabase.com` ともに
 > ネットワークポリシーで到達不可。**手元のマシン**で実行すること。

@@ -58,6 +58,16 @@ const ROLES = [
 // set-env で ai-engine に投入する env（値は環境変数から取る）。
 const AI_ENGINE_ENV = ['GEMINI_API_KEY', 'ADMIN_EMAILS'];
 
+// Render のリージョン → 対応する Supabase のリージョン。
+// アプリと DB が別大陸だと全クエリに往復レイテンシが乗るため、必ず揃える。
+const SUPABASE_REGION_HINT = {
+  oregon: 'West US (Oregon) / us-west-1',
+  ohio: 'East US (Ohio) / us-east-2',
+  virginia: 'East US (North Virginia) / us-east-1',
+  frankfurt: 'Central EU (Frankfurt) / eu-central-1',
+  singapore: 'Southeast Asia (Singapore) / ap-southeast-1',
+};
+
 // set-plan の既定。render.yaml の `plan:` と揃えること（render.yaml が正本）。
 const DEFAULT_PLAN = 'starter';
 const KNOWN_PLANS = ['free', 'starter', 'standard', 'pro'];
@@ -110,6 +120,12 @@ function repoOf(s) {
   return s.repo ?? s.serviceDetails?.repo ?? s.ownerId ?? '(不明)';
 }
 
+// リージョンは serviceDetails 配下にあるが、サービス種別により位置が違うことがある。
+// DB のリージョン選定に直結する情報なので、拾える場所を順に見る。
+function regionOf(s) {
+  return s.serviceDetails?.region ?? s.serviceDetails?.env ?? s.region ?? '(不明)';
+}
+
 async function cmdStatus() {
   const services = await listServices();
   if (!services.length) die('サービスが 0 件。RENDER_API_KEY のアカウントを確認してください。');
@@ -124,6 +140,7 @@ async function cmdStatus() {
         `    repo    : ${repoOf(s)}`,
         `    branch  : ${s.branch ?? '(なし)'}`,
         `    plan    : ${s.serviceDetails?.plan ?? '(不明)'}`,
+        `    region  : ${regionOf(s)}   ← DB はこれと同じリージョンに置く`,
         `    suspend : ${s.suspended ?? '(不明)'}`,
         `    autoDep : ${s.autoDeploy ?? '(不明)'}`,
         url ? `    url     : ${url}` : null,
@@ -148,6 +165,16 @@ async function cmdStatus() {
       console.log(`  ${k}: ${keys.includes(k) ? '設定済み' : '未設定 ← set-env で投入'}`);
     }
   }
+  // Supabase 移行のためのリージョン確認。DB とアプリが別大陸だと、全クエリに
+  // 往復のレイテンシが乗り続ける（1リクエストで数回問い合わせるため体感に出る）。
+  const regions = [...new Set(services.filter((s) => s.role).map(regionOf))];
+  console.log('\n=== DB リージョン選定 ===');
+  console.log(`  Render のリージョン: ${regions.join(' / ') || '(不明)'}`);
+  console.log(`  → Supabase も ${SUPABASE_REGION_HINT[regions[0]] ?? '同じ大陸のリージョン'} を選ぶこと。`);
+  if (regions.length > 1) {
+    console.log('  ⚠ サービス間でリージョンが割れています。DB は gateway と揃えるのが最優先。');
+  }
+
   console.log('\n次: set-env → rewire → deploy → verify\n');
 }
 
