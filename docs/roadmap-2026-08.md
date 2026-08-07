@@ -251,6 +251,27 @@ Supabase に移行しても **7 日無活動でプロジェクトが一時停止
 
 ---
 
+## 改訂（2026-08-06・次期構想 v2 の精査後）
+
+次期構想 v2（1ハーネス＋有界な自己改善＋ノーコードUI＋意味層）を精査し、
+P1〜P3 を v2 統合版に改訂した。精査の詳細は
+[next-arch-review-2026-08.md](./next-arch-review-2026-08.md)、
+意味層第1版は [semantic-layer.md](./semantic-layer.md)。
+
+- **P1 に追加**: スキーマ拡張 `Quote` / `QuoteLine` / `PriceBookItem` / `Customer`
+  （semantic-layer.md の GAP-2〜4）。金額入り見積もりは現スキーマでは作れず、
+  8月検証の先行条件になるため優先度を上げる。
+- **P2 = 構想書の「ハーネス1周」**: 意味層 v1 を文脈注入 → スキル3〜5個
+  （`fetch_deals` / `fetch_pricebook` / `compose_quote` / `verify_amounts` / `risk_check`）
+  をサブWF + MCP Server Trigger で公開 → Verify Gate（機械的検算→根拠照合）→
+  チャット経路是正（RAG を n8n 分岐より先に）。
+  MCP Server Trigger は **Render WAF で SSE が通るかを最初に実測**（Code ノード 403 の前科）。
+- **P3 に追加**: ACE 型戦術帳（まず追記専用 stub、フラグで ON/OFF）とノーコード
+  組み立て UI（意図カード → キャンバスの段階的開示）。実行時のワークフロー新規生成は
+  引き続き不採用（開発時パイプラインのみ）。
+- **8月検証の最小セット**: P0-2 + P1 スキーマ + P2。比較条件 2×2
+  （意味層有無 × 戦術帳有無）は両方フラグで OFF にできる実装にする。
+
 ## P1. 在庫の解消（2〜3日）
 
 ### P1-1. PR #2 を main ベースで作り直す
