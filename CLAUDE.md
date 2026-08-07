@@ -77,7 +77,17 @@ N8N_WEBHOOK_AUTH_TOKEN=org-ai-n8n-secret-token   # Webhook Header Auth
 
 ## Render プランと稼働方針
 
-**現行: 3 サービスとも `starter`（スリープ無しの常時稼働）** — `render.yaml` で宣言。
+**現行: 3 サービスとも `starter`（スリープ無しの常時稼働）** — `render.yaml` で宣言・2026-08-06 に適用。
+
+経緯: `5b4e4a9` で `render.yaml` に `plan: starter` を宣言したが、支払い方法未登録のため
+実サービスは `Free` のまま乖離していた（2026-08-06 にダッシュボードで `Free` バナーを確認）。
+同日、支払い設定とプラン変更を実施。`render.yaml` も同値なので Blueprint 同期で戻ることはない。
+
+**確認方法**（乖離を二度と起こさないため、デプロイのたびに見る）:
+- `npm run render:status` の `plan` 行が 3 サービスとも `starter`
+- ダッシュボードに「free instance will spin down」バナーが出ていないこと
+
+- **リージョン: Oregon（US West）。DB もこれに合わせる**（別大陸だと全クエリに往復レイテンシが乗る）。
 - `starter` でも RAM は増えない想定なので、n8n の `NODE_OPTIONS` ヒープ調整は据え置き（OOM 対策）。
 - 常時稼働のため `.github/workflows/keepalive.yml` の定期実行は停止済み（手動実行のみ残置）。
 - 価格・スペックは変動するので、課金前に Render の料金ページで要確認。
