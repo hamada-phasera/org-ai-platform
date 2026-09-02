@@ -16,6 +16,8 @@ import { SNSPanel } from '../taskmanager/components/panels/SNSPanel';
 import ProjectResultsPanel from '../taskmanager/components/panels/ProjectResultsPanel';
 import TaskDashboardStats from '../components/TaskManager/TaskDashboardStats';
 import PastDeliverablesSection, { DeliverablePreview } from '../components/TaskManager/PastDeliverablesSection';
+import { Button } from '../components/ui/Button';
+import { LiquidTabs } from '../components/motion/LiquidTabs';
 import { api } from '../services/api';
 import { humanizeTaskManagerError } from '../utils/humanizeLlmError';
 import { parseOutputJson } from '../utils/parseTaskOutput';
@@ -216,27 +218,21 @@ export default function TaskManagerPage() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="bg-white/80 backdrop-blur-sm border-b border-[#eae8e3] px-6 py-4 flex items-center justify-between flex-shrink-0">
+      <div className="bg-elevated border-b border-border px-6 py-4 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-[#8b85ff]/10 rounded-2xl flex items-center justify-center">
-            <ClipboardList size={18} className="text-[#8b85ff]" />
+          <div className="w-10 h-10 bg-accent-soft rounded-md flex items-center justify-center">
+            <ClipboardList size={18} className="text-accent" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-[#2D2D2D]">タスク管理</h2>
-            <p className="text-xs text-[#8A8A8A]">
-              チャットは相談、ここではメール・資料など<span className="text-[#2D2D2D]/80 font-medium">成果物パイプライン</span>を実行します
+            <h2 className="text-h3 font-bold text-primary">タスク管理</h2>
+            <p className="text-xs text-muted">
+              チャットは相談、ここではメール・資料など<span className="text-primary font-medium">成果物パイプライン</span>を実行します
             </p>
           </div>
         </div>
-        <motion.button
-          onClick={() => setShowTaskInput(true)}
-          className="flex items-center gap-2 bg-[#8b85ff] hover:bg-[#7c76f2] text-white text-sm font-semibold px-5 py-2.5 rounded-2xl transition-all shadow-md shadow-glow-primary"
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-        >
-          <Plus size={15} />
+        <Button variant="primary" icon={<Plus size={15} />} onClick={() => setShowTaskInput(true)}>
           新しいタスク
-        </motion.button>
+        </Button>
       </div>
 
       {/* Dashboard Stats */}
@@ -247,45 +243,43 @@ export default function TaskManagerPage() {
 
       {/* Backend Tasks from LLM */}
       {backendTasks.length > 0 && (
-        <div className="px-6 py-3 border-b border-[#eae8e3] bg-white/40">
+        <div className="px-6 py-3 border-b border-border bg-canvas">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-[#2D2D2D]">AI実行タスク ({backendTasks.length})</h3>
-            <div className="flex gap-1">
-              {(['ALL', 'QUEUED', 'DONE', 'FAILED'] as const).map((f) => (
-                <button
-                  key={f}
-                  onClick={() => setTaskFilter(f)}
-                  className={`text-[10px] px-2.5 py-1 rounded-full font-medium transition-colors ${
-                    taskFilter === f
-                      ? 'bg-[#8b85ff] text-white'
-                      : 'bg-white text-[#8A8A8A] hover:bg-gray-100'
-                  }`}
-                >
-                  {f === 'ALL' ? '全て' : f === 'QUEUED' ? '実行中' : f === 'DONE' ? '完了' : '失敗'}
-                </button>
-              ))}
-            </div>
+            <h3 className="text-sm font-bold text-primary">AI実行タスク ({backendTasks.length})</h3>
+            <LiquidTabs
+              id="taskmanager-status-filter"
+              label="AI実行タスクを状態で絞り込み"
+              size="sm"
+              items={[
+                { value: 'ALL', label: '全て' },
+                { value: 'QUEUED', label: '実行中' },
+                { value: 'DONE', label: '完了' },
+                { value: 'FAILED', label: '失敗' },
+              ]}
+              value={taskFilter}
+              onChange={setTaskFilter}
+            />
           </div>
           <div className="space-y-2 max-h-60 overflow-y-auto">
             {filteredBackendTasks.map((bt) => (
               <motion.div
                 key={bt.id}
-                className="bg-white rounded-2xl p-3 shadow-sm border border-gray-100 cursor-pointer"
+                className="bg-elevated rounded-lg p-3 shadow-elev-1 border border-border cursor-pointer"
                 whileHover={{ scale: 1.005 }}
                 onClick={() => setExpandedTaskId(expandedTaskId === bt.id ? null : bt.id)}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 min-w-0">
-                    {bt.status === 'DONE' && <CheckCircle2 size={14} className="text-emerald-500 flex-shrink-0" />}
-                    {bt.status === 'QUEUED' && <Clock size={14} className="text-orange-400 flex-shrink-0" />}
-                    {bt.status === 'FAILED' && <XCircle size={14} className="text-red-400 flex-shrink-0" />}
-                    {bt.status === 'PENDING' && <Clock size={14} className="text-gray-400 flex-shrink-0" />}
-                    <span className="text-xs font-medium text-[#2D2D2D] truncate">{bt.title}</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-[#8A8A8A] flex-shrink-0">{bt.department}</span>
+                    {bt.status === 'DONE' && <CheckCircle2 size={14} className="text-success flex-shrink-0" />}
+                    {bt.status === 'QUEUED' && <Clock size={14} className="text-info flex-shrink-0" />}
+                    {bt.status === 'FAILED' && <XCircle size={14} className="text-danger flex-shrink-0" />}
+                    {bt.status === 'PENDING' && <Clock size={14} className="text-muted flex-shrink-0" />}
+                    <span className="text-xs font-medium text-primary truncate">{bt.title}</span>
+                    <span className="text-micro px-1.5 py-0.5 rounded-full bg-sunken text-muted flex-shrink-0">{bt.department}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-[#BCBCBC]">{new Date(bt.createdAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}</span>
-                    {expandedTaskId === bt.id ? <ChevronUp size={12} className="text-[#BCBCBC]" /> : <ChevronDown size={12} className="text-[#BCBCBC]" />}
+                    <span className="text-micro text-muted tabular">{new Date(bt.createdAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}</span>
+                    {expandedTaskId === bt.id ? <ChevronUp size={12} className="text-ink-decorative" /> : <ChevronDown size={12} className="text-ink-decorative" />}
                   </div>
                 </div>
                 <AnimatePresence>
@@ -301,13 +295,13 @@ export default function TaskManagerPage() {
                         if (parsed && (parsed.taskType || bt.taskType)) {
                           const data = parsed.taskType ? parsed : { ...parsed, taskType: bt.taskType };
                           return (
-                            <div className="mt-2 p-2 bg-gray-50 rounded-xl">
+                            <div className="mt-2 p-2 bg-sunken rounded-md">
                               <DeliverablePreview data={data} />
                             </div>
                           );
                         }
                         return (
-                          <div className="mt-2 p-2 bg-gray-50 rounded-xl text-xs text-[#2D2D2D] whitespace-pre-wrap max-h-40 overflow-y-auto">
+                          <div className="mt-2 p-2 bg-sunken rounded-md text-xs text-primary whitespace-pre-wrap max-h-40 overflow-y-auto">
                             {bt.output.slice(0, 500)}{bt.output.length > 500 ? '...' : ''}
                           </div>
                         );
@@ -315,15 +309,15 @@ export default function TaskManagerPage() {
                       {bt.logs.length > 0 && (
                         <div className="mt-2 space-y-1">
                           {bt.logs.slice(-5).map((log) => (
-                            <div key={log.id} className="text-[10px] text-[#8A8A8A] flex items-center gap-1">
-                              <span className={log.level === 'ERROR' ? 'text-red-400' : 'text-[#BCBCBC]'}>●</span>
+                            <div key={log.id} className="text-micro text-muted flex items-center gap-1">
+                              <span className={log.level === 'ERROR' ? 'text-danger' : 'text-ink-decorative'}>●</span>
                               {log.message}
                             </div>
                           ))}
                         </div>
                       )}
                       {!bt.output && bt.logs.length === 0 && (
-                        <div className="mt-2 text-[10px] text-[#BCBCBC]">実行結果なし</div>
+                        <div className="mt-2 text-micro text-muted">実行結果なし</div>
                       )}
                     </motion.div>
                   )}
@@ -365,18 +359,18 @@ export default function TaskManagerPage() {
                 transition={{ duration: 0.3 }}
               >
                 {isQueueMode && executionQueue && (
-                  <div className="bg-white border border-[#8b85ff]/20 rounded-3xl p-5 space-y-3 shadow-sm">
-                    <div className="flex items-center gap-2">
+                  <div className="bg-elevated border border-accent-soft-border rounded-xl p-5 space-y-3 shadow-elev-1">
+                    <div className="flex items-center gap-2" aria-live="polite">
                       <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}>
-                        <Loader size={14} className="text-[#8b85ff]" />
+                        <Loader size={14} className="text-accent" />
                       </motion.div>
-                      <span className="text-sm font-bold text-[#8b85ff]">
+                      <span className="text-sm font-bold text-accent tabular">
                         自動実行中 ({Math.min(executionQueue.currentIndex + 1, executionQueue.taskIds.length)}/{executionQueue.taskIds.length})
                       </span>
                     </div>
-                    <div className="w-full bg-[#f5f5f0] rounded-full h-2">
+                    <div className="w-full bg-sunken rounded-full h-2">
                       <motion.div
-                        className="bg-[#8b85ff] h-2 rounded-full"
+                        className="bg-accent h-2 rounded-full"
                         initial={{ width: 0 }}
                         animate={{ width: `${(executionQueue.currentIndex / executionQueue.taskIds.length) * 100}%` }}
                         transition={{ duration: 0.4 }}
@@ -387,22 +381,22 @@ export default function TaskManagerPage() {
 
                 {/* n8n background execution log panel */}
                 {showN8nPanel && (
-                  <div className="bg-white border border-[#eae8e3] rounded-3xl p-5 space-y-3 shadow-sm">
+                  <div className="bg-elevated border border-border rounded-xl p-5 space-y-3 shadow-elev-1">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2" aria-live="polite">
                         {n8nDone ? (
-                          <span className="text-xs font-bold text-emerald-600">✅ n8n 実行完了</span>
+                          <span className="text-xs font-bold text-success">✅ n8n 実行完了</span>
                         ) : (
                           <>
                             <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}>
-                              <Loader size={13} className="text-[#8b85ff]" />
+                              <Loader size={13} className="text-accent" />
                             </motion.div>
-                            <span className="text-xs font-bold text-[#8b85ff]">n8n バックグラウンド実行中...</span>
+                            <span className="text-xs font-bold text-accent">n8n バックグラウンド実行中...</span>
                           </>
                         )}
                       </div>
                       <button
-                        className="text-xs text-[#BCBCBC] hover:text-[#8A8A8A] font-medium transition-colors"
+                        className="text-xs text-muted hover:text-secondary font-medium transition-colors"
                         onClick={() => { wsRef.current?.close(); setN8nBackendId(null); setN8nLogs([]); setN8nDone(false); }}
                       >
                         閉じる
@@ -410,11 +404,21 @@ export default function TaskManagerPage() {
                     </div>
                     <div className="space-y-1.5 max-h-64 overflow-y-auto font-mono scrollbar-hide">
                       {n8nLogs.length === 0 ? (
-                        <p className="text-xs text-[#BCBCBC]">n8n からのログを待機中...</p>
+                        <p className="text-xs text-muted">n8n からのログを待機中...</p>
                       ) : (
                         n8nLogs.map((log) => (
-                          <div key={log.id} className={`text-xs px-3 py-1.5 rounded-xl ${log.level === 'ERROR' ? 'bg-red-50 text-red-700' : log.level === 'WARN' ? 'bg-amber-50 text-amber-700' : 'bg-[#f5f5f0] text-[#8A8A8A]'}`}>
-                            <span className="text-[#BCBCBC] mr-1">[{new Date(log.createdAt).toLocaleTimeString()}]</span>
+                          <div
+                            key={log.id}
+                            className={`text-xs px-3 py-1.5 rounded-md ${log.level === 'ERROR' ? 'text-danger' : log.level === 'WARN' ? 'text-warning' : 'bg-sunken text-muted'}`}
+                            style={
+                              log.level === 'ERROR'
+                                ? { backgroundColor: 'color-mix(in srgb, var(--danger) 10%, transparent)' }
+                                : log.level === 'WARN'
+                                  ? { backgroundColor: 'color-mix(in srgb, var(--warning) 12%, transparent)' }
+                                  : undefined
+                            }
+                          >
+                            <span className="text-muted mr-1">[{new Date(log.createdAt).toLocaleTimeString()}]</span>
                             {log.message}
                           </div>
                         ))
@@ -424,7 +428,7 @@ export default function TaskManagerPage() {
                 )}
 
                 {activeTask && (
-                  <div className="text-sm font-bold text-[#2D2D2D] px-1">{activeTask.title}</div>
+                  <div className="text-sm font-bold text-primary px-1">{activeTask.title}</div>
                 )}
 
                 {(showAIPanel || hasResult) && (
@@ -459,18 +463,18 @@ export default function TaskManagerPage() {
                       <SchedulePanel schedule={executionState.result.schedule} onApprove={handleApprove} />
                     )}
                     {executionState.result.type === 'analytics' && executionState.result.analytics && (
-                      <div className="bg-white border border-[#eae8e3] rounded-3xl p-5 shadow-sm">
+                      <div className="bg-elevated border border-border rounded-xl p-5 shadow-elev-1">
                         <AnalyticsPanel result={executionState.result.analytics} />
-                        <motion.button onClick={handleApprove} className="mt-3 w-full bg-[#8b85ff] hover:bg-[#7c76f2] text-white text-xs font-semibold py-2.5 rounded-xl transition-all" whileTap={{ scale: 0.97 }}>承認</motion.button>
+                        <Button variant="primary" size="sm" fullWidth className="mt-3" onClick={handleApprove}>承認</Button>
                       </div>
                     )}
                     {executionState.result.type === 'sns' && executionState.result.sns && (
-                      <div className="bg-white border border-[#eae8e3] rounded-3xl p-5 shadow-sm">
+                      <div className="bg-elevated border border-border rounded-xl p-5 shadow-elev-1">
                         <SNSPanel result={executionState.result.sns} />
-                        <motion.button onClick={handleApprove} className="mt-3 w-full bg-[#8b85ff] hover:bg-[#7c76f2] text-white text-xs font-semibold py-2.5 rounded-xl transition-all" whileTap={{ scale: 0.97 }}>承認</motion.button>
+                        <Button variant="primary" size="sm" fullWidth className="mt-3" onClick={handleApprove}>承認</Button>
                       </div>
                     )}
-                    <button className="text-xs text-[#BCBCBC] hover:text-[#8A8A8A] font-medium w-full text-center py-1 transition-colors" onClick={clearExecution}>閉じる</button>
+                    <button className="text-xs text-muted hover:text-secondary font-medium w-full text-center py-1 transition-colors" onClick={clearExecution}>閉じる</button>
                   </>
                 )}
 
@@ -484,7 +488,7 @@ export default function TaskManagerPage() {
 
                 {viewingTask?.executionResult && !isQueueMode && !queueCompleted && !hasResult && (
                   <>
-                    <div className="text-sm font-bold text-[#2D2D2D] px-1">{viewingTask.title}</div>
+                    <div className="text-sm font-bold text-primary px-1">{viewingTask.title}</div>
                     {viewingTask.executionResult.type === 'email' && viewingTask.executionResult.email && (
                       <EmailPanel email={viewingTask.executionResult.email} onRefinement={() => {}} onApprove={() => setViewingTask(null)} isRefining={false} />
                     )}
@@ -501,16 +505,16 @@ export default function TaskManagerPage() {
                       <SchedulePanel schedule={viewingTask.executionResult.schedule} onApprove={() => setViewingTask(null)} />
                     )}
                     {viewingTask.executionResult.type === 'analytics' && viewingTask.executionResult.analytics && (
-                      <div className="bg-white border border-[#eae8e3] rounded-3xl p-5 shadow-sm">
+                      <div className="bg-elevated border border-border rounded-xl p-5 shadow-elev-1">
                         <AnalyticsPanel result={viewingTask.executionResult.analytics} />
                       </div>
                     )}
                     {viewingTask.executionResult.type === 'sns' && viewingTask.executionResult.sns && (
-                      <div className="bg-white border border-[#eae8e3] rounded-3xl p-5 shadow-sm">
+                      <div className="bg-elevated border border-border rounded-xl p-5 shadow-elev-1">
                         <SNSPanel result={viewingTask.executionResult.sns} />
                       </div>
                     )}
-                    <button className="text-xs text-[#BCBCBC] hover:text-[#8A8A8A] font-medium w-full text-center py-1 transition-colors" onClick={() => setViewingTask(null)}>閉じる</button>
+                    <button className="text-xs text-muted hover:text-secondary font-medium w-full text-center py-1 transition-colors" onClick={() => setViewingTask(null)}>閉じる</button>
                   </>
                 )}
               </motion.div>

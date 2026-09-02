@@ -5,20 +5,23 @@ import { CheckCircle, AlertCircle, Shield, Activity, ChevronLeft, ChevronRight }
 import { api } from '../services/api';
 import type { AILog, RiskEvent } from '@org-ai/shared-types';
 import {
-  GlassCard,
-  GlassBadge,
-  GlassButton,
+  Card,
+  Badge,
+  Button,
   PageHeader,
   EmptyState,
   ErrorState,
   SkeletonList,
 } from '../components/ui';
+import { LiquidTabs } from '../components/motion/LiquidTabs';
 
-const SEVERITY_TONE: Record<string, string> = {
-  LOW: 'success',
-  MEDIUM: 'warning',
-  HIGH: 'accent',
-  CRITICAL: 'danger',
+/* 深刻度＝意味の色。success / warning / danger のトークンで塗る（hex 直書き禁止）。
+ * CRITICAL だけ塗りつぶしで一段強く。 */
+const SEVERITY_CLASS: Record<string, string> = {
+  LOW: 'bg-success/10 text-success',
+  MEDIUM: 'bg-warning/10 text-warning',
+  HIGH: 'bg-danger/10 text-danger',
+  CRITICAL: 'bg-danger text-white',
 };
 
 const DEPARTMENTS = ['ALL', 'SALES', 'MARKETING', 'ACCOUNTING', 'ANALYTICS', 'GENERAL'] as const;
@@ -88,42 +91,34 @@ export default function GovernancePage() {
         title="AIガバナンス"
         description="AI の使用状況・個人情報マスキング・リスクイベントを監視します。"
         actions={
-          <div className="w-10 h-10 rounded-2xl flex items-center justify-center bg-accent/15 text-accent">
+          <div className="w-10 h-10 rounded-2xl flex items-center justify-center bg-accent-soft text-accent">
             <Shield size={18} />
           </div>
         }
       />
 
-      <GlassCard variant="thin" padding="md" radius="2xl" className="mb-5 text-sm text-muted leading-relaxed">
+      <Card variant="thin" padding="md" radius="2xl" className="mb-5 text-sm text-secondary leading-relaxed">
         <p className="font-medium text-primary mb-1">この画面について</p>
         <p>
           「いつ・どの部署の AI が・どれくらいトークンを使ったか」と、個人情報がマスクされたかなどの記録を閲覧できます。監査や社内ルールの確認用で、日々のチャット内容そのものが一覧されるわけではありません（詳細は組織の設定によります）。
         </p>
-      </GlassCard>
+      </Card>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-5 glass-thin p-1 rounded-2xl w-fit">
-        {([
-          { key: 'logs' as const, label: 'AIログ', icon: Activity },
-          { key: 'risks' as const, label: 'リスクイベント', icon: AlertCircle },
-        ]).map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            onClick={() => {
-              setTab(key);
-              setPage(1);
-            }}
-            className={`flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-xl transition-all ${
-              tab === key
-                ? 'bg-white/70 text-primary shadow-sm'
-                : 'text-muted hover:text-primary'
-            }`}
-          >
-            <Icon size={14} />
-            {label}
-          </button>
-        ))}
-      </div>
+      <LiquidTabs
+        id="governance-view"
+        label="ガバナンスの表示切り替え"
+        items={[
+          { value: 'logs', label: 'AIログ' },
+          { value: 'risks', label: 'リスクイベント' },
+        ]}
+        value={tab}
+        onChange={(next) => {
+          setTab(next);
+          setPage(1);
+        }}
+        className="mb-5"
+      />
 
       {/* Filters */}
       {tab === 'logs' && (
@@ -136,10 +131,10 @@ export default function GovernancePage() {
                 setDeptFilter(d);
                 setPage(1);
               }}
-              className={`text-xs font-semibold px-3 py-1.5 rounded-full transition-all ${
+              className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-all ${
                 deptFilter === d
-                  ? 'bg-accent/15 text-accent'
-                  : 'glass-thin text-muted hover:text-primary'
+                  ? 'bg-accent-soft border-accent-soft-border text-accent'
+                  : 'bg-sunken border-border text-secondary hover:text-primary'
               }`}
             >
               {d === 'ALL' ? 'すべて' : d}
@@ -159,10 +154,10 @@ export default function GovernancePage() {
             <button
               key={key}
               onClick={() => setRiskFilter(key)}
-              className={`text-xs font-semibold px-3 py-1.5 rounded-full transition-all ${
+              className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-all ${
                 riskFilter === key
-                  ? 'bg-accent/15 text-accent'
-                  : 'glass-thin text-muted hover:text-primary'
+                  ? 'bg-accent-soft border-accent-soft-border text-accent'
+                  : 'bg-sunken border-border text-secondary hover:text-primary'
               }`}
             >
               {label}
@@ -191,36 +186,36 @@ export default function GovernancePage() {
                 description="AI へのリクエストが発生すると、ここに記録されます。"
               />
             ) : (
-              <GlassCard variant="thin" padding="none" radius="2xl" className="overflow-hidden">
+              <Card variant="regular" padding="none" radius="2xl" className="overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead className="border-b border-white/30 bg-white/20">
+                    <thead className="border-b border-border bg-sunken">
                       <tr>
                         {['日時', '部署', 'モデル', 'トークン', 'レイテンシ', '入力プレビュー'].map((h) => (
                           <th
                             key={h}
-                            className="text-left px-5 py-3.5 text-[10px] font-semibold text-muted uppercase tracking-[0.15em]"
+                            className="text-left px-5 py-3.5 text-micro font-semibold text-muted uppercase tracking-[0.15em]"
                           >
                             {h}
                           </th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/20">
+                    <tbody className="divide-y divide-hairline">
                       {(logs ?? []).map((log) => (
-                        <tr key={log.id} className="hover:bg-white/20 transition-colors">
-                          <td className="px-5 py-3.5 text-xs text-muted">
+                        <tr key={log.id} className="hover:bg-sunken transition-colors">
+                          <td className="px-5 py-3.5 text-xs text-secondary tabular whitespace-nowrap">
                             {new Date(log.createdAt).toLocaleString('ja-JP')}
                           </td>
                           <td className="px-5 py-3.5">
-                            <GlassBadge tone={log.department} variant="soft" size="sm">
+                            <Badge tone={log.department} variant="soft" size="sm">
                               {log.department}
-                            </GlassBadge>
+                            </Badge>
                           </td>
-                          <td className="px-5 py-3.5 text-xs text-muted font-mono">{log.model}</td>
-                          <td className="px-5 py-3.5 text-xs text-primary font-semibold">{log.tokens ?? '-'}</td>
-                          <td className="px-5 py-3.5 text-xs text-primary">{log.latencyMs ? `${log.latencyMs}ms` : '-'}</td>
-                          <td className="px-5 py-3.5 text-xs text-muted max-w-xs truncate">
+                          <td className="px-5 py-3.5 text-xs text-secondary font-mono">{log.model}</td>
+                          <td className="px-5 py-3.5 text-xs text-primary font-semibold tabular">{log.tokens ?? '-'}</td>
+                          <td className="px-5 py-3.5 text-xs text-primary tabular">{log.latencyMs ? `${log.latencyMs}ms` : '-'}</td>
+                          <td className="px-5 py-3.5 text-xs text-secondary max-w-xs truncate">
                             {log.inputText.slice(0, 60)}
                           </td>
                         </tr>
@@ -229,13 +224,13 @@ export default function GovernancePage() {
                   </table>
                 </div>
                 {pagination && pagination.totalPages > 1 && (
-                  <div className="flex items-center justify-between px-5 py-3 border-t border-white/30 bg-white/10">
-                    <span className="text-xs text-muted">
+                  <div className="flex items-center justify-between px-5 py-3 border-t border-border bg-sunken">
+                    <span className="text-xs text-secondary tabular">
                       {pagination.total} 件中 {(pagination.page - 1) * pagination.limit + 1} -{' '}
                       {Math.min(pagination.page * pagination.limit, pagination.total)} 件を表示
                     </span>
                     <div className="flex items-center gap-1">
-                      <GlassButton
+                      <Button
                         size="xs"
                         variant="ghost"
                         onClick={() => setPage((p) => Math.max(1, p - 1))}
@@ -243,11 +238,11 @@ export default function GovernancePage() {
                         icon={<ChevronLeft size={12} />}
                       >
                         前へ
-                      </GlassButton>
-                      <span className="text-xs text-primary font-semibold px-3">
+                      </Button>
+                      <span className="text-xs text-primary font-semibold px-3 tabular">
                         {pagination.page} / {pagination.totalPages}
                       </span>
-                      <GlassButton
+                      <Button
                         size="xs"
                         variant="ghost"
                         onClick={() => setPage((p) => Math.min(pagination.totalPages, p + 1))}
@@ -255,11 +250,11 @@ export default function GovernancePage() {
                         trailingIcon={<ChevronRight size={12} />}
                       >
                         次へ
-                      </GlassButton>
+                      </Button>
                     </div>
                   </div>
                 )}
-              </GlassCard>
+              </Card>
             )}
           </motion.div>
         )}
@@ -283,55 +278,59 @@ export default function GovernancePage() {
                 description="検知されたリスクはすべて解決済みか、まだ発生していません。"
               />
             ) : (
-              <GlassCard variant="thin" padding="none" radius="2xl" className="overflow-hidden">
+              <Card variant="regular" padding="none" radius="2xl" className="overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead className="border-b border-white/30 bg-white/20">
+                    <thead className="border-b border-border bg-sunken">
                       <tr>
                         {['日時', 'タイプ', '深刻度', '説明', 'ステータス', '操作'].map((h) => (
                           <th
                             key={h}
-                            className="text-left px-5 py-3.5 text-[10px] font-semibold text-muted uppercase tracking-[0.15em]"
+                            className="text-left px-5 py-3.5 text-micro font-semibold text-muted uppercase tracking-[0.15em]"
                           >
                             {h}
                           </th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/20">
+                    <tbody className="divide-y divide-hairline">
                       {(risks ?? []).map((risk) => (
-                        <tr key={risk.id} className="hover:bg-white/20 transition-colors">
-                          <td className="px-5 py-3.5 text-xs text-muted">
+                        <tr key={risk.id} className="hover:bg-sunken transition-colors">
+                          <td className="px-5 py-3.5 text-xs text-secondary tabular whitespace-nowrap">
                             {new Date(risk.createdAt).toLocaleString('ja-JP')}
                           </td>
                           <td className="px-5 py-3.5 text-xs font-mono text-primary">{risk.type}</td>
                           <td className="px-5 py-3.5">
-                            <GlassBadge tone={SEVERITY_TONE[risk.severity] ?? 'muted'} variant="soft" size="sm">
+                            <span
+                              className={`inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-full ${
+                                SEVERITY_CLASS[risk.severity] ?? 'bg-sunken border border-border text-secondary'
+                              }`}
+                            >
                               {risk.severity}
-                            </GlassBadge>
+                            </span>
                           </td>
-                          <td className="px-5 py-3.5 text-xs text-muted max-w-xs truncate">{risk.description}</td>
+                          <td className="px-5 py-3.5 text-xs text-secondary max-w-xs truncate">{risk.description}</td>
                           <td className="px-5 py-3.5">
                             {risk.resolved ? (
                               <span className="flex items-center gap-1.5 text-xs text-success font-medium">
                                 <CheckCircle size={13} /> 解決済み
                               </span>
                             ) : (
-                              <span className="flex items-center gap-1.5 text-xs text-accent font-medium">
+                              <span className="flex items-center gap-1.5 text-xs text-warning font-medium">
                                 <AlertCircle size={13} /> 未解決
                               </span>
                             )}
                           </td>
                           <td className="px-5 py-3.5">
                             {!risk.resolved && (
-                              <GlassButton
+                              <Button
                                 size="xs"
                                 variant="ghost"
                                 onClick={() => resolveMutation.mutate(risk.id)}
                                 loading={resolveMutation.isPending}
                               >
                                 解決済みにする
-                              </GlassButton>
+                              </Button>
                             )}
                           </td>
                         </tr>
@@ -339,7 +338,7 @@ export default function GovernancePage() {
                     </tbody>
                   </table>
                 </div>
-              </GlassCard>
+              </Card>
             )}
           </motion.div>
         )}

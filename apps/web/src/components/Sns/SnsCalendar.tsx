@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { GlassCard } from '../ui/GlassCard';
+import { Card } from '../ui/Card';
 
 /** N-3: 下書きを日付にひも付けて月グリッドで表示する（読み取り専用）。 */
 
@@ -15,12 +15,14 @@ export interface CalendarDraft {
 
 const TZ = 'Asia/Tokyo';
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+/** ステータス＝意味の色。承認待ち=warning / 承認済み・完了=success / 却下=装飾グレー（index.css のトークン）。 */
 const STATUS_DOT: Record<string, string> = {
-  PENDING_APPROVAL: '#F59E0B',
-  APPROVED: '#10B981',
-  REJECTED: '#94A3B8',
-  DONE: '#10B981',
+  PENDING_APPROVAL: 'var(--warning)',
+  APPROVED: 'var(--success)',
+  REJECTED: 'var(--ink-decorative)',
+  DONE: 'var(--success)',
 };
+const FALLBACK_DOT = 'var(--ink-decorative)';
 
 /**
  * 日付キーを JST の YYYY-MM-DD で返す。優先順位:
@@ -91,12 +93,12 @@ export function SnsCalendar({ tasks }: { tasks: CalendarDraft[] }) {
   };
 
   return (
-    <GlassCard variant="regular" className="p-4">
+    <Card variant="regular" padding="none" className="p-4">
       <div className="flex items-center justify-between mb-3">
         <button onClick={() => shift(-1)} aria-label="前の月" className="text-muted hover:text-primary">
           <ChevronLeft size={18} />
         </button>
-        <h3 className="text-sm font-semibold text-primary">
+        <h3 className="text-sm font-semibold text-primary tabular">
           {year}年{month0 + 1}月
         </h3>
         <button onClick={() => shift(1)} aria-label="次の月" className="text-muted hover:text-primary">
@@ -116,26 +118,26 @@ export function SnsCalendar({ tasks }: { tasks: CalendarDraft[] }) {
           return (
             <div
               key={day}
-              className="min-h-[52px] rounded-lg p-1 text-left glass-thin"
+              className="min-h-[52px] rounded-lg p-1 text-left bg-sunken border border-border"
               title={items.length ? `${items.length}件の下書き` : undefined}
             >
-              <div className="text-[10px] text-secondary">{day}</div>
+              <div className="text-[10px] text-secondary tabular">{day}</div>
               {items.length > 0 && (
                 <div className="mt-0.5 flex flex-wrap gap-0.5 items-center">
                   {items.slice(0, 6).map((t) => (
                     <span
                       key={t.id}
                       className="inline-block w-1.5 h-1.5 rounded-full"
-                      style={{ backgroundColor: STATUS_DOT[t.status] ?? '#94A3B8' }}
+                      style={{ backgroundColor: STATUS_DOT[t.status] ?? FALLBACK_DOT }}
                     />
                   ))}
-                  {items.length > 6 && <span className="text-[9px] text-muted">+{items.length - 6}</span>}
+                  {items.length > 6 && <span className="text-[9px] text-muted tabular">+{items.length - 6}</span>}
                 </div>
               )}
             </div>
           );
         })}
       </div>
-    </GlassCard>
+    </Card>
   );
 }

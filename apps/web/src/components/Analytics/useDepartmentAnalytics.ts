@@ -3,7 +3,8 @@ import { api } from '../../services/api';
 import { DEPARTMENTS, DEPT_LABEL, DEPT_ACCENT } from '../../constants/departments';
 import type { EfficiencyResponse, DepartmentRow } from './types';
 
-const FALLBACK_ACCENT = '#475569';
+/** 未知/legacy 部署のフォールバック色（CSS コンテキストでのみ使用。GENERAL=slate のトークン）。 */
+const FALLBACK_ACCENT = 'var(--dept-general)';
 
 export interface DepartmentAnalytics {
   rows: DepartmentRow[];

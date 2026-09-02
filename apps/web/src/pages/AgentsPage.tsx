@@ -3,9 +3,9 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Play, Trash2, Bot } from 'lucide-react';
 import { api } from '../services/api';
-import { GlassCard } from '../components/ui/GlassCard';
-import { GlassButton } from '../components/ui/GlassButton';
-import { GlassBadge } from '../components/ui/GlassBadge';
+import { Card } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
 import { PageHeader } from '../components/ui/PageHeader';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Spinner } from '../components/ui/LoadingSkeleton';
@@ -44,9 +44,9 @@ export default function AgentsPage() {
         title="業務効率化エージェント"
         description="作成したエージェントを選んで、いつでも再実行できます。"
         actions={
-          <GlassButton variant="primary" icon={<Plus size={14} />} onClick={() => setShowCreate(true)}>
+          <Button variant="primary" icon={<Plus size={14} />} onClick={() => setShowCreate(true)}>
             エージェントを作成
-          </GlassButton>
+          </Button>
         }
       />
 
@@ -75,25 +75,25 @@ export default function AgentsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {agents.map((agent) => (
             <motion.div key={agent.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-              <GlassCard variant="regular" className="p-4 h-full flex flex-col">
+              <Card variant="regular" padding="none" className="p-4 h-full flex flex-col">
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="text-xl flex-shrink-0">{agent.icon ?? '🤖'}</span>
                     <h3 className="text-sm font-semibold text-primary truncate">{agent.name}</h3>
                   </div>
-                  <GlassBadge>{agent.n8nStatus === 'ACTIVE' ? '🟢' : '🟡'} {AGENT_N8N_STATUS_LABEL[agent.n8nStatus]}</GlassBadge>
+                  <Badge>{agent.n8nStatus === 'ACTIVE' ? '🟢' : '🟡'} {AGENT_N8N_STATUS_LABEL[agent.n8nStatus]}</Badge>
                 </div>
                 <p className="text-xs text-secondary line-clamp-2 mb-2 flex-1">
                   {agent.description || agent.instructions}
                 </p>
                 <div className="flex items-center gap-2 mb-3">
-                  <GlassBadge>{DEPT_LABEL[agent.department] ?? agent.department}</GlassBadge>
+                  <Badge>{DEPT_LABEL[agent.department] ?? agent.department}</Badge>
                   <span className="text-[10px] text-muted">
                     {agent.trigger === 'SCHEDULED' ? '定期実行' : '手動実行'}
                   </span>
                 </div>
                 <div className="flex gap-2 mt-auto">
-                  <GlassButton
+                  <Button
                     variant="primary"
                     size="sm"
                     icon={<Play size={12} />}
@@ -101,8 +101,8 @@ export default function AgentsPage() {
                     disabled={!agent.enabled}
                   >
                     実行
-                  </GlassButton>
-                  <GlassButton
+                  </Button>
+                  <Button
                     variant="ghost"
                     size="sm"
                     icon={<Trash2 size={12} />}
@@ -113,7 +113,7 @@ export default function AgentsPage() {
                     aria-label="削除"
                   />
                 </div>
-              </GlassCard>
+              </Card>
             </motion.div>
           ))}
         </div>

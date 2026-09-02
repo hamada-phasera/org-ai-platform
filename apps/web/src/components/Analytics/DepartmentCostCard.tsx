@@ -1,8 +1,8 @@
-import { GlassCard, GlassBadge } from '../ui';
+import { Card, Badge } from '../ui';
 import { DEPT_LABEL, DEPT_ACCENT } from '../../constants/departments';
 import type { DepartmentMetricsRow } from './useDepartmentMetrics';
 
-const FALLBACK_ACCENT = '#475569';
+const FALLBACK_ACCENT = 'var(--dept-general)';
 
 function fmtUsd(v: number): string {
   if (v >= 1) return `$${v.toFixed(2)}`;
@@ -19,10 +19,10 @@ export function DepartmentCostCard({ rows }: { rows: DepartmentMetricsRow[] }) {
   const totalCost = sorted.reduce((sum, r) => sum + r.costUsd, 0);
 
   return (
-    <GlassCard variant="regular" padding="none" className="p-5">
+    <Card variant="regular" padding="none" className="p-5">
       <div className="flex items-center justify-between mb-4">
         <span className="text-sm font-semibold text-primary">部署別 推定コスト（直近30日）</span>
-        <GlassBadge>合計 {fmtUsd(totalCost)}</GlassBadge>
+        <Badge className="tabular">合計 {fmtUsd(totalCost)}</Badge>
       </div>
 
       <div className="space-y-3">
@@ -62,6 +62,6 @@ export function DepartmentCostCard({ rows }: { rows: DepartmentMetricsRow[] }) {
         （トークンは入出力合算のため近似。単価表の正式確定は統合フェーズ・integration-requests #1）。
         回数＝LLM呼び出し数、右端＝平均レイテンシ。
       </p>
-    </GlassCard>
+    </Card>
   );
 }

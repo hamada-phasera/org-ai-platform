@@ -116,7 +116,7 @@ export function TaskProgressSidebar({ open, onClose, inlineTasks }: TaskProgress
       <AnimatePresence>
         {open && (
           <motion.aside
-            className="absolute lg:relative right-0 z-30 lg:z-0 w-80 h-full flex-shrink-0 flex flex-col border-l border-border"
+            className="absolute lg:relative right-0 z-30 lg:z-0 w-80 h-full flex-shrink-0 flex flex-col border-l border-border bg-elevated"
             initial={{ x: 320 }}
             animate={{ x: 0 }}
             exit={{ x: 320 }}

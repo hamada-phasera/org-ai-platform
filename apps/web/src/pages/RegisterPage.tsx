@@ -5,7 +5,7 @@ import { Sparkles, ArrowRight, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import type { User } from '@org-ai/shared-types';
-import { AmbientBackground, GlassCard, GlassInput, GlassButton } from '../components/ui';
+import { AmbientBackground, Card, Input, Button } from '../components/ui';
 
 const FIELDS = [
   { key: 'name', label: 'お名前', type: 'text', placeholder: '山田 太郎', autoComplete: 'name' },
@@ -60,32 +60,34 @@ export default function RegisterPage() {
           <p className="text-sm text-muted mt-1">みんなのAIオフィス</p>
         </div>
 
-        <GlassCard variant="regular" padding="lg" radius="2xl" reflectionTop>
+        <Card variant="regular" padding="lg" radius="2xl">
           <h2 className="text-body font-bold text-primary mb-1">新規登録</h2>
           <p className="text-sm text-muted mb-6">組織アカウントを作成する</p>
 
-          {error && (
-            <motion.div
-              className="flex items-start gap-2 text-sm text-danger mb-5 p-3 rounded-xl bg-danger/10 border border-danger/20"
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              role="alert"
-            >
-              <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
-              <span>{error}</span>
-            </motion.div>
-          )}
+          <div aria-live="polite">
+            {error && (
+              <motion.div
+                className="flex items-start gap-2 text-sm text-danger mb-5 p-3 rounded-xl bg-danger/10 border border-danger/20"
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                role="alert"
+              >
+                <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
+                <span>{error}</span>
+              </motion.div>
+            )}
+          </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {FIELDS.map(({ key, label, type, placeholder, autoComplete }) => (
               <div key={key}>
                 <label
                   htmlFor={key}
-                  className="block text-[10px] font-semibold text-muted mb-2 uppercase tracking-wider"
+                  className="block text-micro font-semibold text-muted mb-2 uppercase tracking-wider"
                 >
                   {label}
                 </label>
-                <GlassInput
+                <Input
                   id={key}
                   type={type}
                   value={form[key]}
@@ -96,7 +98,7 @@ export default function RegisterPage() {
                 />
               </div>
             ))}
-            <GlassButton
+            <Button
               type="submit"
               variant="primary"
               size="md"
@@ -106,10 +108,10 @@ export default function RegisterPage() {
               className="mt-2"
             >
               {loading ? '登録中...' : 'アカウントを作成'}
-            </GlassButton>
+            </Button>
           </form>
 
-          <div className="mt-6 pt-5 border-t border-white/30 text-center">
+          <div className="mt-6 pt-5 border-t border-border text-center">
             <p className="text-xs text-muted">
               既にアカウントをお持ちの方は{' '}
               <Link to="/login" className="text-accent font-semibold hover:underline">
@@ -117,7 +119,7 @@ export default function RegisterPage() {
               </Link>
             </p>
           </div>
-        </GlassCard>
+        </Card>
       </motion.div>
     </div>
   );

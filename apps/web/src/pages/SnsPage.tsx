@@ -3,12 +3,14 @@ import { motion } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Share2, Check, X, Sparkles, Clock, CalendarDays, List } from 'lucide-react';
 import { api } from '../services/api';
-import { GlassCard } from '../components/ui/GlassCard';
-import { GlassButton } from '../components/ui/GlassButton';
-import { GlassBadge } from '../components/ui/GlassBadge';
+import { Card } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
+import { Input } from '../components/ui/Input';
 import { PageHeader } from '../components/ui/PageHeader';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Spinner } from '../components/ui/LoadingSkeleton';
+import { LiquidTabs } from '../components/motion/LiquidTabs';
 import { SnsCalendar } from '../components/Sns/SnsCalendar';
 
 const SNS_TASK_TYPE = 'sns';
@@ -69,7 +71,7 @@ async function fetchSnsTasks(): Promise<SnsTask[]> {
 function DraftCard({ task, children }: { task: SnsTask; children?: React.ReactNode }) {
   const draft = parseDraft(task.output);
   return (
-    <GlassCard variant="regular" className="p-4">
+    <Card variant="regular" padding="none" className="p-4">
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex items-center gap-2 min-w-0">
           <Share2 size={14} className="flex-shrink-0 text-muted" />
@@ -77,7 +79,7 @@ function DraftCard({ task, children }: { task: SnsTask; children?: React.ReactNo
             {draft ? PLATFORM_LABEL[draft.platform] : task.title}
           </h3>
         </div>
-        <GlassBadge>{STATUS_BADGE[task.status] ?? task.status}</GlassBadge>
+        <Badge>{STATUS_BADGE[task.status] ?? task.status}</Badge>
       </div>
       {draft ? (
         <>
@@ -96,7 +98,7 @@ function DraftCard({ task, children }: { task: SnsTask; children?: React.ReactNo
         <p className="text-xs text-muted mb-2">{task.title}</p>
       )}
       {children}
-    </GlassCard>
+    </Card>
   );
 }
 
@@ -142,34 +144,27 @@ export default function SnsPage() {
         title="SNS投稿"
         description="投稿の下書きを生成し、承認フローを通します（自動投稿はしません）。"
         actions={
-          <div className="flex gap-1">
-            <GlassButton
-              variant={view === 'list' ? 'primary' : 'ghost'}
-              size="sm"
-              icon={<List size={14} />}
-              onClick={() => setView('list')}
-            >
-              リスト
-            </GlassButton>
-            <GlassButton
-              variant={view === 'calendar' ? 'primary' : 'ghost'}
-              size="sm"
-              icon={<CalendarDays size={14} />}
-              onClick={() => setView('calendar')}
-            >
-              カレンダー
-            </GlassButton>
-          </div>
+          <LiquidTabs<'list' | 'calendar'>
+            id="sns-view"
+            label="表示形式の切り替え"
+            size="sm"
+            items={[
+              { value: 'list', label: <><List size={13} /> リスト</> },
+              { value: 'calendar', label: <><CalendarDays size={13} /> カレンダー</> },
+            ]}
+            value={view}
+            onChange={setView}
+          />
         }
       />
 
       {/* ── 下書き生成 ─────────────────────────────── */}
-      <GlassCard variant="regular" className="p-4 mb-8">
+      <Card variant="regular" padding="none" className="p-4 mb-8">
         <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
           <select
             value={platform}
             onChange={(e) => setPlatform(e.target.value as Platform)}
-            className="glass-regular rounded-lg px-3 py-2 text-sm text-primary bg-transparent"
+            className="bg-elevated border border-border rounded-sm px-3 py-2.5 text-sm text-primary transition-all duration-base ease-standard focus:border-accent"
             aria-label="プラットフォーム"
           >
             {(Object.keys(PLATFORM_LABEL) as Platform[]).map((p) => (
@@ -178,13 +173,13 @@ export default function SnsPage() {
               </option>
             ))}
           </select>
-          <input
+          <Input
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
             placeholder="投稿テーマ（例: 新サービスの告知）"
-            className="flex-1 glass-regular rounded-lg px-3 py-2 text-sm text-primary bg-transparent"
+            className="flex-1"
           />
-          <GlassButton
+          <Button
             variant="primary"
             icon={<Sparkles size={14} />}
             onClick={() => genMut.mutate()}
@@ -192,12 +187,12 @@ export default function SnsPage() {
             disabled={!topic.trim()}
           >
             下書きを生成
-          </GlassButton>
+          </Button>
         </div>
         {genMut.isError && (
           <p className="text-xs text-danger mt-2">生成に失敗しました。時間をおいて再度お試しください。</p>
         )}
-      </GlassCard>
+      </Card>
 
       {view === 'calendar' ? (
         <SnsCalendar tasks={all} />
@@ -208,7 +203,7 @@ export default function SnsPage() {
         <div className="flex items-center gap-2 mb-3">
           <Clock size={16} className="text-muted" />
           <h2 className="text-sm font-semibold text-primary">承認待ちキュー</h2>
-          <span className="text-[11px] text-muted">{pending.length}件</span>
+          <span className="text-[11px] text-muted tabular">{pending.length}件</span>
         </div>
 
         {tasksQ.isLoading ? (
@@ -229,7 +224,7 @@ export default function SnsPage() {
               <motion.div key={task.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
                 <DraftCard task={task}>
                   <div className="flex gap-2 mt-1">
-                    <GlassButton
+                    <Button
                       variant="primary"
                       size="sm"
                       icon={<Check size={12} />}
@@ -237,8 +232,8 @@ export default function SnsPage() {
                       loading={approveMut.isPending && approveMut.variables === task.id}
                     >
                       承認
-                    </GlassButton>
-                    <GlassButton
+                    </Button>
+                    <Button
                       variant="ghost"
                       size="sm"
                       icon={<X size={12} />}
@@ -246,7 +241,7 @@ export default function SnsPage() {
                       loading={rejectMut.isPending && rejectMut.variables === task.id}
                     >
                       却下
-                    </GlassButton>
+                    </Button>
                   </div>
                 </DraftCard>
               </motion.div>
@@ -261,7 +256,7 @@ export default function SnsPage() {
           <div className="flex items-center gap-2 mb-3">
             <Share2 size={16} className="text-muted" />
             <h2 className="text-sm font-semibold text-primary">下書き履歴</h2>
-            <span className="text-[11px] text-muted">{history.length}件</span>
+            <span className="text-[11px] text-muted tabular">{history.length}件</span>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             {history.map((task) => (

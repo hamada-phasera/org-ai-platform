@@ -14,8 +14,9 @@ import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
 import { motion } from 'framer-motion';
 import { Package, Sparkles, Share2, RefreshCw, Check } from 'lucide-react';
 import { api } from '../services/api';
-import { GlassCard } from '../components/ui/GlassCard';
-import { GlassButton } from '../components/ui/GlassButton';
+import { Card } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
+import { EmptyState } from '../components/ui/EmptyState';
 import { DeliverableCard, type DeliverableData } from '../components/Deliverables/DeliverableCard';
 import { FolderTabs } from '../components/Deliverables/FolderTabs';
 import { useDeliverablesStore } from '../store/deliverablesStore';
@@ -60,7 +61,7 @@ function linkOf(output: string | null): string | null {
 
 /**
  * DeliverablesPage — organized deliverables board.
- * See DESIGN.md §11.4. Uses Glass primitives, DnD-kit for DnD.
+ * See DESIGN.md §11.4. Uses v2 primitives (Card/Button), DnD-kit for DnD.
  */
 export default function DeliverablesPage() {
   const [tasks, setTasks] = useState<BackendTask[]>([]);
@@ -260,10 +261,10 @@ export default function DeliverablesPage() {
     <div className="h-full overflow-y-auto px-4 sm:px-6 pb-6 pt-2">
       <div className="max-w-6xl mx-auto space-y-4">
         {/* Header */}
-        <GlassCard variant="thick" padding="lg" radius="xl" reflectionTop>
+        <Card variant="thick" padding="lg" radius="xl">
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-md glass-regular flex items-center justify-center shadow-elev-2">
+              <div className="w-12 h-12 rounded-md bg-accent-soft flex items-center justify-center">
                 <Package size={22} className="text-accent" />
               </div>
               <div>
@@ -274,10 +275,10 @@ export default function DeliverablesPage() {
               </div>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="inline-flex items-center gap-1 text-xs text-secondary px-2.5 py-1.5 rounded-full glass-thin">
+              <span className="inline-flex items-center gap-1 text-xs text-secondary px-2.5 py-1.5 rounded-full bg-sunken border border-border tabular">
                 <Sparkles size={13} className="text-accent" /> 全 {tasks.length} 件
               </span>
-              <GlassButton
+              <Button
                 variant="glass"
                 size="sm"
                 onClick={() => void rankItems(tasks)}
@@ -285,8 +286,8 @@ export default function DeliverablesPage() {
                 icon={<RefreshCw size={13} />}
               >
                 AIで重要度を再評価
-              </GlassButton>
-              <GlassButton
+              </Button>
+              <Button
                 variant="primary"
                 size="sm"
                 onClick={() => void shareList()}
@@ -294,7 +295,7 @@ export default function DeliverablesPage() {
                 icon={shared ? <Check size={13} /> : <Share2 size={13} />}
               >
                 {shared ? 'コピーしました' : '重要度順で共有'}
-              </GlassButton>
+              </Button>
             </div>
           </div>
 
@@ -304,16 +305,16 @@ export default function DeliverablesPage() {
               {Object.entries(deptCounts).map(([dept, count]) => (
                 <div
                   key={dept}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-full glass-thin"
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-sunken border border-border"
                 >
                   <span
                     className="w-2 h-2 rounded-full"
-                    style={{ background: DEPT_ACCENT[dept] ?? '#8A8A8A' }}
+                    style={{ background: DEPT_ACCENT[dept] ?? DEPT_ACCENT.GENERAL }}
                   />
                   <span className="text-xs text-secondary">{dept}</span>
                   <span
-                    className="text-xs font-bold"
-                    style={{ color: DEPT_ACCENT[dept] ?? '#2A241C' }}
+                    className="text-xs font-bold tabular"
+                    style={{ color: DEPT_ACCENT[dept] ?? DEPT_ACCENT.GENERAL }}
                   >
                     {count}
                   </span>
@@ -321,7 +322,7 @@ export default function DeliverablesPage() {
               ))}
             </div>
           )}
-        </GlassCard>
+        </Card>
 
         {/* Folder tabs */}
         <FolderTabs folders={folders} activeId={activeFolderId} onSelect={setActiveFolder} />
@@ -335,21 +336,15 @@ export default function DeliverablesPage() {
         >
           <SortableContext items={displayItems.map((i) => i.id)} strategy={rectSortingStrategy}>
             {loading ? (
-              <GlassCard variant="thin" className="text-center py-12">
+              <Card variant="thin" className="text-center py-12">
                 <p className="text-sm text-muted">読み込み中...</p>
-              </GlassCard>
+              </Card>
             ) : displayItems.length === 0 ? (
-              <GlassCard variant="thin" className="text-center py-16">
-                <Package size={32} className="text-muted mx-auto mb-3" />
-                <p className="text-sm text-secondary">
-                  {activeFolderId === 'all'
-                    ? 'まだ成果物がありません'
-                    : 'このフォルダは空です'}
-                </p>
-                <p className="text-xs text-muted mt-1">
-                  チャットからAIに依頼すると、ここに完了した成果物が集まります
-                </p>
-              </GlassCard>
+              <EmptyState
+                icon={<Package size={28} />}
+                title={activeFolderId === 'all' ? 'まだ成果物がありません' : 'このフォルダは空です'}
+                description="チャットからAIに依頼すると、ここに完了した成果物が集まります"
+              />
             ) : (
               <motion.div
                 className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"

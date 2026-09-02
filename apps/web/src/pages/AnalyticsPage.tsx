@@ -1,6 +1,6 @@
 import { BarChart3, Activity, Building2, DollarSign, CheckCircle2 } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { GlassCard, PageHeader, EmptyState, ErrorState, SkeletonList } from '../components/ui';
+import { Card, PageHeader, EmptyState, ErrorState, SkeletonList } from '../components/ui';
 import {
   useDepartmentAnalytics,
   useDepartmentMetrics,
@@ -33,7 +33,7 @@ export default function AnalyticsPage() {
         title="部署別分析"
         description="部署ごとの AI 実行数・コスト・稼働状況を可視化します。"
         actions={
-          <div className="w-10 h-10 rounded-2xl flex items-center justify-center bg-accent/15 text-accent">
+          <div className="w-10 h-10 rounded-2xl flex items-center justify-center bg-accent-soft text-accent">
             <BarChart3 size={18} />
           </div>
         }
@@ -117,13 +117,13 @@ function SummaryTile({
   sub: string;
 }) {
   return (
-    <GlassCard variant="regular" padding="none" className="p-4">
+    <Card variant="regular" padding="none" className="p-4">
       <div className="flex items-center gap-1.5 text-text-muted mb-2">
         {icon}
         <span className="text-xs font-medium">{label}</span>
       </div>
-      <div className="text-h2 font-bold text-primary tracking-tight">{value}</div>
+      <div className="text-h2 font-bold text-primary tracking-tight tabular">{value}</div>
       <div className="text-xs text-secondary mt-1">{sub}</div>
-    </GlassCard>
+    </Card>
   );
 }

@@ -2,8 +2,8 @@ import { motion } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
 import { Briefcase, Bot, ClipboardList } from 'lucide-react';
 import { api } from '../services/api';
-import { GlassCard } from '../components/ui/GlassCard';
-import { GlassBadge } from '../components/ui/GlassBadge';
+import { Card } from '../components/ui/Card';
+import { Badge } from '../components/ui/Badge';
 import { PageHeader } from '../components/ui/PageHeader';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Spinner } from '../components/ui/LoadingSkeleton';
@@ -57,7 +57,7 @@ export default function SalesPage() {
         eyebrow="SALES"
         title="営業部"
         description="営業部のAIエージェントとタスクの状況を確認できます。"
-        actions={<GlassBadge>{DEPT_LABEL[DEPT]}</GlassBadge>}
+        actions={<Badge>{DEPT_LABEL[DEPT]}</Badge>}
       />
 
       {/* ── 営業エージェント ───────────────────────── */}
@@ -66,7 +66,7 @@ export default function SalesPage() {
           <Bot size={16} style={{ color: DEPT_ACCENT[DEPT] }} />
           <h2 className="text-sm font-semibold text-primary">営業エージェント</h2>
           {agentsQ.data && (
-            <span className="text-[11px] text-muted">{agentsQ.data.length}件</span>
+            <span className="text-[11px] text-muted tabular">{agentsQ.data.length}件</span>
           )}
         </div>
 
@@ -90,21 +90,21 @@ export default function SalesPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {agentsQ.data.map((agent) => (
               <motion.div key={agent.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-                <GlassCard variant="regular" className="p-4 h-full flex flex-col">
+                <Card variant="regular" padding="none" className="p-4 h-full flex flex-col">
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="text-xl flex-shrink-0">{agent.icon ?? '🤝'}</span>
                       <h3 className="text-sm font-semibold text-primary truncate">{agent.name}</h3>
                     </div>
-                    <GlassBadge>
+                    <Badge>
                       {agent.n8nStatus === 'ACTIVE' ? '🟢' : '🟡'} {AGENT_N8N_STATUS_LABEL[agent.n8nStatus]}
-                    </GlassBadge>
+                    </Badge>
                   </div>
                   <p className="text-xs text-secondary line-clamp-2 mb-2 flex-1">
                     {agent.description || agent.instructions}
                   </p>
                   <div className="flex items-center gap-2 mt-auto">
-                    <GlassBadge>{DEPT_LABEL[agent.department] ?? agent.department}</GlassBadge>
+                    <Badge>{DEPT_LABEL[agent.department] ?? agent.department}</Badge>
                     <span className="text-[10px] text-muted">
                       {agent.trigger === 'SCHEDULED' ? '定期実行' : '手動実行'}
                     </span>
@@ -112,7 +112,7 @@ export default function SalesPage() {
                       {agent.enabled ? '有効' : '停止中'}
                     </span>
                   </div>
-                </GlassCard>
+                </Card>
               </motion.div>
             ))}
           </div>
@@ -124,7 +124,7 @@ export default function SalesPage() {
         <div className="flex items-center gap-2 mb-3">
           <ClipboardList size={16} style={{ color: DEPT_ACCENT[DEPT] }} />
           <h2 className="text-sm font-semibold text-primary">営業タスク</h2>
-          {tasksQ.data && <span className="text-[11px] text-muted">{tasksQ.data.length}件</span>}
+          {tasksQ.data && <span className="text-[11px] text-muted tabular">{tasksQ.data.length}件</span>}
         </div>
 
         {tasksQ.isLoading ? (
@@ -147,15 +147,15 @@ export default function SalesPage() {
           <div className="flex flex-col gap-2">
             {tasksQ.data.map((task) => (
               <motion.div key={task.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-                <GlassCard variant="regular" className="p-3 flex items-center gap-3">
+                <Card variant="regular" padding="none" className="p-3 flex items-center gap-3">
                   <div className="min-w-0 flex-1">
                     <h3 className="text-sm font-medium text-primary truncate">{task.title}</h3>
                     {task.output && (
                       <p className="text-xs text-secondary line-clamp-1">{task.output}</p>
                     )}
                   </div>
-                  <GlassBadge>{TASK_STATUS_LABEL[task.status] ?? task.status}</GlassBadge>
-                </GlassCard>
+                  <Badge>{TASK_STATUS_LABEL[task.status] ?? task.status}</Badge>
+                </Card>
               </motion.div>
             ))}
           </div>

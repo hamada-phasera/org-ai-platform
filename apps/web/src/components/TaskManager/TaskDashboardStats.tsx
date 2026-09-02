@@ -16,6 +16,8 @@ interface TaskDashboardStatsProps {
   tasks: BackendTask[];
 }
 
+const statCardClass = 'bg-elevated border border-border rounded-xl p-4 shadow-elev-1';
+
 export default function TaskDashboardStats({ tasks }: TaskDashboardStatsProps) {
   const stats = useMemo(() => {
     const total = tasks.length;
@@ -36,17 +38,17 @@ export default function TaskDashboardStats({ tasks }: TaskDashboardStatsProps) {
   if (tasks.length === 0) return null;
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 px-6 py-4 border-b border-[#eae8e3] bg-white/40">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 px-6 py-4 border-b border-border bg-canvas">
       {/* Total */}
-      <div className="bg-white border border-[#eae8e3] rounded-3xl p-4 shadow-sm">
+      <div className={statCardClass}>
         <div className="flex items-center gap-2 mb-2">
-          <div className="w-8 h-8 bg-[#8b85ff]/10 rounded-xl flex items-center justify-center">
-            <BarChart3 size={14} className="text-[#8b85ff]" />
+          <div className="w-8 h-8 bg-accent-soft rounded-md flex items-center justify-center">
+            <BarChart3 size={14} className="text-accent" />
           </div>
-          <span className="text-[10px] text-[#8A8A8A] font-medium">総タスク</span>
+          <span className="text-micro text-muted font-medium">総タスク</span>
         </div>
         <motion.p
-          className="text-2xl font-bold text-[#2D2D2D]"
+          className="text-h2 font-bold text-primary tabular"
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
@@ -56,36 +58,42 @@ export default function TaskDashboardStats({ tasks }: TaskDashboardStatsProps) {
       </div>
 
       {/* Completed */}
-      <div className="bg-white border border-[#eae8e3] rounded-3xl p-4 shadow-sm">
+      <div className={statCardClass}>
         <div className="flex items-center gap-2 mb-2">
-          <div className="w-8 h-8 bg-green-50 rounded-xl flex items-center justify-center">
-            <CheckCircle2 size={14} className="text-green-500" />
+          <div
+            className="w-8 h-8 rounded-md flex items-center justify-center"
+            style={{ backgroundColor: 'color-mix(in srgb, var(--success) 12%, transparent)' }}
+          >
+            <CheckCircle2 size={14} className="text-success" />
           </div>
-          <span className="text-[10px] text-[#8A8A8A] font-medium">完了</span>
+          <span className="text-micro text-muted font-medium">完了</span>
         </div>
         <div className="flex items-baseline gap-2">
           <motion.p
-            className="text-2xl font-bold text-[#2D2D2D]"
+            className="text-h2 font-bold text-primary tabular"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: 0.05 }}
           >
             {stats.done}
           </motion.p>
-          <span className="text-xs text-green-500 font-semibold">{stats.donePercent}%</span>
+          <span className="text-xs text-success font-semibold tabular">{stats.donePercent}%</span>
         </div>
       </div>
 
       {/* Executing */}
-      <div className="bg-white border border-[#eae8e3] rounded-3xl p-4 shadow-sm">
+      <div className={statCardClass}>
         <div className="flex items-center gap-2 mb-2">
-          <div className="w-8 h-8 bg-orange-50 rounded-xl flex items-center justify-center">
-            <Clock size={14} className="text-[#8b85ff]" />
+          <div
+            className="w-8 h-8 rounded-md flex items-center justify-center"
+            style={{ backgroundColor: 'color-mix(in srgb, var(--info) 12%, transparent)' }}
+          >
+            <Clock size={14} className="text-info" />
           </div>
-          <span className="text-[10px] text-[#8A8A8A] font-medium">実行中</span>
+          <span className="text-micro text-muted font-medium">実行中</span>
         </div>
         <motion.p
-          className="text-2xl font-bold text-[#2D2D2D]"
+          className="text-h2 font-bold text-primary tabular"
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, delay: 0.1 }}
@@ -95,11 +103,11 @@ export default function TaskDashboardStats({ tasks }: TaskDashboardStatsProps) {
       </div>
 
       {/* Department breakdown */}
-      <div className="bg-white border border-[#eae8e3] rounded-3xl p-4 shadow-sm">
+      <div className={statCardClass}>
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-[10px] text-[#8A8A8A] font-medium">部署別</span>
+          <span className="text-micro text-muted font-medium">部署別</span>
           {stats.failed > 0 && (
-            <span className="flex items-center gap-0.5 text-[10px] text-red-400 font-medium">
+            <span className="flex items-center gap-0.5 text-micro text-danger font-medium tabular">
               <AlertTriangle size={10} /> {stats.failed}失敗
             </span>
           )}
@@ -110,19 +118,19 @@ export default function TaskDashboardStats({ tasks }: TaskDashboardStatsProps) {
             .slice(0, 4)
             .map(([dept, count]) => (
               <div key={dept} className="flex items-center gap-2">
-                <span className="text-[10px] text-[#8A8A8A] w-12 truncate">
+                <span className="text-micro text-muted w-12 truncate">
                   {DEPT_LABEL[dept] ?? dept}
                 </span>
-                <div className="flex-1 h-2 bg-[#f5f5f0] rounded-full overflow-hidden">
+                <div className="flex-1 h-2 bg-sunken rounded-full overflow-hidden">
                   <motion.div
                     className="h-full rounded-full"
-                    style={{ backgroundColor: DEPT_ACCENT[dept] ?? '#8A8A8A' }}
+                    style={{ backgroundColor: DEPT_ACCENT[dept] ?? DEPT_ACCENT.GENERAL }}
                     initial={{ width: 0 }}
                     animate={{ width: `${(count / stats.maxDeptCount) * 100}%` }}
                     transition={{ duration: 0.5, delay: 0.1 }}
                   />
                 </div>
-                <span className="text-[10px] font-semibold text-[#2D2D2D] w-5 text-right">{count}</span>
+                <span className="text-micro font-semibold text-primary w-5 text-right tabular">{count}</span>
               </div>
             ))}
         </div>
