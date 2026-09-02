@@ -26,6 +26,7 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
+    "@types/lodash": "^4.17.25",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.2.0",
