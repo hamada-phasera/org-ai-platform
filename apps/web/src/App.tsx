@@ -12,8 +12,8 @@ import SettingsPage from './pages/SettingsPage';
 import SalesPage from './pages/SalesPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import SnsPage from './pages/SnsPage';
-import Layout from './components/Layout';
-import { DashboardLayout } from './components/Dashboard/DashboardLayout';
+import TopPage from './pages/TopPage';
+import { AppShell } from './components/shell/AppShell';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -26,20 +26,14 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route
-        path="/"
         element={
           <RequireAuth>
-            <DashboardLayout />
-          </RequireAuth>
-        }
-      />
-      <Route
-        element={
-          <RequireAuth>
-            <Layout />
+            <AppShell />
           </RequireAuth>
         }
       >
+        {/* TOP は最小。数字は /dashboard 側に置く。 */}
+        <Route index element={<TopPage />} />
         <Route path="dashboard" element={<HomePage />} />
         <Route path="chat" element={<ChatPage />} />
         <Route path="chat/:id" element={<ChatPage />} />
