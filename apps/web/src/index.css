@@ -83,6 +83,21 @@
     inset 0 1px 1px rgba(255, 255, 255, 0.9),
     inset 0 -8px 14px rgba(16, 21, 33, 0.05);
 
+  /* モーダル等のスクリム */
+  --overlay: rgba(16, 21, 33, 0.42);
+
+  /* ── ステータス（意味の色）。tailwind の success/warning/danger/info はここを指す ──
+   * *-rgb は Tailwind のアルファ修飾（bg-danger/10 等）用の三つ組。hex と必ず同じ色に保つ。 */
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --info: #0284c7;
+  --success-rgb: 22 163 74;
+  --warning-rgb: 217 119 6;
+  --danger-rgb: 220 38 38;
+  --info-rgb: 2 132 199;
+  --accent-rgb: 30 80 255;
+
   /* ── 部署（データの色） ── */
   --dept-sales: #4f46e5;
   --dept-marketing: #9333ea;
@@ -137,6 +152,19 @@
     0 20px 30px -14px rgba(150, 180, 255, 0.14),
     inset 0 1px 1px rgba(255, 255, 255, 0.24),
     inset 0 -9px 18px rgba(0, 0, 0, 0.28);
+
+  --overlay: rgba(0, 0, 0, 0.62);
+
+  /* 暗い地では一段明るく */
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --info: #38bdf8;
+  --success-rgb: 74 222 128;
+  --warning-rgb: 251 191 36;
+  --danger-rgb: 248 113 113;
+  --info-rgb: 56 189 248;
+  --accent-rgb: 106 146 255;
 
   --dept-sales: #818cf8;
   --dept-marketing: #c084fc;

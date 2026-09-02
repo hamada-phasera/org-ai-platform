@@ -49,7 +49,7 @@ export function AgentSuggestions({ agentId, onSelect }: AgentSuggestionsProps) {
         <motion.button
           key={prompt}
           onClick={() => onSelect(prompt)}
-          className="text-xs bg-white border border-[#eae8e3] text-[#2D2D2D] px-3.5 py-2 rounded-full hover:bg-[#8b85ff]/5 hover:border-[#8b85ff]/30 transition-all"
+          className="text-xs bg-elevated border border-border text-primary px-3.5 py-2 rounded-full hover:bg-accent-soft hover:border-accent transition-all"
           whileHover={{ scale: 1.03 }}
           whileTap={{ scale: 0.97 }}
         >

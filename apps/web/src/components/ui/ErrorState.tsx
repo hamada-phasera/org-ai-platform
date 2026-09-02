@@ -1,7 +1,7 @@
 import { AlertTriangle, RotateCcw } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { GlassCard } from './GlassCard';
-import { GlassButton } from './GlassButton';
+import { Card } from './Card';
+import { Button } from './Button';
 
 interface ErrorStateProps {
   title?: string;
@@ -23,26 +23,32 @@ export function ErrorState({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       className={`flex items-center justify-center py-12 ${className}`}
+      role="alert"
     >
-      <GlassCard
+      <Card
         variant="thin"
         padding="lg"
         radius="2xl"
-        className="max-w-md w-full text-center ring-1 ring-inset ring-danger/30"
+        className="max-w-md w-full text-center"
+        /* var() 色は Tailwind のアルファ修飾（ring-danger/30 等）が効かないので color-mix */
+        style={{ boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--danger) 30%, transparent)' }}
       >
-        <div className="mx-auto mb-4 w-12 h-12 rounded-2xl flex items-center justify-center bg-danger/15 text-danger">
+        <div
+          className="mx-auto mb-4 w-12 h-12 rounded-2xl flex items-center justify-center text-danger"
+          style={{ background: 'color-mix(in srgb, var(--danger) 12%, transparent)' }}
+        >
           <AlertTriangle size={22} />
         </div>
         <h3 className="text-body font-semibold text-primary mb-1.5">{title}</h3>
         <p className="text-sm text-muted leading-relaxed">{description}</p>
         {onRetry && (
           <div className="mt-5 flex justify-center">
-            <GlassButton variant="secondary" size="sm" onClick={onRetry} icon={<RotateCcw size={14} />}>
+            <Button variant="secondary" size="sm" onClick={onRetry} icon={<RotateCcw size={14} />}>
               {retryLabel}
-            </GlassButton>
+            </Button>
           </div>
         )}
-      </GlassCard>
+      </Card>
     </motion.div>
   );
 }

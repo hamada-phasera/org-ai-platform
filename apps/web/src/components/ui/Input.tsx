@@ -8,15 +8,16 @@ type BaseProps = {
   fullWidth?: boolean;
 };
 
-type InputProps = BaseProps & {
+/* ネイティブの size?: number は BaseProps の size と交差して never になるので外す */
+type InputOnlyProps = BaseProps & {
   multiline?: false;
-} & InputHTMLAttributes<HTMLInputElement>;
+} & Omit<InputHTMLAttributes<HTMLInputElement>, 'size'>;
 
 type TextareaProps = BaseProps & {
   multiline: true;
 } & TextareaHTMLAttributes<HTMLTextAreaElement>;
 
-type GlassInputProps = InputProps | TextareaProps;
+type InputProps = InputOnlyProps | TextareaProps;
 
 const sizeClass = {
   sm: 'text-xs px-3 py-2 rounded-sm',
@@ -25,11 +26,12 @@ const sizeClass = {
 } as const;
 
 /**
- * GlassInput — canonical text input primitive.
- * See DESIGN.md §10.3.
+ * Input — テキスト入力の正本（旧 GlassInput）。
+ * フラットな面＋フォーカスでアクセントの枠。ラベルは呼び出し側で
+ * <label htmlFor> を紐付けること。
  */
-export const GlassInput = forwardRef<HTMLInputElement | HTMLTextAreaElement, GlassInputProps>(
-  function GlassInput(props, ref) {
+export const Input = forwardRef<HTMLInputElement | HTMLTextAreaElement, InputProps>(
+  function Input(props, ref) {
     const {
       prefix,
       suffix,
@@ -40,22 +42,20 @@ export const GlassInput = forwardRef<HTMLInputElement | HTMLTextAreaElement, Gla
       ...rest
     } = props as BaseProps & { className?: string };
 
-    const wrapperClass = `relative glass-thin ${sizeClass[size]} ${fullWidth ? 'w-full' : ''} flex items-center gap-2 transition-all duration-base ease-standard focus-within:shadow-glow-primary focus-within:border-accent ${error ? 'ring-2 ring-danger/40' : ''} ${className}`;
+    const wrapperClass = `relative bg-elevated border ${error ? 'border-danger' : 'border-border'} ${sizeClass[size]} ${fullWidth ? 'w-full' : ''} flex items-center gap-2 transition-all duration-base ease-standard focus-within:border-accent focus-within:shadow-glow-primary ${className}`;
 
     const fieldClass =
       'flex-1 bg-transparent border-0 outline-none text-primary placeholder:text-muted resize-none';
 
     if ('multiline' in props && props.multiline) {
-      const { multiline: _m, ...textareaProps } = rest as TextareaHTMLAttributes<HTMLTextAreaElement> & { multiline?: boolean };
+      const { multiline: _m, ...textareaProps } = rest as TextareaHTMLAttributes<HTMLTextAreaElement> & {
+        multiline?: boolean;
+      };
       void _m;
       return (
         <div className={wrapperClass}>
           {prefix && <span className="text-muted flex items-center">{prefix}</span>}
-          <textarea
-            ref={ref as React.Ref<HTMLTextAreaElement>}
-            className={fieldClass}
-            {...textareaProps}
-          />
+          <textarea ref={ref as React.Ref<HTMLTextAreaElement>} className={fieldClass} {...textareaProps} />
           {suffix && <span className="text-muted flex items-center">{suffix}</span>}
         </div>
       );

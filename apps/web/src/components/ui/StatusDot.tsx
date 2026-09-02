@@ -6,9 +6,9 @@ interface StatusDotProps {
 }
 
 const statusConfig = {
-  active: { color: 'bg-green-400', pulse: true, label: '稼働中' },
-  processing: { color: 'bg-yellow-400', pulse: true, label: '処理中' },
-  idle: { color: 'bg-gray-300', pulse: false, label: '待機中' },
+  active: { color: 'bg-success', pulse: true, label: '稼働中' },
+  processing: { color: 'bg-warning', pulse: true, label: '処理中' },
+  idle: { color: 'bg-ink-decorative', pulse: false, label: '待機中' },
 };
 
 export function StatusDot({ status, size = 'sm' }: StatusDotProps) {
@@ -16,7 +16,7 @@ export function StatusDot({ status, size = 'sm' }: StatusDotProps) {
   const sizeClass = size === 'sm' ? 'w-2.5 h-2.5' : 'w-3.5 h-3.5';
 
   return (
-    <span className="relative inline-flex">
+    <span className="relative inline-flex" role="img" aria-label={config.label}>
       {config.pulse && (
         <motion.span
           className={`absolute inline-flex h-full w-full rounded-full ${config.color} opacity-40`}

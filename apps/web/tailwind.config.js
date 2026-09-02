@@ -12,7 +12,7 @@ export default {
         // 111箇所の副次テキストが白地に白で描かれていた（v1 からの既存バグ）。
         sunken: 'var(--surface-2)',
         hairline: 'var(--hairline)',
-        overlay: 'rgba(16, 21, 33, 0.42)',
+        overlay: 'var(--overlay)', // ダークで濃くなる（index.css）
 
         primary: 'var(--text-primary)',
         secondary: 'var(--text-secondary)',
@@ -33,7 +33,7 @@ export default {
         },
 
         accent: {
-          DEFAULT: 'var(--accent)',
+          DEFAULT: 'rgb(var(--accent-rgb) / <alpha-value>)',
           hover: 'var(--accent-hover)',
           soft: 'var(--accent-soft)',
           'soft-border': 'var(--accent-soft-border)',
@@ -51,10 +51,12 @@ export default {
           assistant: 'var(--dept-assistant)',
         },
 
-        success: '#16A34A',
-        warning: '#D97706',
-        danger: '#DC2626',
-        info: '#0284C7',
+        // <alpha-value> 形式にすると bg-danger/10 のような透過修飾が生成される
+        // （プレーンな var() 文字列だと Tailwind 3.4 はクラス自体を生成しない）
+        success: 'rgb(var(--success-rgb) / <alpha-value>)',
+        warning: 'rgb(var(--warning-rgb) / <alpha-value>)',
+        danger: 'rgb(var(--danger-rgb) / <alpha-value>)',
+        info: 'rgb(var(--info-rgb) / <alpha-value>)',
       },
 
       // タブ・ボトムナビ専用。カードや表には使わない（index.css のコメント参照）
