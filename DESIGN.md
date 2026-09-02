@@ -1,452 +1,97 @@
-# FLOW Design System — Liquid Glass Prism
+# FLOW Design System v2 — 白基調の法人SaaS × 塗らないリキッドガラス
 
-> **目的**: このドキュメントは `org-ai-platform` のデザインシステムの単一の情報源です。
-> 複数のAIエージェント/モデルで作業する場合でも、この契約に従うことでUIの一貫性を保ちます。
-> コードを書く前に必ずこのドキュメントを読み、ここで定義されたトークンとコンポーネントを使ってください。
+> **目的**: `org-ai-platform` のデザインの単一の情報源。
+> コードを書く前にこれを読み、ここにあるトークンとコンポーネントだけを使うこと。
+> **値の正本はコード側**にある: 色・影・ガラスは `apps/web/src/index.css`、
+> Tailwind キーは `apps/web/tailwind.config.js`、モーションは
+> `apps/web/src/components/motion/springs.ts`。このドキュメントは構造と規範を説明する。
+
+旧 v1（"Liquid Glass Prism" 虹グラデ）は 2026-08 に全面置換された。
+`rainbow-*` / `aurora-*` / クリーム系の色は存在しない。見つけたら消してよい。
 
 ---
 
-## 1. Philosophy — "Liquid Glass Prism"
-
-ほぼ純白の少しだけ温かみを帯びたキャンバスに、**自然な虹（プリズム）** のパステルアクセントを添えるライトモード。雨上がりの朝の光、visionOS 的な半透明ガラス層、白い紙の上で光が分散するイメージ。
-
-### 3つの原則
+## 1. 原則
 
 | 原則 | 意味 |
 |---|---|
-| **White Canvas (白のキャンバス)** | 背景は純白にほんの少しクリーム/ピーチを混ぜたウォームホワイト。冷たくも眩しくもない紙のような質感。 |
-| **Natural Rainbow (ナチュラル虹)** | アクセントはプリズム (coral / peach / gold / mint / sky / lavender)。彩度は抑えめで、パステルの帯として現れる。 |
-| **Clarity (明瞭性)** | 装飾に溺れない。テキストは常に4.5:1以上のコントラストを確保する。 |
+| **フラットな白** | カード・表・サイドバー・モーダル本体は不透明な白（`--surface`）。数字が載る面に半透明は使わない |
+| **塗らないガラス** | ガラスに色を塗らない。面はほぼ透明（白5〜14%）で、色は `backdrop-filter` が**背景から拾う**。選択中も塗らず、背景を暗くする（smoke） |
+| **ガラスは浮いているものだけ** | 許可: タブ・チップ・主ボタン・入力バー・ボトムナビ・トースト・TOPの入口。禁止: カード・表・サイドバー・モーダル本体 |
+| **青は面積を取らない** | `--accent`（青）はリンク・フォーカス・選択インジケータのみ。主アクションはインク（`--action`、ダークでは白抜きに反転） |
+| **数字は等幅** | 金額・件数・%が縦に並ぶ場所は `font-mono` か `.tabular` |
 
----
+## 2. トークン（`src/index.css` が正本）
 
-## 2. Color Tokens
+### 面と文字
+`--bg` / `--surface` / `--surface-2` / `--hairline` / `--border` / `--border-strong`
+`--text-primary` / `--text-secondary` / `--text-muted`（**文字色の下限**。これより薄い文字は禁止。キャンバス地で4.69:1）/ `--text-inverse` / `--ink-decorative`（文字に使わない。罫線・装飾アイコン専用）
 
-### 2.1 Base (背景/キャンバス)
+Tailwind キー: `bg-canvas` `bg-elevated` `bg-sunken`、`text-primary` `text-secondary` `text-muted`、`border-border` `border-border-strong`。
+※ `muted` は**文字**、面は `sunken`。逆にすると白地に白の文字になる（v1 の実バグ）。
 
-| Token | Hex | 用途 |
+### 意味の色・データの色
+- ステータス: `success` / `warning` / `danger` / `info`（= `var(--success)` 等。ダークで一段明るくなる）
+- 部署色: `constants/departments.ts` の `DEPT_ACCENT` / `DEPT_LABEL`（データの色。style での直接使用可）
+- 外部ブランド色: `constants/brand.ts`（Twitter/Instagram/LinkedIn）
+- **上記以外の hex 直書きは禁止**。`node apps/web/scripts/check-design-tokens.mjs` が検出する
+  （除外: `src/taskmanager/**`＝凍結領域、constants の2ファイル、生成物）
+
+### ガラス（3層）と smoke
+- `--glass-fill`（ほぼ透明の面）+ `--glass-blur`（blur+saturate）+ `--glass-rim`（薄膜干渉の conic 枠）+ `--glass-spec`（上面の艶）+ `--glass-shadow`（コースティクス入りの影）
+- 選択中 = `--smoke-fill` + `--smoke-filter`（ライトは brightness 0.44 で暗く、ダークは 1.45 で明るく）
+- クラス: `.tab-glass`（ガラス面）、`.liquid-primary`（主ボタン: smoke＋内部コースティクス帯）、`.liquid-smoke`（選択インジケータ/選択チップ）、`.liquid-trough-on/off` + `.liquid-thumb`（スイッチ）
+- Chromium では `@supports` ブロックが `backdrop-filter: url('#lgRefract')`（index.html の SVG 変位フィルタ）を重ねて**本物のDOM屈折**になる。他ブラウザは blur のみ。`backdrop-filter` 非対応は不透明フォールバック
+
+### 角丸・影・タイポ
+- 角丸は **7 / 9 / 12 px の3段**のみ（`rounded-sm|control`=7, `rounded-md|lg|card`=9, `rounded-xl|2xl|panel`=12）
+- 影: `shadow-elev-1..4`（`--shadow-*`）。`shadow-glow-primary` はフォーカスの青い輪
+- フォント: Manrope + Noto Sans JP、等幅は IBM Plex Mono。サイズキー: `micro`(10) `xs`(11) `sm`(13) `body`(14) `h3`(18) `h2`(22) `h1`(28) `display`(34)
+
+## 3. コンポーネント（`src/components/ui/`）
+
+| 部品 | 用途 | 備考 |
 |---|---|---|
-| `bg-canvas` | `#FFFCF7` | ページ背景 (最下層、ほんのりクリームを帯びた白) |
-| `bg-elevated` | `#FFFFFF` | カード/パネル背景 (glass tint と重ねる) |
-| `bg-muted` | `#F6F1EA` | disabled/hover/muted surface |
-| `bg-overlay` | `rgba(30, 24, 16, 0.32)` | モーダル背景 |
+| `Card` / `Surface` | 面。フラットな白＋境界＋`shadow-elev-*` | `variant`: thin(沈んだ面)/regular/thick/chrome は影の段階。旧 `GlassCard`/`GlassSurface` |
+| `Button` | ボタンの正本 | `primary`=リキッドガラス（tab-glass liquid-primary）。`tone` に部署キーを渡したときだけ単色。`secondary`=素のガラス、`ghost`、`glass`=フラット白、`danger`。旧 `GlassButton` |
+| `Input` | テキスト入力 | フラット白＋focus でアクセント枠。ラベルは呼び出し側で `htmlFor` 紐付け必須。旧 `GlassInput` |
+| `Badge` / `DeptBadge` | ラベル・ステータスピル | `tone`/`color` 無指定はニュートラル（bg-sunken）。旧 `GlassBadge` |
+| `PageHeader` `EmptyState` `ErrorState` `Skeleton*` `Spinner` `StatusDot` `AmbientBackground` | 補助 | AmbientBackground は認証ページのみ |
 
-### 2.2 Text
+旧 `Glass*` 名は**移行用シム**（同ファイル名で新実装を re-export）。全ページの import が新名称になったらシムを消す。`TabSwitch` と旧 `ui/Button` は削除済み — 排他タブは必ず `motion/LiquidTabs` を使う。
 
-| Token | Hex | 用途 |
-|---|---|---|
-| `text-primary` | `#1F1B16` | 見出し・主要テキスト |
-| `text-secondary` | `#6E6558` | 補助テキスト |
-| `text-muted` | `#A59B8C` | プレースホルダー・弱いラベル |
-| `text-inverse` | `#FFFCF7` | 濃い背景上のテキスト |
-| `text-accent` | `#C2410C` | リンク・強調 (controlled warmth) |
+### モーション（`src/components/motion/`）
+- `springs.ts` — スプリング値の正本（`indicator` / `morph` / `enter`）。数値を散らさない
+- `LiquidTabs` — タブ/セグメント。**`id` 必須**（v1 の `layoutId="activeTab"` はグローバルで衝突した）。インジケータは位置と幅の両方を補間。`role=tablist`・矢印キー対応
+- `ExpandableCard` — 押した場所から液体的に展開（`layoutId` 共有）。展開面は不透明な白
+- `LiquidSwitch` — ON/OFF。trough がガラス、thumb は真珠
+- すべて `useReducedMotion` を尊重。CSS 側も `prefers-reduced-motion` で即時切替
 
-### 2.3 Accent (ナチュラル虹プリズム)
+### テーマ切替
+- デスクトップ: サイドバー下部の `theme-toggle/LiquidOrbToggle`（WebGPU のシャボン玉。`orb-runtime.gen.js` は生成物 — 手編集禁止、`demo/orb-gen/make-react-runtime.py` で再生成）。WebGPU 不可は CSS バブルに自動フォールバック
+- モバイル: ヘッダーの簡易ボタン。状態は `store/themeStore`（`<html>` に `.dark`）
+- `<theme-toggle>` Web Component（3状態 light/dark/clear）も同ディレクトリにあり、デモは `demo/theme-toggle.html`
 
-| Token | Hex / gradient | 用途 |
-|---|---|---|
-| `rainbow-coral` | `#FFB5A7` | 虹アクセント1 (最暖) |
-| `rainbow-peach` | `#FFD6A5` | 虹アクセント2 |
-| `rainbow-gold` | `#FDFFB6` | 虹アクセント3 |
-| `rainbow-mint` | `#CAFFBF` | 虹アクセント4 |
-| `rainbow-sky` | `#9BF6FF` | 虹アクセント5 |
-| `rainbow-lavender` | `#BDB2FF` | 虹アクセント6 (最冷) |
-| `rainbow-rose` | `#FFC6FF` | 虹アクセント7 |
-| `accent-primary` | `#F59E6D` | 単色フォールバック (warm peach) |
-| `accent-gradient` | `linear-gradient(135deg, #FFB5A7 0%, #FFD6A5 20%, #FDFFB6 38%, #CAFFBF 55%, #9BF6FF 72%, #BDB2FF 88%, #FFC6FF 100%)` | 虹のフルグラデ (primaryボタン・AI中央) |
-| `accent-gradient-soft` | `linear-gradient(135deg, #FFB5A755 0%, #FFD6A555 25%, #CAFFBF55 50%, #9BF6FF55 75%, #BDB2FF55 100%)` | 背景オーラ・ボーダーティント |
-| `accent-glow` | `rgba(255, 182, 147, 0.35)` | glow shadow |
+## 4. レイアウトとテーマ
 
-**Rule**: ベタ塗りの原色は使わない。虹はすべて `accent-gradient` 系のグラデーション経由で使用する。
+- シェルは `shell/AppShell` の1つだけ（サイドバー+トップバー+本文+MobileNav）。ルート追加は `shell/navConfig.ts`
+- TOP (`/`) は最小: 指示入力＋入口4つ。**KPI の数字を置かない**（許可は承認件数ドットのみ）。密なダッシュボードは `/dashboard`
+- モバイルで開けるのは `MOBILE_ROUTES`（/ /chat /deliverables）のみ。他は `DesktopOnly` が誘導
+- ダーク: トークン経由なら自動で追従する。raw の white/black 透過（`bg-white/40` 等）を書かない。ダーク保証は v2 移行済み画面のみ（`src/taskmanager/**` は対象外）
 
-### 2.4 Department Colors
+## 5. アクセシビリティ（実装済みの前提を壊さない）
 
-| 部署 | Hex | 名前 |
-|---|---|---|
-| SALES | `#F59E6D` | Warm Peach |
-| MARKETING | `#D7A7FF` | Lilac |
-| ACCOUNTING | `#FFC971` | Honey |
-| ANALYTICS | `#9DB5FF` | Sky Iris |
-| GENERAL | `#8FE5C6` | Mint Jade |
-| ASSISTANT | `#FFB5C5` | Rose |
+- `:focus-visible` はグローバル定義済み。**outline を消さない**
+- 排他選択は LiquidTabs（radio 相当のキーボード操作込み）。自前 flex+button のタブ列を作らない
+- モーダル: `role="dialog"` `aria-modal` `aria-labelledby`、Escape で閉じ、初期フォーカスと復帰
+- ストリーミング/非同期状態は `aria-live="polite"`
+- アイコンだけのボタンに `aria-label`
+- コントラスト: 文字は `--text-muted` が下限（AA）。それより薄くしたければ文字ではなく装飾（`--ink-decorative`）
 
-使用: `tone` prop で Glass コンポーネントに渡す。直接Hexを書かない。
+## 6. 検証
 
-### 2.5 Semantic
-
-| Token | Hex | 用途 |
-|---|---|---|
-| `success` | `#6BCB77` | 完了・成功 |
-| `warning` | `#F9C74F` | 警告 |
-| `danger` | `#F07167` | エラー・削除 |
-| `info` | `#8ECAE6` | 情報 |
-
-### 2.6 Glass Tones (半透明)
-
-| Token | rgba | 用途 |
-|---|---|---|
-| `glass-tint-thin` | `rgba(255, 255, 255, 0.55)` | blur-md と組み合わせる |
-| `glass-tint-regular` | `rgba(255, 255, 255, 0.70)` | 標準ガラス層 |
-| `glass-tint-thick` | `rgba(255, 255, 255, 0.82)` | 濃いガラス層 |
-| `glass-tint-chrome` | `rgba(255, 255, 255, 0.92)` | モーダル/ナビ |
-| `glass-border-soft` | `rgba(255, 255, 255, 0.60)` | ガラス境界 (subtle) |
-| `glass-border-bright` | `rgba(255, 255, 255, 0.92)` | ガラス境界 (bright top edge) |
-| `glass-highlight` | `rgba(255, 255, 255, 0.45)` | inset 内側ハイライト |
-| `glass-shadow` | `rgba(120, 80, 40, 0.08)` | ウォームグレーの外側シャドウ |
-
----
-
-## 3. Typography
-
-### 3.1 Font Families
-
-- **Sans** (body): `'Noto Sans JP', system-ui, sans-serif`
-- **Display** (hero見出し): `'Playfair Display', serif`
-- **Mono** (code/logs): `'JetBrains Mono', ui-monospace, monospace`
-
-### 3.2 Scale
-
-| Token | Size | Line | 用途 |
-|---|---|---|---|
-| `text-display` | 48px | 1.1 | ヒーロー見出し |
-| `text-h1` | 32px | 1.2 | ページタイトル |
-| `text-h2` | 24px | 1.3 | セクションタイトル |
-| `text-h3` | 20px | 1.4 | カードタイトル |
-| `text-body` | 15px | 1.6 | 本文 |
-| `text-sm` | 13px | 1.5 | 補助テキスト |
-| `text-xs` | 11px | 1.4 | ラベル・バッジ |
-| `text-micro` | 10px | 1.3 | マイクロテキスト |
-
-### 3.3 Weight
-
-- `font-normal` (400) — 本文
-- `font-medium` (500) — 補助見出し
-- `font-semibold` (600) — カードタイトル
-- `font-bold` (700) — ページタイトル・強調
-
----
-
-## 4. Spacing
-
-4px グリッド。直接 `p-[17px]` のような奇数値を書かない。
-
-| Token | Value |
-|---|---|
-| `space-1` | 4px |
-| `space-2` | 8px |
-| `space-3` | 12px |
-| `space-4` | 16px |
-| `space-5` | 20px |
-| `space-6` | 24px |
-| `space-8` | 32px |
-| `space-10` | 40px |
-| `space-12` | 48px |
-| `space-16` | 64px |
-| `space-20` | 80px |
-
----
-
-## 5. Radius
-
-| Token | Value | 用途 |
-|---|---|---|
-| `rounded-xs` | 8px | バッジ・chip |
-| `rounded-sm` | 12px | ボタン |
-| `rounded-md` | 16px | 小型カード |
-| `rounded-lg` | 20px | 標準カード |
-| `rounded-xl` | 28px | 大型カード・パネル |
-| `rounded-2xl` | 36px | ヒーローカード |
-| `rounded-full` | 9999px | ピル・丸アバター |
-
----
-
-## 6. Glass Surfaces — 4段階
-
-すべてのサーフェスは以下4つのいずれかに分類されます。`GlassCard` / `GlassPanel` の `variant` prop で指定。
-
-| Variant | blur | bg (tint) | border | shadow | 用途 |
-|---|---|---|---|---|---|
-| `thin` | 8px (backdrop-blur-thin) | `glass-tint-thin` | `glass-border-soft` | `elev-1` | 軽いリスト項目・bubble |
-| `regular` | 16px (backdrop-blur-regular) | `glass-tint-regular` | `glass-border-soft` | `elev-2` | 標準カード (最も多用) |
-| `thick` | 24px (backdrop-blur-thick) | `glass-tint-thick` | `glass-border-bright` | `elev-3` | ヒーロー・フォーカスカード |
-| `chrome` | 32px (backdrop-blur-chrome) | `glass-tint-chrome` | `glass-border-bright` | `elev-4` | TopBar・BottomNav・モーダル |
-
-すべてのガラスは上辺 1px の `glass-border-bright` でハイライトを作ること (`border-t`)。
-
----
-
-## 7. Shadows & Depth
-
-ティールグレー系の柔らかい影。純黒は使わない。
-
-| Token | Value |
-|---|---|
-| `shadow-elev-0` | `none` |
-| `shadow-elev-1` | `0 1px 2px rgba(45, 100, 95, 0.06), 0 1px 4px rgba(45, 100, 95, 0.04)` |
-| `shadow-elev-2` | `0 2px 8px rgba(45, 100, 95, 0.08), 0 4px 16px rgba(45, 100, 95, 0.05)` |
-| `shadow-elev-3` | `0 8px 24px rgba(45, 100, 95, 0.10), 0 16px 40px rgba(45, 100, 95, 0.06)` |
-| `shadow-elev-4` | `0 16px 44px rgba(45, 100, 95, 0.12), 0 28px 72px rgba(45, 100, 95, 0.08)` |
-| `shadow-glass-inset` | `inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 -1px 0 rgba(45, 100, 95, 0.05)` |
-| `shadow-glow-primary` | `0 0 40px rgba(20, 184, 166, 0.32)` |
-
----
-
-## 8. Motion
-
-### 8.1 Duration
-
-| Token | Value | 用途 |
-|---|---|---|
-| `duration-fast` | 150ms | hover/tap反応 |
-| `duration-base` | 250ms | 標準トランジション |
-| `duration-slow` | 400ms | パネル展開・ページ遷移 |
-| `duration-dramatic` | 700ms | ヒーロー演出 |
-
-### 8.2 Easing
-
-| Token | Value |
-|---|---|
-| `ease-standard` | `cubic-bezier(0.2, 0, 0, 1)` |
-| `ease-emphasized` | `cubic-bezier(0.2, 0, 0, 1.2)` (overshoot) |
-| `ease-smooth` | `cubic-bezier(0.4, 0, 0.2, 1)` |
-
-### 8.3 Spring Presets (framer-motion)
-
-```tsx
-const spring = {
-  soft: { type: 'spring', stiffness: 200, damping: 25 },
-  snappy: { type: 'spring', stiffness: 400, damping: 30 },
-  bouncy: { type: 'spring', stiffness: 300, damping: 15 },
-};
+```bash
+node apps/web/scripts/check-design-tokens.mjs   # hex 直書き 0 件であること
+npm run build --workspace=apps/web              # ビルド
+npx tsc --noEmit                                # 既知の赤（ImportMeta.env 等）以外を増やさない
 ```
-
----
-
-## 9. Ambient Background
-
-すべてのページの背景に `<AmbientBackground />` を配置。fixed 位置、z-index -1。
-
-### 構成
-
-- Base: `bg-canvas` 系グラデーション（`#F2F9F7` → `#E8F6F3` → `#F0FAF8`）
-- Orb 1: mint `#5EEAD4`, ~580px, top-left, `blur-3xl`
-- Orb 2: aqua `#67E8F9`, ~520px, bottom-right, `blur-3xl`
-- Orb 3: soft lime `#A7F3D0`, ~480px, mid-right, `blur-3xl`
-- Orb 4: soft violet `#DDD6FE`, ~420px, bottom-left, `blur-3xl`
-- Blend mode: `multiply` + opacity 低め（清涼感）
-- Animation: 既存 aurora drift（`prefers-reduced-motion: reduce` で停止）
-
----
-
-## 10. Core Components
-
-すべてのコンポーネントは `apps/web/src/components/ui/` に配置。直接 HTML タグに Tailwind を書かず、これらを使うこと。
-
-### 10.1 `<GlassCard>`
-
-標準的なガラスカード。
-
-```tsx
-import { GlassCard } from '@/components/ui/GlassCard';
-
-<GlassCard variant="regular" tone="SALES" interactive>
-  <h3>内容</h3>
-</GlassCard>
-```
-
-**Props:**
-- `variant`: `'thin' | 'regular' | 'thick' | 'chrome'` (default: `'regular'`)
-- `tone?`: department key for color tint (`'SALES' | 'MARKETING' | ...`)
-- `interactive?`: boolean — hover時に lift + glow
-- `as?`: polymorphic element
-- `className?`: 追加スタイル (トークンのみ使用)
-
-### 10.2 `<GlassButton>`
-
-```tsx
-<GlassButton variant="primary" size="md" icon={<Send />}>
-  送信
-</GlassButton>
-```
-
-**Props:**
-- `variant`: `'primary' | 'secondary' | 'ghost' | 'glass' | 'danger'`
-- `size`: `'xs' | 'sm' | 'md' | 'lg'`
-- `tone?`: department key
-- `icon?`: ReactNode (前置)
-- `loading?`: boolean (spinner)
-
-### 10.3 `<GlassInput>`
-
-```tsx
-<GlassInput value={v} onChange={setV} placeholder="..." prefix={<Search />} />
-```
-
-`<textarea>` は `<GlassInput multiline />`。
-
-### 10.4 `<GlassBadge>`
-
-```tsx
-<GlassBadge tone="SALES" size="sm">営業部</GlassBadge>
-```
-
-**Props:** `variant` (`'solid' | 'glass' | 'outline'`), `size`, `tone`
-
-### 10.5 `<GlassPanel>`
-
-大型ガラスサーフェス。サイドバー・ドロワー・モーダルに使用。
-
-```tsx
-<GlassPanel side="right" open={true} onClose={...}>
-  ...
-</GlassPanel>
-```
-
-上辺に `glass-border-bright` の reflection line あり。
-
-### 10.6 `<GlassNav>` + `<GlassNavItem>`
-
-```tsx
-<GlassNav orientation="horizontal">
-  <GlassNavItem active icon={<Home />} label="ホーム" to="/" />
-</GlassNav>
-```
-
-`layoutId` でアクティブ indicator がスムーズに遷移。
-
-### 10.7 `<AmbientBackground>`
-
-引数なし。`<Layout>` に1回だけ配置。
-
----
-
-## 11. Layout Templates
-
-`apps/web/src/templates/` に配置。ページ作成時はまずテンプレートを選ぶ。
-
-### 11.1 `<AppShell>`
-
-標準アプリシェル。TopBar + メインエリア + BottomNav + AmbientBackground。
-
-```tsx
-<AppShell>
-  <YourPageContent />
-</AppShell>
-```
-
-### 11.2 `<CenteredGlassLayout>`
-
-認証・シンプルフォーム用。AmbientBackground + 中央GlassPanel。
-
-### 11.3 `<SplitPanelLayout>`
-
-左サイドバー + メイン + 右パネル (ChatPage用)。
-
-```tsx
-<SplitPanelLayout
-  leftPanel={<Sessions />}
-  rightPanel={<TaskProgress />}
-  rightOpen={showTaskSidebar}
->
-  <ChatMain />
-</SplitPanelLayout>
-```
-
-### 11.4 `<GridBoardLayout>`
-
-DnD対応のグリッドボード (DeliverablesPage用)。
-
-### 11.5 `<DashboardTemplate>`
-
-Hero + Stats + Carousel パターン。
-
----
-
-## 12. Do's and Don'ts
-
-### ✅ Do
-
-- `<GlassCard>` / `<GlassButton>` 等のプリミティブを使う
-- トークン (`tone`, `variant`, `size`) で調整する
-- department color は `tone` prop で指定する
-- 影は `shadow-elev-*` のみ使う
-- アニメーション duration は `duration-*` トークンを使う
-- テンプレートから始めて差分を書く
-
-### ❌ Don't
-
-- 直接 `bg-white`, `bg-gray-100` を書かない (常に Glass 系を使う)
-- 直接 Hex値 (`#E8863A`) を JSX に書かない (トークン経由)
-- カスタム `box-shadow: ...` を書かない (`shadow-elev-*` を使う)
-- 固定 px 値のスペーシング (`p-[17px]`) を書かない
-- グレースケールのテキスト (`text-gray-500`) を使わない (`text-secondary` を使う)
-- 複数のガラス層を不必要にネストしない (最大2層)
-- `backdrop-blur` を直接書かない (`variant` prop で指定)
-
----
-
-## 13. Migration Checklist
-
-既存コンポーネントを更新する際の対応表。
-
-| Before | After |
-|---|---|
-| `<div className="bg-white rounded-2xl shadow-sm p-4">` | `<GlassCard variant="regular">` |
-| `<div className="bg-white/60 backdrop-blur-lg ...">` | `<GlassCard variant="thin">` または `<GlassPanel>` |
-| `<button className="bg-[#E8863A] text-white ...">` | `<GlassButton variant="primary">` |
-| `<input className="bg-white border ...">` | `<GlassInput>` |
-| `<span className="bg-[#E8863A]/15 text-[#E8863A] ...">` | `<GlassBadge tone="SALES">` |
-| `className="text-[#2D2D2D]"` | `className="text-primary"` |
-| `className="text-[#8A8A8A]"` | `className="text-secondary"` |
-| `className="text-[#BCBCBC]"` | `className="text-muted"` |
-| `className="bg-[#faf9f7]"` / 旧ウォームキャンバス | `className="bg-canvas"`（`#F2F9F7`） |
-| `className="border-[#eae8e3]"` | トークン経由 (通常 GlassCard 内部で自動適用) |
-| `transition-all duration-300` | `transition-all duration-base` |
-
----
-
-## 14. File Structure
-
-```
-apps/web/src/
-├── components/
-│   ├── ui/                    # Glass primitives (触るときは必ずDESIGN.md確認)
-│   │   ├── GlassCard.tsx
-│   │   ├── GlassButton.tsx
-│   │   ├── GlassInput.tsx
-│   │   ├── GlassBadge.tsx
-│   │   ├── GlassPanel.tsx
-│   │   ├── GlassNav.tsx
-│   │   └── AmbientBackground.tsx
-│   ├── Navigation/
-│   ├── Dashboard/
-│   ├── Chat/
-│   ├── TaskManager/
-│   └── Deliverables/
-├── templates/                 # Layout templates
-│   ├── AppShell.tsx
-│   ├── CenteredGlassLayout.tsx
-│   ├── SplitPanelLayout.tsx
-│   ├── GridBoardLayout.tsx
-│   └── DashboardTemplate.tsx
-├── constants/
-│   └── departments.ts         # 部署色マップ (このファイル以外で Hex を書かない)
-├── store/
-└── pages/
-```
-
----
-
-## 15. Quick Start — 新しいページを作る
-
-1. `apps/web/src/templates/` から適切なテンプレートを選ぶ (多くは `AppShell`)
-2. テンプレートで `<YourPage />` をラップ
-3. 内容は `<GlassCard>` / `<GlassButton>` / `<GlassInput>` を組み合わせて構成
-4. 色は必ず `tone` prop で指定 (department key)
-5. スペーシングは 4px グリッドに従う
-6. 変更後 `npx vite build` でエラー0を確認
-
----
-
-**このドキュメントは生きた契約書です。**
-新しいパターンが必要になったら、まずここに追記してからコードに反映してください。
