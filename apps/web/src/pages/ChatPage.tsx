@@ -531,7 +531,7 @@ export default function ChatPage() {
                       } ${active ? 'bg-accent text-white font-semibold' : 'glass-thin text-secondary hover:text-primary'}`}
                     >
                       {char ? (
-                        <img src={char.image} alt="" className="w-5 h-5 rounded-full object-cover bg-muted" />
+                        <img src={char.image} alt="" className="w-5 h-5 rounded-full object-cover bg-sunken" />
                       ) : (
                         <span>{d.icon}</span>
                       )}
@@ -617,7 +617,7 @@ export default function ChatPage() {
                         <img
                           src={char.image}
                           alt={char.name}
-                          className="w-12 h-12 rounded-full object-cover bg-muted flex-shrink-0"
+                          className="w-12 h-12 rounded-full object-cover bg-sunken flex-shrink-0"
                           style={{ boxShadow: `0 0 0 2px ${DEPT_ACCENT[d.key]}33` }}
                         />
                       ) : (
@@ -640,7 +640,7 @@ export default function ChatPage() {
               {!showSidebar && (
                 <button
                   onClick={() => setShowSidebar(true)}
-                  className="w-8 h-8 rounded-md bg-muted flex items-center justify-center text-secondary hover:text-primary transition-colors"
+                  className="w-8 h-8 rounded-md bg-sunken flex items-center justify-center text-secondary hover:text-primary transition-colors"
                 >
                   <PanelLeftOpen size={15} />
                 </button>
@@ -652,7 +652,7 @@ export default function ChatPage() {
                       <img
                         src={DEPT_CHARACTER[selectedDept].image}
                         alt={DEPT_CHARACTER[selectedDept].name}
-                        className="w-7 h-7 rounded-full object-cover bg-muted flex-shrink-0"
+                        className="w-7 h-7 rounded-full object-cover bg-sunken flex-shrink-0"
                         style={{ boxShadow: `0 0 0 2px ${DEPT_ACCENT[selectedDept]}33` }}
                       />
                     )}
@@ -674,7 +674,7 @@ export default function ChatPage() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowTaskSidebar(!showTaskSidebar)}
-                  className="w-8 h-8 rounded-md bg-muted flex items-center justify-center text-secondary hover:text-accent transition-colors relative"
+                  className="w-8 h-8 rounded-md bg-sunken flex items-center justify-center text-secondary hover:text-accent transition-colors relative"
                 >
                   <ClipboardList size={15} />
                   {inlineTasks.filter((t) => t.status === 'executing').length > 0 && (

@@ -35,7 +35,7 @@ export function AgentCtaCard({ draft, onCreate, onDismiss }: Props) {
           <img
             src={char.image}
             alt=""
-            className="h-10 w-10 flex-shrink-0 rounded-full bg-muted object-cover"
+            className="h-10 w-10 flex-shrink-0 rounded-full bg-sunken object-cover"
             style={{ boxShadow: `0 0 0 2px ${accent}33` }}
           />
         ) : (

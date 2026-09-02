@@ -29,7 +29,7 @@ export default function UsageCard({ usage, modelLabel }: UsageCardProps) {
           </span>
           <span className={`text-xs ${overLimit ? 'text-danger' : 'text-muted'}`}>{percent}%</span>
         </div>
-        <div className="w-full h-2 rounded-full bg-muted/30 overflow-hidden">
+        <div className="w-full h-2 rounded-full bg-sunken/30 overflow-hidden">
           <div
             className={`h-full rounded-full transition-all duration-base ${overLimit ? 'bg-danger' : 'bg-accent'}`}
             style={{ width: `${percent}%` }}

@@ -35,7 +35,7 @@ export function DepartmentCostCard({ rows }: { rows: DepartmentMetricsRow[] }) {
               />
               <span className="truncate">{DEPT_LABEL[r.department] ?? r.department}</span>
             </span>
-            <div className="flex-1 h-2.5 rounded-full bg-muted overflow-hidden">
+            <div className="flex-1 h-2.5 rounded-full bg-sunken overflow-hidden">
               <div
                 className="h-full rounded-full"
                 style={{

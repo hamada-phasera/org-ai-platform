@@ -27,7 +27,7 @@ export function DepartmentBreakdownCard({ rows }: { rows: DepartmentRow[] }) {
               <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: r.accent }} />
               <span className="truncate">{r.label}</span>
             </span>
-            <div className="flex-1 h-2.5 rounded-full bg-muted overflow-hidden">
+            <div className="flex-1 h-2.5 rounded-full bg-sunken overflow-hidden">
               <div
                 className="h-full rounded-full"
                 style={{ width: `${(r.executions / maxExec) * 100}%`, background: r.accent }}

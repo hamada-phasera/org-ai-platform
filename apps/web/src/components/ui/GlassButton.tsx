@@ -54,20 +54,25 @@ export const GlassButton = forwardRef<HTMLButtonElement, GlassButtonProps>(
     const variantBase = (() => {
       switch (variant) {
         case 'primary':
-          return {
-            className: 'text-inverse font-semibold shadow-elev-1 hover:shadow-elev-2',
-            style: { background: toneColor ?? 'var(--accent)' },
-          };
+          // 部署色を指定されたときだけ単色。既定はリキッドガラス（index.css の3層）。
+          return toneColor
+            ? {
+                className: 'text-inverse font-semibold shadow-elev-1 hover:shadow-elev-2',
+                style: { background: toneColor },
+              }
+            : {
+                className: 'tab-glass liquid-primary text-white font-bold',
+                style: undefined,
+              };
         case 'secondary':
           return {
-            className:
-              'glass-regular text-primary font-semibold shadow-elev-1 hover:shadow-elev-2',
+            className: 'tab-glass text-primary font-bold',
             style: undefined,
           };
         case 'ghost':
           return {
             className:
-              'bg-transparent text-secondary hover:text-primary hover:bg-glass-tint-thin',
+              'bg-transparent text-secondary hover:text-primary hover:bg-sunken',
             style: undefined,
           };
         case 'glass':

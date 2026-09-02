@@ -21,7 +21,7 @@ export function ReservedMetricCard({
           {icon}
           <span className="text-xs font-medium">{label}</span>
         </div>
-        <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider bg-muted px-2 py-0.5 rounded-full">
+        <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider bg-sunken px-2 py-0.5 rounded-full">
           R2 予定
         </span>
       </div>

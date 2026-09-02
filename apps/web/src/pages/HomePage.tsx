@@ -164,7 +164,7 @@ export default function HomePage() {
                       <span className="w-20 text-xs text-secondary flex-shrink-0">
                         {DEPT_LABEL[d.department] ?? d.department}
                       </span>
-                      <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                      <div className="flex-1 h-2 rounded-full bg-sunken overflow-hidden">
                         <div
                           className="h-full rounded-full"
                           style={{
