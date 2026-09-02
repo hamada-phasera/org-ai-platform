@@ -1,0 +1,281 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; font-family: 'Manrope','Noto Sans JP',system-ui,sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #3D4EFF; text-decoration: none; }
+    a:hover { color: #2A38D6; }
+    .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+
+<div style="width:1440px;min-height:1560px;background:#FBFBFC;color:#101521;padding:40px 40px 48px;box-sizing:border-box;position:relative;overflow:hidden;">
+
+  <div style="position:absolute;inset:0;pointer-events:none;">
+    <div style="position:absolute;top:200px;left:200px;width:640px;height:520px;border-radius:50%;background:radial-gradient(circle at 50% 50%, rgba(61,78,255,0.07), rgba(61,78,255,0) 68%);"></div>
+  </div>
+
+  <div style="position:relative;z-index:1;">
+    <div style="padding-bottom:18px;">
+      <div style="font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#6A7280;">FLOW Design System v2</div>
+      <div style="font-size:26px;font-weight:800;letter-spacing:-0.02em;margin-top:7px;">アクセント3案 — 同じ部品で比べる</div>
+      <div style="font-size:12.5px;color:#59616F;margin-top:6px;max-width:900px;line-height:1.75;">3列は<b>色以外まったく同じ</b>マークアップから生成している（<span class="mono">build-accent-compare.mjs</span>）。余白や文字サイズの差で判断がぶれないようにするため。実装側でも切り替えは <span class="mono">index.css</span> の <span class="mono">--action</span> 2行だけで済むようにしてある。</div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:170px repeat(3, minmax(0,1fr));gap:22px;align-items:end;padding-bottom:18px;">
+      <div></div>
+      <div>
+      <div style="display:flex;align-items:center;gap:9px;">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:7px;background:#101521;color:#fff;font-size:12px;font-weight:800;">A</span>
+        <span style="font-size:15px;font-weight:800;">インク</span>
+        <span style="display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:5px;background:#101521;color:#fff;font-size:10px;font-weight:700;letter-spacing:0.04em;">推奨</span>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px;">
+        <span style="flex:1;height:22px;border-radius:5px;background:#101521;"></span>
+        <span style="flex:1;height:22px;border-radius:5px;background:#3D4EFF;"></span>
+        <span style="flex:1;height:22px;border-radius:5px;background:#EEF0FF;border:1px solid #DDE1FF;"></span>
+      </div>
+      <div class="mono" style="display:flex;gap:6px;font-size:9.5px;color:#6A7280;margin-top:5px;">
+        <span style="flex:1;">#101521</span><span style="flex:1;">#3D4EFF</span><span style="flex:1;">#EEF0FF</span>
+      </div></div><div>
+      <div style="display:flex;align-items:center;gap:9px;">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:7px;background:#4F46E5;color:#fff;font-size:12px;font-weight:800;">B</span>
+        <span style="font-size:15px;font-weight:800;">インディゴ</span>
+        
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px;">
+        <span style="flex:1;height:22px;border-radius:5px;background:#4F46E5;"></span>
+        <span style="flex:1;height:22px;border-radius:5px;background:#4F46E5;"></span>
+        <span style="flex:1;height:22px;border-radius:5px;background:#EEF2FF;border:1px solid #DDE2FE;"></span>
+      </div>
+      <div class="mono" style="display:flex;gap:6px;font-size:9.5px;color:#6A7280;margin-top:5px;">
+        <span style="flex:1;">#4F46E5</span><span style="flex:1;">#4F46E5</span><span style="flex:1;">#EEF2FF</span>
+      </div></div><div>
+      <div style="display:flex;align-items:center;gap:9px;">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:7px;background:#1E4FFF;color:#fff;font-size:12px;font-weight:800;">C</span>
+        <span style="font-size:15px;font-weight:800;">コバルト</span>
+        
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px;">
+        <span style="flex:1;height:22px;border-radius:5px;background:#1E4FFF;"></span>
+        <span style="flex:1;height:22px;border-radius:5px;background:#1E4FFF;"></span>
+        <span style="flex:1;height:22px;border-radius:5px;background:#E9EFFF;border:1px solid #D3E0FF;"></span>
+      </div>
+      <div class="mono" style="display:flex;gap:6px;font-size:9.5px;color:#6A7280;margin-top:5px;">
+        <span style="flex:1;">#1E4FFF</span><span style="flex:1;">#1E4FFF</span><span style="flex:1;">#E9EFFF</span>
+      </div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:170px repeat(3, minmax(0,1fr));gap:22px;align-items:start;padding:20px 0;border-top:1px solid #F0F1F4;">
+      <div style="padding-top:2px;">
+        <div style="font-size:12px;font-weight:800;">主ボタン</div>
+        <div style="font-size:10.5px;color:#6A7280;line-height:1.6;margin-top:5px;">押せるものが1画面に何個も並ぶ。ここが最も面積を取る。</div>
+      </div>
+      
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button style="height:32px;padding:0 14px;border-radius:7px;border:none;background:#101521;color:#fff;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer;">実行する</button>
+        <button style="height:32px;padding:0 14px;border-radius:7px;border:1px solid #D8DCE3;background:#fff;color:#101521;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;">下書き</button>
+        <button style="height:32px;padding:0 12px;border-radius:7px;border:none;background:transparent;color:#59616F;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;">あとで</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button style="height:32px;padding:0 14px;border-radius:7px;border:none;background:#4F46E5;color:#fff;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer;">実行する</button>
+        <button style="height:32px;padding:0 14px;border-radius:7px;border:1px solid #D8DCE3;background:#fff;color:#101521;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;">下書き</button>
+        <button style="height:32px;padding:0 12px;border-radius:7px;border:none;background:transparent;color:#59616F;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;">あとで</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button style="height:32px;padding:0 14px;border-radius:7px;border:none;background:#1E4FFF;color:#fff;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer;">実行する</button>
+        <button style="height:32px;padding:0 14px;border-radius:7px;border:1px solid #D8DCE3;background:#fff;color:#101521;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;">下書き</button>
+        <button style="height:32px;padding:0 12px;border-radius:7px;border:none;background:transparent;color:#59616F;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;">あとで</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:170px repeat(3, minmax(0,1fr));gap:22px;align-items:start;padding:20px 0;border-top:1px solid #F0F1F4;">
+      <div style="padding-top:2px;">
+        <div style="font-size:12px;font-weight:800;">サイドバーの選択中</div>
+        <div style="font-size:10.5px;color:#6A7280;line-height:1.6;margin-top:5px;">常時見えている。強すぎると本文より目立つ。</div>
+      </div>
+      
+      <div style="border:1px solid #E7E9ED;border-radius:9px;background:#fff;padding:6px;display:flex;flex-direction:column;gap:2px;">
+        <div style="display:flex;align-items:center;gap:9px;height:30px;padding:0 10px;border-radius:7px;font-size:12px;font-weight:600;color:#59616F;"><span style="width:13px;height:13px;border-radius:3px;background:#E7E9ED;"></span>ホーム</div>
+        <div style="display:flex;align-items:center;gap:9px;height:30px;padding:0 10px;border-radius:7px;font-size:12px;font-weight:700;color:#fff;background:#101521;"><span style="width:13px;height:13px;border-radius:3px;background:rgba(255,255,255,0.35);"></span>チャット<span style="margin-left:auto;font-size:9.5px;font-weight:800;background:rgba(255,255,255,0.2);border-radius:5px;padding:1px 6px;">3</span></div>
+        <div style="display:flex;align-items:center;gap:9px;height:30px;padding:0 10px;border-radius:7px;font-size:12px;font-weight:600;color:#59616F;"><span style="width:13px;height:13px;border-radius:3px;background:#E7E9ED;"></span>成果物</div>
+      </div>
+      <div style="border:1px solid #E7E9ED;border-radius:9px;background:#fff;padding:6px;display:flex;flex-direction:column;gap:2px;">
+        <div style="display:flex;align-items:center;gap:9px;height:30px;padding:0 10px;border-radius:7px;font-size:12px;font-weight:600;color:#59616F;"><span style="width:13px;height:13px;border-radius:3px;background:#E7E9ED;"></span>ホーム</div>
+        <div style="display:flex;align-items:center;gap:9px;height:30px;padding:0 10px;border-radius:7px;font-size:12px;font-weight:700;color:#fff;background:#4F46E5;"><span style="width:13px;height:13px;border-radius:3px;background:rgba(255,255,255,0.35);"></span>チャット<span style="margin-left:auto;font-size:9.5px;font-weight:800;background:rgba(255,255,255,0.2);border-radius:5px;padding:1px 6px;">3</span></div>
+        <div style="display:flex;align-items:center;gap:9px;height:30px;padding:0 10px;border-radius:7px;font-size:12px;font-weight:600;color:#59616F;"><span style="width:13px;height:13px;border-radius:3px;background:#E7E9ED;"></span>成果物</div>
+      </div>
+      <div style="border:1px solid #E7E9ED;border-radius:9px;background:#fff;padding:6px;display:flex;flex-direction:column;gap:2px;">
+        <div style="display:flex;align-items:center;gap:9px;height:30px;padding:0 10px;border-radius:7px;font-size:12px;font-weight:600;color:#59616F;"><span style="width:13px;height:13px;border-radius:3px;background:#E7E9ED;"></span>ホーム</div>
+        <div style="display:flex;align-items:center;gap:9px;height:30px;padding:0 10px;border-radius:7px;font-size:12px;font-weight:700;color:#fff;background:#1E4FFF;"><span style="width:13px;height:13px;border-radius:3px;background:rgba(255,255,255,0.35);"></span>チャット<span style="margin-left:auto;font-size:9.5px;font-weight:800;background:rgba(255,255,255,0.2);border-radius:5px;padding:1px 6px;">3</span></div>
+        <div style="display:flex;align-items:center;gap:9px;height:30px;padding:0 10px;border-radius:7px;font-size:12px;font-weight:600;color:#59616F;"><span style="width:13px;height:13px;border-radius:3px;background:#E7E9ED;"></span>成果物</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:170px repeat(3, minmax(0,1fr));gap:22px;align-items:start;padding:20px 0;border-top:1px solid #F0F1F4;">
+      <div style="padding-top:2px;">
+        <div style="font-size:12px;font-weight:800;">リキッド・タブ</div>
+        <div style="font-size:10.5px;color:#6A7280;line-height:1.6;margin-top:5px;">インジケータが伸び縮みしながら移動する部分。</div>
+      </div>
+      
+      <div style="display:inline-flex;align-items:center;gap:2px;padding:4px;border-radius:12px;position:relative;background:rgba(255,255,255,0.72);backdrop-filter:blur(14px) saturate(1.5);-webkit-backdrop-filter:blur(14px) saturate(1.5);border:1px solid rgba(255,255,255,0.9);box-shadow:0 1px 2px rgba(16,21,33,0.05),0 8px 24px rgba(16,21,33,0.06);">
+        <span style="position:absolute;top:4px;left:82px;width:132px;height:32px;border-radius:9px;background:#101521;"></span>
+        <span style="position:relative;z-index:1;height:32px;padding:0 14px;display:inline-flex;align-items:center;font-size:12.5px;font-weight:600;color:#59616F;white-space:nowrap;">AIログ</span>
+        <span style="position:relative;z-index:1;height:32px;padding:0 14px;display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:#fff;white-space:nowrap;">リスクイベント<span style="display:inline-flex;align-items:center;height:17px;padding:0 5px;border-radius:5px;background:rgba(255,255,255,0.2);font-size:9.5px;font-weight:800;">1</span></span>
+      </div>
+      <div style="display:inline-flex;align-items:center;gap:2px;padding:4px;border-radius:12px;position:relative;background:rgba(255,255,255,0.72);backdrop-filter:blur(14px) saturate(1.5);-webkit-backdrop-filter:blur(14px) saturate(1.5);border:1px solid rgba(255,255,255,0.9);box-shadow:0 1px 2px rgba(16,21,33,0.05),0 8px 24px rgba(16,21,33,0.06);">
+        <span style="position:absolute;top:4px;left:82px;width:132px;height:32px;border-radius:9px;background:#4F46E5;"></span>
+        <span style="position:relative;z-index:1;height:32px;padding:0 14px;display:inline-flex;align-items:center;font-size:12.5px;font-weight:600;color:#59616F;white-space:nowrap;">AIログ</span>
+        <span style="position:relative;z-index:1;height:32px;padding:0 14px;display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:#fff;white-space:nowrap;">リスクイベント<span style="display:inline-flex;align-items:center;height:17px;padding:0 5px;border-radius:5px;background:rgba(255,255,255,0.2);font-size:9.5px;font-weight:800;">1</span></span>
+      </div>
+      <div style="display:inline-flex;align-items:center;gap:2px;padding:4px;border-radius:12px;position:relative;background:rgba(255,255,255,0.72);backdrop-filter:blur(14px) saturate(1.5);-webkit-backdrop-filter:blur(14px) saturate(1.5);border:1px solid rgba(255,255,255,0.9);box-shadow:0 1px 2px rgba(16,21,33,0.05),0 8px 24px rgba(16,21,33,0.06);">
+        <span style="position:absolute;top:4px;left:82px;width:132px;height:32px;border-radius:9px;background:#1E4FFF;"></span>
+        <span style="position:relative;z-index:1;height:32px;padding:0 14px;display:inline-flex;align-items:center;font-size:12.5px;font-weight:600;color:#59616F;white-space:nowrap;">AIログ</span>
+        <span style="position:relative;z-index:1;height:32px;padding:0 14px;display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:#fff;white-space:nowrap;">リスクイベント<span style="display:inline-flex;align-items:center;height:17px;padding:0 5px;border-radius:5px;background:rgba(255,255,255,0.2);font-size:9.5px;font-weight:800;">1</span></span>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:170px repeat(3, minmax(0,1fr));gap:22px;align-items:start;padding:20px 0;border-top:1px solid #F0F1F4;">
+      <div style="padding-top:2px;">
+        <div style="font-size:12px;font-weight:800;">部署カラーとの隣接</div>
+        <div style="font-size:10.5px;color:#6A7280;line-height:1.6;margin-top:5px;">ここが実質の決定打。主アクションと部署の色が同じだと、ボタンなのかデータなのか色で見分けられない。</div>
+      </div>
+      
+      <div>
+        <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;">
+          <span style="display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:7px;border:1.5px solid #101521;background:#fff;font-size:11px;font-weight:800;color:#101521;"><span style="width:9px;height:9px;border-radius:2px;background:#101521;"></span>主アクション</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border-radius:7px;border:1px solid #E7E9ED;background:#fff;font-size:11px;font-weight:700;color:#59616F;"><span style="width:9px;height:9px;border-radius:2px;background:#4F46E5;"></span>営業部</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border-radius:7px;border:1px solid #E7E9ED;background:#fff;font-size:11px;font-weight:700;color:#59616F;"><span style="width:9px;height:9px;border-radius:2px;background:#9333EA;"></span>マーケ部</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border-radius:7px;border:1px solid #E7E9ED;background:#fff;font-size:11px;font-weight:700;color:#59616F;"><span style="width:9px;height:9px;border-radius:2px;background:#0284C7;"></span>経理部</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border-radius:7px;border:1px solid #E7E9ED;background:#fff;font-size:11px;font-weight:700;color:#59616F;"><span style="width:9px;height:9px;border-radius:2px;background:#0D9488;"></span>データ分析</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border-radius:7px;border:1px solid #E7E9ED;background:#fff;font-size:11px;font-weight:700;color:#59616F;"><span style="width:9px;height:9px;border-radius:2px;background:#475569;"></span>総合</span>
+        </div>
+        <div style="display:inline-flex;align-items:center;gap:6px;margin-top:9px;height:22px;padding:0 9px;border-radius:6px;background:#ECFDF5;border:1px solid #A7F3D0;font-size:10.5px;font-weight:800;color:#047857;">衝突: なし</div>
+      </div>
+      <div>
+        <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;">
+          <span style="display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:7px;border:1.5px solid #4F46E5;background:#fff;font-size:11px;font-weight:800;color:#4F46E5;"><span style="width:9px;height:9px;border-radius:2px;background:#4F46E5;"></span>主アクション</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border-radius:7px;border:1px solid #E7E9ED;background:#fff;font-size:11px;font-weight:700;color:#59616F;"><span style="width:9px;height:9px;border-radius:2px;background:#4F46E5;"></span>営業部</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border-radius:7px;border:1px solid #E7E9ED;background:#fff;font-size:11px;font-weight:700;color:#59616F;"><span style="width:9px;height:9px;border-radius:2px;background:#9333EA;"></span>マーケ部</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border-radius:7px;border:1px solid #E7E9ED;background:#fff;font-size:11px;font-weight:700;color:#59616F;"><span style="width:9px;height:9px;border-radius:2px;background:#0284C7;"></span>経理部</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border-radius:7px;border:1px solid #E7E9ED;background:#fff;font-size:11px;font-weight:700;color:#59616F;"><span style="width:9px;height:9px;border-radius:2px;background:#0D9488;"></span>データ分析</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border-radius:7px;border:1px solid #E7E9ED;background:#fff;font-size:11px;font-weight:700;color:#59616F;"><span style="width:9px;height:9px;border-radius:2px;background:#475569;"></span>総合</span>
+        </div>
+        <div style="display:inline-flex;align-items:center;gap:6px;margin-top:9px;height:22px;padding:0 9px;border-radius:6px;background:#FEF2F2;border:1px solid #FECACA;font-size:10.5px;font-weight:800;color:#B91C1C;">衝突: 営業部と完全一致</div>
+      </div>
+      <div>
+        <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;">
+          <span style="display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:7px;border:1.5px solid #1E4FFF;background:#fff;font-size:11px;font-weight:800;color:#1E4FFF;"><span style="width:9px;height:9px;border-radius:2px;background:#1E4FFF;"></span>主アクション</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border-radius:7px;border:1px solid #E7E9ED;background:#fff;font-size:11px;font-weight:700;color:#59616F;"><span style="width:9px;height:9px;border-radius:2px;background:#4F46E5;"></span>営業部</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border-radius:7px;border:1px solid #E7E9ED;background:#fff;font-size:11px;font-weight:700;color:#59616F;"><span style="width:9px;height:9px;border-radius:2px;background:#9333EA;"></span>マーケ部</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border-radius:7px;border:1px solid #E7E9ED;background:#fff;font-size:11px;font-weight:700;color:#59616F;"><span style="width:9px;height:9px;border-radius:2px;background:#0284C7;"></span>経理部</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border-radius:7px;border:1px solid #E7E9ED;background:#fff;font-size:11px;font-weight:700;color:#59616F;"><span style="width:9px;height:9px;border-radius:2px;background:#0D9488;"></span>データ分析</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border-radius:7px;border:1px solid #E7E9ED;background:#fff;font-size:11px;font-weight:700;color:#59616F;"><span style="width:9px;height:9px;border-radius:2px;background:#475569;"></span>総合</span>
+        </div>
+        <div style="display:inline-flex;align-items:center;gap:6px;margin-top:9px;height:22px;padding:0 9px;border-radius:6px;background:#FFFBEB;border:1px solid #FDE68A;font-size:10.5px;font-weight:800;color:#B45309;">衝突: 経理部と近い</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:170px repeat(3, minmax(0,1fr));gap:22px;align-items:start;padding:20px 0;border-top:1px solid #F0F1F4;">
+      <div style="padding-top:2px;">
+        <div style="font-size:12px;font-weight:800;">入力とフォーカス</div>
+        <div style="font-size:10.5px;color:#6A7280;line-height:1.6;margin-top:5px;">フォーカスリングと、薄い面・薄い罫。</div>
+      </div>
+      
+      <div style="display:flex;flex-direction:column;gap:9px;">
+        <div style="height:34px;border:1px solid #101521;border-radius:7px;background:#fff;display:flex;align-items:center;padding:0 11px;font-size:12.5px;color:#101521;outline:2px solid #3D4EFF;outline-offset:2px;">週次の営業レポート</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:6px;background:#EEF0FF;border:1px solid #DDE1FF;font-size:10.5px;font-weight:700;color:#232A3A;">RUNNING</span>
+          <span style="font-size:10.5px;color:#6A7280;">薄い面と薄い罫もこの色から作る</span>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:9px;">
+        <div style="height:34px;border:1px solid #101521;border-radius:7px;background:#fff;display:flex;align-items:center;padding:0 11px;font-size:12.5px;color:#101521;outline:2px solid #4F46E5;outline-offset:2px;">週次の営業レポート</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:6px;background:#EEF2FF;border:1px solid #DDE2FE;font-size:10.5px;font-weight:700;color:#4338CA;">RUNNING</span>
+          <span style="font-size:10.5px;color:#6A7280;">薄い面と薄い罫もこの色から作る</span>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:9px;">
+        <div style="height:34px;border:1px solid #101521;border-radius:7px;background:#fff;display:flex;align-items:center;padding:0 11px;font-size:12.5px;color:#101521;outline:2px solid #1E4FFF;outline-offset:2px;">週次の営業レポート</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:6px;background:#E9EFFF;border:1px solid #D3E0FF;font-size:10.5px;font-weight:700;color:#1740D6;">RUNNING</span>
+          <span style="font-size:10.5px;color:#6A7280;">薄い面と薄い罫もこの色から作る</span>
+        </div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:170px repeat(3, minmax(0,1fr));gap:22px;align-items:start;padding:20px 0;border-top:1px solid #F0F1F4;">
+      <div style="padding-top:2px;">
+        <div style="font-size:12px;font-weight:800;">メーター</div>
+        <div style="font-size:10.5px;color:#6A7280;line-height:1.6;margin-top:5px;">進捗・使用量。細い面積での見え方。</div>
+      </div>
+      
+      <div style="border:1px solid #E7E9ED;border-radius:9px;background:#FBFBFC;padding:10px 12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;font-size:10.5px;font-weight:700;color:#59616F;">今月の AI 呼び出し<span class="mono" style="color:#101521;">62 / 100</span></div>
+        <div style="height:5px;border-radius:3px;background:#E7E9ED;margin-top:8px;overflow:hidden;"><div style="width:62%;height:100%;background:#101521;"></div></div>
+      </div>
+      <div style="border:1px solid #E7E9ED;border-radius:9px;background:#FBFBFC;padding:10px 12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;font-size:10.5px;font-weight:700;color:#59616F;">今月の AI 呼び出し<span class="mono" style="color:#101521;">62 / 100</span></div>
+        <div style="height:5px;border-radius:3px;background:#E7E9ED;margin-top:8px;overflow:hidden;"><div style="width:62%;height:100%;background:#4F46E5;"></div></div>
+      </div>
+      <div style="border:1px solid #E7E9ED;border-radius:9px;background:#FBFBFC;padding:10px 12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;font-size:10.5px;font-weight:700;color:#59616F;">今月の AI 呼び出し<span class="mono" style="color:#101521;">62 / 100</span></div>
+        <div style="height:5px;border-radius:3px;background:#E7E9ED;margin-top:8px;overflow:hidden;"><div style="width:62%;height:100%;background:#1E4FFF;"></div></div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:170px repeat(3, minmax(0,1fr));gap:22px;align-items:start;padding:20px 0;border-top:1px solid #F0F1F4;">
+      <div style="padding-top:2px;">
+        <div style="font-size:12px;font-weight:800;">リンクと暗い面</div>
+        <div style="font-size:10.5px;color:#6A7280;line-height:1.6;margin-top:5px;">白地のリンクと、暗いトースト上のリンク。同じ役割で面が違う。</div>
+      </div>
+      
+      <div>
+        <div style="font-size:12.5px;line-height:1.8;color:#101521;">詳しくは <a href="#" style="color:#3D4EFF;font-weight:700;">すべての指標を見る</a> から確認できます。</div>
+        <div style="display:inline-flex;align-items:center;gap:10px;background:#101521;border-radius:10px;padding:9px 13px;margin-top:10px;">
+          <span style="font-size:11.5px;font-weight:600;color:#fff;">提案書を作成しました</span>
+          <span style="font-size:11.5px;font-weight:800;color:#A5B4FC;">開く</span>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:12.5px;line-height:1.8;color:#101521;">詳しくは <a href="#" style="color:#4F46E5;font-weight:700;">すべての指標を見る</a> から確認できます。</div>
+        <div style="display:inline-flex;align-items:center;gap:10px;background:#101521;border-radius:10px;padding:9px 13px;margin-top:10px;">
+          <span style="font-size:11.5px;font-weight:600;color:#fff;">提案書を作成しました</span>
+          <span style="font-size:11.5px;font-weight:800;color:#C7D2FE;">開く</span>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:12.5px;line-height:1.8;color:#101521;">詳しくは <a href="#" style="color:#1E4FFF;font-weight:700;">すべての指標を見る</a> から確認できます。</div>
+        <div style="display:inline-flex;align-items:center;gap:10px;background:#101521;border-radius:10px;padding:9px 13px;margin-top:10px;">
+          <span style="font-size:11.5px;font-weight:600;color:#fff;">提案書を作成しました</span>
+          <span style="font-size:11.5px;font-weight:800;color:#BFD3FF;">開く</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:170px repeat(3, minmax(0,1fr));gap:22px;align-items:stretch;padding:22px 0 0;border-top:1px solid #E7E9ED;">
+      <div style="padding-top:2px;"><div style="font-size:12px;font-weight:800;">まとめ</div></div>
+      
+      <div style="border:1px solid #101521;border-radius:11px;background:#fff;padding:15px 16px;">
+        <div style="font-size:12.5px;font-weight:800;">A. インク</div>
+        <div style="font-size:11.5px;color:#59616F;line-height:1.75;margin-top:8px;">主役は墨。青はフォーカスとリンクだけ。部署5色と役割が分かれるので、データの色が最も強く見える。</div>
+        <div style="font-size:11.5px;color:#59616F;line-height:1.75;margin-top:9px;padding-top:9px;border-top:1px solid #F0F1F4;"><b style="color:#101521;">難点：</b>華やかさは最も低い。ブランド色としての記憶に残りにくい。</div>
+      </div>
+      <div style="border:1px solid #E7E9ED;border-radius:11px;background:#fff;padding:15px 16px;">
+        <div style="font-size:12.5px;font-weight:800;">B. インディゴ</div>
+        <div style="font-size:11.5px;color:#59616F;line-height:1.75;margin-top:8px;">現行 v1 の色をそのまま主役に。移行コストが最も低く、既存画面と混在しても違和感が出ない。</div>
+        <div style="font-size:11.5px;color:#59616F;line-height:1.75;margin-top:9px;padding-top:9px;border-top:1px solid #F0F1F4;"><b style="color:#101521;">難点：</b>主アクションと営業部が同じ #4F46E5。ボタンなのか営業のデータなのか、色では見分けられなくなる。</div>
+      </div>
+      <div style="border:1px solid #E7E9ED;border-radius:11px;background:#fff;padding:15px 16px;">
+        <div style="font-size:12.5px;font-weight:800;">C. コバルト</div>
+        <div style="font-size:11.5px;color:#59616F;line-height:1.75;margin-top:8px;">彩度の高い青を主役に。3案で最も「先進的」に振れる。法人向けの信頼感とも両立しやすい色域。</div>
+        <div style="font-size:11.5px;color:#59616F;line-height:1.75;margin-top:9px;padding-top:9px;border-top:1px solid #F0F1F4;"><b style="color:#101521;">難点：</b>面積を取ると画面全体が青く染まる。経理部の水色とも近く、使用面積の規律が要る。</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
