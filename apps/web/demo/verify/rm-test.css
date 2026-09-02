@@ -1,0 +1,300 @@
+/* ================================================================
+ * <theme-toggle> — Liquid Glass テーマ切替トグル
+ *
+ * 原則:
+ *  - ガラスに色を塗らない。面はほぼ透明で、backdrop-filter が背景から色を拾う
+ *  - アイドル時のアニメーションはゼロ（浮遊・回転・登場演出は無い）
+ *  - 動くのは状態変化のときだけ。JSはクラス付与のみで、駆動はCSS
+ *
+ * 層構成（下から）:
+ *  .tt-bar > .tt-seg×3 > .tt-lens( .tt-refract-idle / .tt-refract-move /
+ *                                  .tt-film / .tt-rim / .tt-shine / .tt-icon )
+ *
+ * 屈折の分離設計:
+ *  素のぼかし（全ブラウザ）はレンズ本体が持ち、SVG変位（Chromium）は
+ *  .tt-refract-* だけが持つ。url() を解さないブラウザでは変位層が
+ *  無効化されるだけで、ガラス自体は劣化しない。
+ * ================================================================ */
+
+theme-toggle {
+  /* ── 公開CSS変数 ── */
+  --tt-height: 56px;
+  --tt-width: 240px;          /* 動画準拠の2状態なら 220px */
+  --tt-lens-ratio: 1.35;      /* レンズ径 = 高さ×比率。バーからはみ出す */
+  --tt-accent: #101521;
+  --tt-move-ms: 460ms;
+
+  /* ── テーマ別の面（バー） ── */
+  --tt-bar-fill: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.22));
+  --tt-bar-blur: blur(8px) saturate(160%);
+  --tt-bar-shadow:
+    0 12px 26px rgba(16, 21, 33, 0.16),
+    0 2px 6px rgba(16, 21, 33, 0.08),
+    0 18px 28px -14px rgba(255, 255, 255, 0.9),
+    inset 0 1px 1px rgba(255, 255, 255, 0.95),
+    inset 0 -6px 12px rgba(16, 21, 33, 0.07);
+  --tt-label: #3a4356;
+  --tt-label-active: #101521;
+
+  /* ── 導出値 ── */
+  --tt-seg-w: calc((var(--tt-width) - 8px) / 3);
+  --tt-lens-d: calc(var(--tt-height) * var(--tt-lens-ratio));
+
+  position: relative;
+  display: inline-block;
+  height: var(--tt-height);
+  width: var(--tt-width);
+  /* レンズのはみ出しぶんの余白は使う側のレイアウトで確保する */
+}
+
+html[data-theme='dark'] theme-toggle {
+  --tt-bar-fill: linear-gradient(180deg, #23272d, #191c20);
+  --tt-bar-blur: none;
+  --tt-bar-shadow:
+    0 14px 30px rgba(0, 0, 0, 0.55),
+    0 2px 6px rgba(0, 0, 0, 0.4),
+    inset 0 1px 1px rgba(255, 255, 255, 0.14),
+    inset 0 -6px 12px rgba(0, 0, 0, 0.45);
+  --tt-label: rgba(233, 237, 243, 0.62);
+  --tt-label-active: #f2f5fb;
+}
+
+html[data-theme='clear'] theme-toggle {
+  --tt-bar-fill: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05));
+  --tt-bar-blur: blur(3px) saturate(170%);
+  --tt-bar-shadow:
+    0 12px 26px rgba(16, 21, 33, 0.12),
+    inset 0 1px 1px rgba(255, 255, 255, 0.8),
+    inset 0 -6px 12px rgba(16, 21, 33, 0.05);
+}
+
+/* ── ① 角丸バー ── */
+.tt-bar {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: none;
+  background: var(--tt-bar-fill);
+  backdrop-filter: var(--tt-bar-blur);
+  -webkit-backdrop-filter: var(--tt-bar-blur);
+  box-shadow: var(--tt-bar-shadow);
+  display: flex;
+  align-items: stretch;
+  padding: 4px;
+  box-sizing: border-box;
+  transition: background var(--tt-fade, 500ms) ease, box-shadow var(--tt-fade, 500ms) ease;
+}
+
+.tt-seg {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  border-radius: 9999px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--tt-label);
+  cursor: pointer;
+  padding: 0;
+  transition: color 200ms ease, opacity 200ms ease;
+}
+.tt-seg[aria-checked='true'] {
+  color: var(--tt-label-active);
+}
+/* 選択中のセグメントの中身はレンズ側のアイコンが代表するので隠す */
+.tt-seg[aria-checked='true'] > * {
+  opacity: 0;
+}
+.tt-seg:focus-visible {
+  outline: 2px solid #1e50ff;
+  outline-offset: 3px;
+}
+.tt-seg .tt-seg-icon {
+  display: inline-flex;
+  transition: opacity 200ms ease;
+}
+
+/* ── ② シャボン玉レンズ ── */
+.tt-lens {
+  position: absolute;
+  z-index: 2;
+  width: var(--tt-lens-d);
+  height: var(--tt-lens-d);
+  left: 4px;
+  top: calc((var(--tt-height) - var(--tt-lens-d)) / 2);
+  border-radius: 50%;
+  pointer-events: none;
+  /* 素のガラス（全ブラウザ）。変位は下の refract 層が担う */
+  background: radial-gradient(circle at 62% 66%, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01) 55%, transparent 74%);
+  backdrop-filter: blur(1.5px) saturate(150%);
+  -webkit-backdrop-filter: blur(1.5px) saturate(150%);
+  box-shadow:
+    /* 接地影 */
+    0 10px 18px -6px rgba(16, 21, 33, 0.28),
+    /* 外側の環境影 */
+    0 22px 40px -12px rgba(16, 21, 33, 0.18),
+    inset 0 1px 1px rgba(255, 255, 255, 0.85);
+  transform: translateX(var(--tt-x, 0px));
+}
+html[data-theme='dark'] .tt-lens {
+  box-shadow:
+    0 10px 18px -6px rgba(0, 0, 0, 0.6),
+    0 22px 40px -12px rgba(0, 0, 0, 0.45),
+    inset 0 1px 1px rgba(255, 255, 255, 0.35);
+}
+
+/* レンズ位置（状態→X）。移動は transition が補間する */
+theme-toggle[data-value='light'] { --tt-i: 0; }
+theme-toggle[data-value='dark']  { --tt-i: 1; }
+theme-toggle[data-value='clear'] { --tt-i: 2; }
+.tt-lens {
+  --tt-x: calc(var(--tt-i, 0) * var(--tt-seg-w) + (var(--tt-seg-w) - var(--tt-lens-d)) / 2);
+}
+
+/* 初期描画後にだけ transition を有効化（初期配置で滑らない） */
+theme-toggle.is-ready .tt-lens {
+  transition: transform var(--tt-move-ms) cubic-bezier(0.34, 1.45, 0.5, 1);
+}
+
+/* ── レンズ内の層 ── */
+.tt-refract-idle,
+.tt-refract-move,
+.tt-film,
+.tt-rim,
+.tt-shine {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+/* 屈折（Chromium のみ有効。他は url() を解さず素通り） */
+.tt-refract-idle {
+  backdrop-filter: url('#tt-map-idle');
+  -webkit-backdrop-filter: url('#tt-map-idle');
+}
+.tt-refract-move {
+  backdrop-filter: url('#tt-map-move');
+  -webkit-backdrop-filter: url('#tt-map-move');
+  opacity: 0;
+}
+
+/* 虹彩の膜。中心は素通し、縁だけ（薄膜干渉） */
+.tt-film {
+  background: conic-gradient(
+    from 205deg,
+    rgba(255, 190, 232, 0.5),
+    rgba(255, 232, 178, 0.38),
+    rgba(186, 255, 224, 0.42),
+    rgba(172, 214, 255, 0.55),
+    rgba(214, 190, 255, 0.48),
+    rgba(255, 190, 232, 0.5)
+  );
+  -webkit-mask: radial-gradient(circle at 50% 50%, transparent 40%, #000 68%, #000 88%, transparent 97%);
+  mask: radial-gradient(circle at 50% 50%, transparent 40%, #000 68%, #000 88%, transparent 97%);
+  filter: blur(1px);
+  opacity: 0.75;
+}
+html[data-theme='dark'] .tt-film {
+  opacity: 0.55;
+}
+
+/* Fresnel リム: 縁の明るい枠 */
+.tt-rim {
+  padding: 2px;
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 1) 0%,
+    rgba(255, 255, 255, 0.55) 22%,
+    rgba(255, 255, 255, 0.12) 46%,
+    rgba(255, 255, 255, 0.5) 72%,
+    rgba(255, 255, 255, 0.95) 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  transition: filter 200ms ease;
+}
+/* hover はリムの明るさをわずかに上げるだけ（動かさない） */
+theme-toggle:hover .tt-rim {
+  filter: brightness(1.12);
+}
+
+/* 光点: 左上の主光点＋右下の青み副反射 */
+.tt-shine {
+  background:
+    radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.3) 10%, transparent 20%),
+    radial-gradient(circle at 72% 82%, rgba(150, 190, 255, 0.4) 0%, rgba(150, 190, 255, 0.12) 12%, transparent 22%);
+}
+
+/* レンズ内アイコン: 現在状態のものだけ表示 */
+.tt-icon {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.tt-icon svg {
+  grid-area: 1 / 1;
+  opacity: 0;
+  transition: opacity 200ms ease;
+  color: var(--tt-label-active);
+}
+theme-toggle[data-value='light'] .tt-icon svg[data-icon='light'],
+theme-toggle[data-value='dark'] .tt-icon svg[data-icon='dark'],
+theme-toggle[data-value='clear'] .tt-icon svg[data-icon='clear'] {
+  opacity: 1;
+}
+
+/* ── ③ 移動中（.is-moving の間だけ） ──
+ * squash & stretch と、屈折の中間最大を CSS keyframes で駆動。
+ * JSは animationend でクラスを外すだけ。 */
+theme-toggle.is-moving .tt-lens {
+  animation: tt-squash var(--tt-move-ms) cubic-bezier(0.4, 0, 0.4, 1);
+}
+theme-toggle.is-moving .tt-refract-move {
+  animation: tt-refract-peak var(--tt-move-ms) ease-in-out;
+}
+@keyframes tt-squash {
+  0%   { scale: 1 1; }
+  30%  { scale: 1.14 0.9; }
+  62%  { scale: 0.94 1.05; }
+  100% { scale: 1 1; }
+}
+@keyframes tt-refract-peak {
+  0%   { opacity: 0; }
+  45%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* ── reduced-motion: 即時切替・屈折変化なし ── */
+@media all {
+  theme-toggle.is-ready .tt-lens {
+    transition-duration: 0.01s;
+  }
+  theme-toggle.is-moving .tt-lens,
+  theme-toggle.is-moving .tt-refract-move {
+    animation-duration: 0.01s;
+  }
+  .tt-refract-move {
+    display: none;
+  }
+}
+
+/* ── Safari / Firefox: url() 変位が効かない環境の明示フォールバック ──
+ * 設計上 refract 層が沈黙するだけで成立するが、ぼかしを少し足して
+ * 「ガラス感」を補う。 */
+@supports not (backdrop-filter: url('#tt-map-idle')) {
+  .tt-lens {
+    backdrop-filter: blur(2px) saturate(170%);
+    -webkit-backdrop-filter: blur(2px) saturate(170%);
+  }
+}
