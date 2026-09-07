@@ -1,0 +1,174 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><script src="./support.js"></script></head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;700;800&display=swap">
+  <style>
+  :root{
+    --ink:#0a2540; --ink2:#425466; --ink3:#687385; --ink4:#8898aa;
+    --bg:#f6f9fc; --surface:#ffffff; --line:#e6ebf1; --line2:#d5dbe1;
+    --brand:#635bff; --brand-h:#5851df; --brand-soft:#f4f4ff; --brand-line:#dedbff;
+    --ok:#1a9c6b; --ok-soft:#e6f6ef; --warn:#b25e09; --warn-soft:#fdf3e7;
+    --bad:#df1b41; --bad-soft:#fdeef1; --info:#0570de; --info-soft:#e9f2fd;
+    --sales:#4f46e5; --mkt:#9333ea; --acct:#0284c7; --anl:#0d9488; --gen:#475569;
+    --sh-sm:0 1px 2px rgba(16,36,64,.07),0 1px 5px rgba(16,36,64,.04);
+    --sh-md:0 6px 12px -2px rgba(50,50,93,.12),0 3px 7px -3px rgba(0,0,0,.12);
+    --sh-lg:0 15px 35px rgba(60,66,87,.11),0 5px 15px rgba(0,0,0,.07);
+    --grad:linear-gradient(90deg,#11efe3,#635bff 46%,#e932a5);
+  }
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:'Figtree','Hiragino Sans','Noto Sans JP',-apple-system,sans-serif;
+    -webkit-font-smoothing:antialiased;font-size:14px;line-height:1.55;}
+  a{color:var(--brand);text-decoration:none} a:hover{color:var(--brand-h)}
+  .num{font-variant-numeric:tabular-nums}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--sh-sm)}
+  .btn{display:inline-flex;align-items:center;gap:7px;border-radius:8px;font-weight:600;font-size:13.5px;
+    padding:8px 16px;border:1px solid transparent;cursor:pointer}
+  .btn-p{background:var(--brand);color:#fff;box-shadow:0 1px 2px rgba(10,37,64,.24),inset 0 1px 0 rgba(255,255,255,.16)}
+  .btn-s{background:#fff;color:var(--ink);border-color:var(--line2);box-shadow:var(--sh-sm)}
+  .btn-g{background:transparent;color:var(--ink2)}
+  .chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;font-size:11.5px;font-weight:600;padding:3px 10px}
+  .seg{display:inline-flex;background:#eef2f7;border-radius:9px;padding:3px;gap:2px}
+  .seg button{border:none;background:transparent;border-radius:7px;padding:5px 13px;font-size:12.5px;
+    font-weight:600;color:var(--ink3);cursor:pointer;font-family:inherit;white-space:nowrap}
+  .seg .on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(16,36,64,.14)}
+  .th{font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--ink3);text-transform:uppercase}
+  .lbl{font-size:11px;font-weight:700;letter-spacing:.07em;color:var(--ink3);text-transform:uppercase}
+  .avatar{display:flex;align-items:center;justify-content:center;border-radius:999px;overflow:hidden;flex:none}
+</style>
+</helmet>
+<div style="width:1440px;background:var(--bg);padding:44px 52px;box-sizing:border-box">
+  <div style="height:3px;border-radius:99px;background:var(--grad);width:72px"></div>
+  <h1 style="font-size:26px;font-weight:800;margin:16px 0 4px">FLOW Design System v3 — Stripe風モダンSaaS</h1>
+  <p style="color:var(--ink2);margin:0 0 30px;font-size:14px">白基調＋鮮やかなブルーバイオレット。ソフトシャドウと丸み。<b>半透明ガラスは使わない</b>。ダークモードは廃止（ライトのみ）。</p>
+
+  <div class="lbl" style="margin-bottom:10px">カラー</div>
+  <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px">
+    
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="height:56px;border-radius:10px;background:#0a2540;border:1px solid var(--line)"></div>
+    <div style="font-size:11.5px;font-weight:700">Ink / 見出し</div>
+    <div style="font-family:ui-monospace,monospace;font-size:10.5px;color:var(--ink3)">--ink · #0a2540</div>
+  </div>
+    
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="height:56px;border-radius:10px;background:#425466;border:1px solid var(--line)"></div>
+    <div style="font-size:11.5px;font-weight:700">本文サブ</div>
+    <div style="font-family:ui-monospace,monospace;font-size:10.5px;color:var(--ink3)">--ink2 · #425466</div>
+  </div>
+    
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="height:56px;border-radius:10px;background:#f6f9fc;border:1px solid var(--line)"></div>
+    <div style="font-size:11.5px;font-weight:700">キャンバス</div>
+    <div style="font-family:ui-monospace,monospace;font-size:10.5px;color:var(--ink3)">--bg · #f6f9fc</div>
+  </div>
+    
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="height:56px;border-radius:10px;background:#635bff;border:1px solid var(--line)"></div>
+    <div style="font-size:11.5px;font-weight:700">ブランド</div>
+    <div style="font-family:ui-monospace,monospace;font-size:10.5px;color:var(--ink3)">--brand · #635bff</div>
+  </div>
+    
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="height:56px;border-radius:10px;background:#f4f4ff;border:1px solid var(--line)"></div>
+    <div style="font-size:11.5px;font-weight:700">ブランド淡</div>
+    <div style="font-family:ui-monospace,monospace;font-size:10.5px;color:var(--ink3)">--brand-soft · #f4f4ff</div>
+  </div>
+    
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="height:56px;border-radius:10px;background:#e6ebf1;border:1px solid var(--line)"></div>
+    <div style="font-size:11.5px;font-weight:700">罫線</div>
+    <div style="font-family:ui-monospace,monospace;font-size:10.5px;color:var(--ink3)">--line · #e6ebf1</div>
+  </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px;margin-top:12px">
+    
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="height:56px;border-radius:10px;background:#1a9c6b;border:1px solid var(--line)"></div>
+    <div style="font-size:11.5px;font-weight:700">成功</div>
+    <div style="font-family:ui-monospace,monospace;font-size:10.5px;color:var(--ink3)">--ok · #1a9c6b</div>
+  </div>
+    
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="height:56px;border-radius:10px;background:#b25e09;border:1px solid var(--line)"></div>
+    <div style="font-size:11.5px;font-weight:700">注意</div>
+    <div style="font-family:ui-monospace,monospace;font-size:10.5px;color:var(--ink3)">--warn · #b25e09</div>
+  </div>
+    
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="height:56px;border-radius:10px;background:#df1b41;border:1px solid var(--line)"></div>
+    <div style="font-size:11.5px;font-weight:700">危険</div>
+    <div style="font-family:ui-monospace,monospace;font-size:10.5px;color:var(--ink3)">--bad · #df1b41</div>
+  </div>
+    
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="height:56px;border-radius:10px;background:#0570de;border:1px solid var(--line)"></div>
+    <div style="font-size:11.5px;font-weight:700">情報</div>
+    <div style="font-family:ui-monospace,monospace;font-size:10.5px;color:var(--ink3)">--info · #0570de</div>
+  </div>
+    
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="height:56px;border-radius:10px;background:#4f46e5;border:1px solid var(--line)"></div>
+    <div style="font-size:11.5px;font-weight:700">営業（データ色）</div>
+    <div style="font-family:ui-monospace,monospace;font-size:10.5px;color:var(--ink3)">--sales · #4f46e5</div>
+  </div>
+    
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="height:56px;border-radius:10px;background:#0d9488;border:1px solid var(--line)"></div>
+    <div style="font-size:11.5px;font-weight:700">分析（データ色）</div>
+    <div style="font-family:ui-monospace,monospace;font-size:10.5px;color:var(--ink3)">--anl · #0d9488</div>
+  </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:30px">
+    <div>
+      <div class="lbl" style="margin-bottom:10px">タイポグラフィ — Figtree + Noto Sans JP</div>
+      <div class="card" style="padding:20px 22px">
+        <div style="font-size:28px;font-weight:800;letter-spacing:-.02em">見出し 28 / 800</div>
+        <div style="font-size:20px;font-weight:800;margin-top:6px">セクション 20 / 800</div>
+        <div style="font-size:14px;margin-top:8px;color:var(--ink2)">本文 14 / 400 — 業務の文章はこの濃度。読み下しやすさを最優先。</div>
+        <div class="lbl" style="margin-top:10px">ラベル 11 / 700 / 字間 .07EM</div>
+        <div class="num" style="font-family:ui-monospace,monospace;font-size:13px;margin-top:8px">数字は等幅 1,284 / $2.14 / 00:42</div>
+      </div>
+      <div class="lbl" style="margin:18px 0 10px">ボタンとセグメント</div>
+      <div class="card" style="padding:20px 22px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;gap:10px;align-items:center">
+          <button class="btn btn-p">主アクション</button>
+          <button class="btn btn-s">副アクション</button>
+          <button class="btn btn-g">ゴースト</button>
+          <button class="btn btn-p" style="background:var(--bad)">破壊的</button>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center">
+          <div class="seg" role="tablist" aria-label="部署で絞り込み"><button role="tab" class="">すべて</button><button role="tab" class="on">営業部</button><button role="tab" class="">マーケ部</button><button role="tab" class="">経理部</button><button role="tab" class="">データ分析</button><button role="tab" class="">総合</button></div>
+        </div>
+        <p style="font-size:11.5px;color:var(--ink3);margin:0">部署トグルはトップバーに常設。選択中は白い面＋影で持ち上げる（Stripe のセグメント方式）。</p>
+      </div>
+    </div>
+    <div>
+      <div class="lbl" style="margin-bottom:10px">面と影 — 3段だけ</div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="card" style="padding:14px 18px"><b style="font-size:13px">カード</b> <span style="font-size:12px;color:var(--ink3)">— 白 + 罫線 + sh-sm。表・数字はここに載せる</span></div>
+        <div class="card" style="padding:14px 18px;box-shadow:var(--sh-md)"><b style="font-size:13px">浮いた面</b> <span style="font-size:12px;color:var(--ink3)">— 入口カード・入力バー。sh-md</span></div>
+        <div class="card" style="padding:14px 18px;box-shadow:var(--sh-lg);border-radius:16px"><b style="font-size:13px">モーダル</b> <span style="font-size:12px;color:var(--ink3)">— sh-lg + 角丸16 + 上端にブランドグラデ3px</span></div>
+      </div>
+      <div class="lbl" style="margin:18px 0 10px">バッジ・チップ</div>
+      <div class="card" style="padding:16px 18px;display:flex;gap:8px;flex-wrap:wrap">
+        <span class="chip" style="background:var(--ok-soft);color:var(--ok)">DONE</span><span class="chip" style="background:var(--info-soft);color:var(--info)">RUNNING</span><span class="chip" style="background:var(--warn-soft);color:var(--warn)">承認待ち</span>
+        <span class="chip" style="background:var(--bad-soft);color:var(--bad)">リスク 0.82</span>
+        <span class="chip" style="background:#4f46e514;color:#4f46e5">営業部</span><span class="chip" style="background:#9333ea14;color:#9333ea">マーケ部</span><span class="chip" style="background:#0284c714;color:#0284c7">経理部</span>
+      </div>
+      <div class="lbl" style="margin:18px 0 10px">禁則</div>
+      <div class="card" style="padding:16px 18px;font-size:12.5px;color:var(--ink2);line-height:2">
+        ・半透明ガラス／backdrop-filter は使わない（v2 で全廃）<br>
+        ・グラデーションは「ブランドの3pxストリップ」だけ。面には塗らない<br>
+        ・ダークモードなし。テーマトグルは置かない<br>
+        ・青の塗り面積は小さく。主役は白とインク、青は導く色
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

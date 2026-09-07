@@ -1,0 +1,82 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><script src="./support.js"></script></head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;700;800&display=swap">
+  <style>
+  :root{
+    --ink:#0a2540; --ink2:#425466; --ink3:#687385; --ink4:#8898aa;
+    --bg:#f6f9fc; --surface:#ffffff; --line:#e6ebf1; --line2:#d5dbe1;
+    --brand:#635bff; --brand-h:#5851df; --brand-soft:#f4f4ff; --brand-line:#dedbff;
+    --ok:#1a9c6b; --ok-soft:#e6f6ef; --warn:#b25e09; --warn-soft:#fdf3e7;
+    --bad:#df1b41; --bad-soft:#fdeef1; --info:#0570de; --info-soft:#e9f2fd;
+    --sales:#4f46e5; --mkt:#9333ea; --acct:#0284c7; --anl:#0d9488; --gen:#475569;
+    --sh-sm:0 1px 2px rgba(16,36,64,.07),0 1px 5px rgba(16,36,64,.04);
+    --sh-md:0 6px 12px -2px rgba(50,50,93,.12),0 3px 7px -3px rgba(0,0,0,.12);
+    --sh-lg:0 15px 35px rgba(60,66,87,.11),0 5px 15px rgba(0,0,0,.07);
+    --grad:linear-gradient(90deg,#11efe3,#635bff 46%,#e932a5);
+  }
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:'Figtree','Hiragino Sans','Noto Sans JP',-apple-system,sans-serif;
+    -webkit-font-smoothing:antialiased;font-size:14px;line-height:1.55;}
+  a{color:var(--brand);text-decoration:none} a:hover{color:var(--brand-h)}
+  .num{font-variant-numeric:tabular-nums}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--sh-sm)}
+  .btn{display:inline-flex;align-items:center;gap:7px;border-radius:8px;font-weight:600;font-size:13.5px;
+    padding:8px 16px;border:1px solid transparent;cursor:pointer}
+  .btn-p{background:var(--brand);color:#fff;box-shadow:0 1px 2px rgba(10,37,64,.24),inset 0 1px 0 rgba(255,255,255,.16)}
+  .btn-s{background:#fff;color:var(--ink);border-color:var(--line2);box-shadow:var(--sh-sm)}
+  .btn-g{background:transparent;color:var(--ink2)}
+  .chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;font-size:11.5px;font-weight:600;padding:3px 10px}
+  .seg{display:inline-flex;background:#eef2f7;border-radius:9px;padding:3px;gap:2px}
+  .seg button{border:none;background:transparent;border-radius:7px;padding:5px 13px;font-size:12.5px;
+    font-weight:600;color:var(--ink3);cursor:pointer;font-family:inherit;white-space:nowrap}
+  .seg .on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(16,36,64,.14)}
+  .th{font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--ink3);text-transform:uppercase}
+  .lbl{font-size:11px;font-weight:700;letter-spacing:.07em;color:var(--ink3);text-transform:uppercase}
+  .avatar{display:flex;align-items:center;justify-content:center;border-radius:999px;overflow:hidden;flex:none}
+</style>
+</helmet>
+<div style="width:390px;height:844px;background:var(--bg);display:flex;flex-direction:column;overflow:hidden">
+  <div style="flex:1;overflow:hidden;padding:18px 16px 0">
+    <div style="font-size:16px;font-weight:800">メニュー</div>
+    <div class="card" style="margin-top:11px;display:flex;align-items:center;gap:9px;padding:10px 12px">
+      <span class="avatar" style="width:24px;height:24px;background:var(--ink);color:#fff;font-size:9.5px;font-weight:800">株</span>
+      <span style="flex:1;font-size:12px;font-weight:700">株式会社フェイズラ</span>
+      <span class="chip" style="background:var(--bg);color:var(--ink3)">STARTER</span>
+    </div>
+    <div class="lbl" style="margin:16px 4px 7px">スマホで使える</div>
+    <div class="card" style="padding:4px 14px">
+      <div style="display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line);font-size:13px;font-weight:600">
+          <span style="color:var(--brand)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M3 10.5 12 3l9 7.5"></path><path d="M5 9.5V21h14V9.5"></path></svg></span>ホーム
+          <span style="margin-left:auto;color:var(--ink4)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></span></div><div style="display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line);font-size:13px;font-weight:600">
+          <span style="color:var(--brand)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M21 12a8 8 0 0 1-8 8H4l2-3a8 8 0 1 1 15-5z"></path></svg></span>チャット
+          <span class="chip" style="margin-left:auto;background:var(--brand-soft);color:var(--brand)">3</span></div><div style="display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line);font-size:13px;font-weight:600">
+          <span style="color:var(--brand)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M6 3h8l4 4v14H6z"></path><path d="M14 3v4h4"></path></svg></span>成果物（閲覧・共有）
+          <span style="margin-left:auto;color:var(--ink4)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></span></div><div style="display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line);font-size:13px;font-weight:600">
+          <span style="color:var(--brand)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 6 9 17l-5-5"></path></svg></span>承認する
+          <span class="chip" style="margin-left:auto;background:var(--brand-soft);color:var(--brand)">1</span></div>
+    </div>
+    <div class="lbl" style="margin:16px 4px 7px">パソコン向け</div>
+    <div class="card" style="padding:4px 14px;background:var(--bg)">
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--ink3)">
+          <span style="color:var(--ink4)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"></path></svg></span>エージェントの作成・編集</div><div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--ink3)">
+          <span style="color:var(--ink4)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"></path></svg></span>ガバナンス（AIログ・リスク）</div><div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--ink3)">
+          <span style="color:var(--ink4)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"></path></svg></span>業務ページ（営業・分析・SNS）</div><div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--ink3)">
+          <span style="color:var(--ink4)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"></path></svg></span>タスクの一括操作</div>
+    </div>
+    <p style="font-size:11px;color:var(--ink2);margin:12px 4px 0;line-height:1.7">エージェントの手順編集やAIログの監査は、表が横に長く、スマホでは正確に扱えません。<b>閲覧・承認・チャットはスマホ</b>、<b>設定と監査はパソコン</b>という分担にしています。</p>
+  </div>
+  <nav style="flex:none;background:var(--surface);border-top:1px solid var(--line);display:flex;padding:8px 6px 20px">
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;
+        color:var(--ink3);font-weight:600"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M3 10.5 12 3l9 7.5"></path><path d="M5 9.5V21h14V9.5"></path></svg>ホーム</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;
+        color:var(--ink3);font-weight:600"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M21 12a8 8 0 0 1-8 8H4l2-3a8 8 0 1 1 15-5z"></path></svg>チャット</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;
+        color:var(--ink3);font-weight:600"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M6 3h8l4 4v14H6z"></path><path d="M14 3v4h4"></path></svg>成果物</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;
+        color:var(--brand);font-weight:800"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M4 6h2M4 12h2M4 18h2M10 6h10M10 12h10M10 18h10"></path></svg>メニュー</div>
+  </nav>
+</div>
+</x-dc>
+</body>
+</html>

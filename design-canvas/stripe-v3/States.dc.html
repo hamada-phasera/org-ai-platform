@@ -1,0 +1,133 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><script src="./support.js"></script></head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;700;800&display=swap">
+  <style>
+  :root{
+    --ink:#0a2540; --ink2:#425466; --ink3:#687385; --ink4:#8898aa;
+    --bg:#f6f9fc; --surface:#ffffff; --line:#e6ebf1; --line2:#d5dbe1;
+    --brand:#635bff; --brand-h:#5851df; --brand-soft:#f4f4ff; --brand-line:#dedbff;
+    --ok:#1a9c6b; --ok-soft:#e6f6ef; --warn:#b25e09; --warn-soft:#fdf3e7;
+    --bad:#df1b41; --bad-soft:#fdeef1; --info:#0570de; --info-soft:#e9f2fd;
+    --sales:#4f46e5; --mkt:#9333ea; --acct:#0284c7; --anl:#0d9488; --gen:#475569;
+    --sh-sm:0 1px 2px rgba(16,36,64,.07),0 1px 5px rgba(16,36,64,.04);
+    --sh-md:0 6px 12px -2px rgba(50,50,93,.12),0 3px 7px -3px rgba(0,0,0,.12);
+    --sh-lg:0 15px 35px rgba(60,66,87,.11),0 5px 15px rgba(0,0,0,.07);
+    --grad:linear-gradient(90deg,#11efe3,#635bff 46%,#e932a5);
+  }
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:'Figtree','Hiragino Sans','Noto Sans JP',-apple-system,sans-serif;
+    -webkit-font-smoothing:antialiased;font-size:14px;line-height:1.55;}
+  a{color:var(--brand);text-decoration:none} a:hover{color:var(--brand-h)}
+  .num{font-variant-numeric:tabular-nums}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--sh-sm)}
+  .btn{display:inline-flex;align-items:center;gap:7px;border-radius:8px;font-weight:600;font-size:13.5px;
+    padding:8px 16px;border:1px solid transparent;cursor:pointer}
+  .btn-p{background:var(--brand);color:#fff;box-shadow:0 1px 2px rgba(10,37,64,.24),inset 0 1px 0 rgba(255,255,255,.16)}
+  .btn-s{background:#fff;color:var(--ink);border-color:var(--line2);box-shadow:var(--sh-sm)}
+  .btn-g{background:transparent;color:var(--ink2)}
+  .chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;font-size:11.5px;font-weight:600;padding:3px 10px}
+  .seg{display:inline-flex;background:#eef2f7;border-radius:9px;padding:3px;gap:2px}
+  .seg button{border:none;background:transparent;border-radius:7px;padding:5px 13px;font-size:12.5px;
+    font-weight:600;color:var(--ink3);cursor:pointer;font-family:inherit;white-space:nowrap}
+  .seg .on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(16,36,64,.14)}
+  .th{font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--ink3);text-transform:uppercase}
+  .lbl{font-size:11px;font-weight:700;letter-spacing:.07em;color:var(--ink3);text-transform:uppercase}
+  .avatar{display:flex;align-items:center;justify-content:center;border-radius:999px;overflow:hidden;flex:none}
+</style>
+</helmet>
+<div style="width:1440px;background:var(--bg);padding:40px 48px;box-sizing:border-box">
+  <h1 style="font-size:22px;font-weight:800;margin:0">状態の設計 — 空・読み込み・失敗・未接続</h1>
+  <p style="color:var(--ink2);font-size:13px;margin:6px 0 24px">成功時だけ整った画面は、法人利用では信用を落とす。<b>何が起きているか</b>と<b>次に何をすればいいか</b>を、必ず1文で書く。</p>
+  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px">
+    
+  <div class="card" style="padding:18px 20px">
+    <div class="lbl" style="margin-bottom:12px">ログイン</div><div style="max-width:290px;margin:0 auto">
+        <div class="card" style="padding:20px;border-radius:14px;box-shadow:var(--sh-md);overflow:hidden;position:relative">
+          <div style="position:absolute;top:0;left:0;right:0;height:3px;background:var(--grad)"></div>
+          <div style="font-size:15px;font-weight:800;margin-top:4px">おかえりなさい</div>
+          <div style="font-size:11.5px;color:var(--ink3)">組織のアカウントでログインしてください。</div>
+          <div class="lbl" style="margin:12px 0 4px">メールアドレス</div>
+          <div style="border:1px solid var(--line2);border-radius:8px;height:34px;background:#fff"></div>
+          <div class="lbl" style="margin:10px 0 4px">パスワード</div>
+          <div style="border:1px solid var(--line2);border-radius:8px;height:34px;background:#fff"></div>
+          <button class="btn btn-p" style="width:100%;justify-content:center;margin-top:14px">ログイン</button>
+        </div>
+        <p style="font-size:10.5px;color:var(--ink3);margin:8px 2px 0">デモ用の認証情報を入力欄にあらかじめ設定することはしません。</p>
+      </div>
+  </div>
+    
+  <div class="card" style="padding:18px 20px">
+    <div class="lbl" style="margin-bottom:12px">空（まだ何もない）</div><div style="text-align:center;padding:10px 6px">
+        <img src="char-general.png" alt="" style="width:56px;height:56px;border-radius:99px;object-fit:cover">
+        <div style="font-size:13.5px;font-weight:800;margin-top:10px">まだ成果物はありません</div>
+        <p style="font-size:12px;color:var(--ink2);margin:6px 0 12px">チャットで指示すると、提案書・集計表・投稿案などがここに貯まっていきます。</p>
+        <button class="btn btn-p" style="margin:0 auto">最初の指示を出す</button>
+        <p style="font-size:10.5px;color:var(--ink4);margin:12px 0 0">空状態でだけキャラを大きく使う。「何もない」を和らげてよい唯一の場所。</p>
+      </div>
+  </div>
+    
+  <div class="card" style="padding:18px 20px">
+    <div class="lbl" style="margin-bottom:12px">読み込み（骨組みを見せる）</div><div style="display:flex;flex-direction:column;gap:9px">
+        <div style="height:13px;border-radius:6px;background:var(--line);width:86%"></div><div style="height:13px;border-radius:6px;background:var(--line);width:100%"></div><div style="height:13px;border-radius:6px;background:var(--line);width:62%"></div><div style="height:13px;border-radius:6px;background:var(--line);width:74%"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:var(--ink3)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg> 商談データを読み込んでいます…</div>
+        <p style="font-size:10.5px;color:var(--ink4);margin:4px 0 0">領域に aria-busy、進行文に aria-live="polite"。</p>
+      </div>
+  </div>
+    
+  <div class="card" style="padding:18px 20px">
+    <div class="lbl" style="margin-bottom:12px">失敗（原因と次の一手）</div><div style="display:flex;gap:10px">
+        <span style="width:28px;height:28px;border-radius:8px;background:var(--bad-soft);color:var(--bad);display:flex;align-items:center;justify-content:center;flex:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3 2 20h20z"></path><path d="M12 10v4M12 17h.01"></path></svg></span>
+        <div>
+          <b style="font-size:13px">タスクを完了できませんでした</b>
+          <p style="font-size:12px;color:var(--ink2);margin:5px 0 8px">Google ドキュメントの作成でエラーが返りました。接続は生きているので、<b>もう一度実行すると成功する可能性があります</b>。生成された本文は下書きとして残しています。</p>
+          <code style="display:block;font-family:ui-monospace,monospace;font-size:10.5px;background:var(--bg);border-radius:7px;padding:7px 10px;color:var(--ink2)">task cmz7k2p900041 · step create_google_doc<br>NODE_FAILED · 503 upstream</code>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button class="btn btn-p" style="padding:6px 12px;font-size:12px">もう一度実行</button>
+            <button class="btn btn-s" style="padding:6px 12px;font-size:12px">下書きを見る</button>
+          </div>
+        </div>
+      </div>
+  </div>
+    
+  <div class="card" style="padding:18px 20px">
+    <div class="lbl" style="margin-bottom:12px">未接続（NEEDS_AUTH）</div><b style="font-size:13px">Slack がまだ接続されていません</b>
+      <p style="font-size:12px;color:var(--ink2);margin:6px 0 10px">この手順は Slack への投稿を含みます。管理者が一度だけ接続すると、以降このエージェントは自動で実行できます。</p>
+      <div style="display:flex;flex-direction:column;gap:6px;font-size:12px">
+        <div style="display:flex;justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:7px 12px"><span>Google ドキュメント</span><span class="chip" style="background:var(--ok-soft);color:var(--ok)">接続済み</span></div>
+        <div style="display:flex;justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:7px 12px"><span>Slack</span><span class="chip" style="background:var(--warn-soft);color:var(--warn)">未接続</span></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:11px">
+        <button class="btn btn-p" style="padding:6px 12px;font-size:12px">接続する</button>
+        <button class="btn btn-s" style="padding:6px 12px;font-size:12px">この手順を外して実行</button>
+      </div>
+  </div>
+    
+  <div class="card" style="padding:18px 20px">
+    <div class="lbl" style="margin-bottom:12px">根拠なし（将来の検証ゲート）</div><b style="font-size:13px">データに根拠がない数値</b>
+      <p style="font-size:12px;color:var(--ink2);margin:6px 0 10px">出力の一部が、参照したデータのどこにも見つかりませんでした。<b>その箇所だけ伏せて</b>お見せしています。</p>
+      <div style="border:1px dashed var(--line2);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--ink2)">導入により、月あたり <span class="chip" style="background:var(--warn-soft);color:var(--warn)">根拠なし</span> のコスト削減が見込まれます。</div>
+      <p style="font-size:10.5px;color:var(--ink4);margin:9px 0 0">単価表が未導入のため金額は算出できません。黙って通すことも、黙って捨てることもしない。実行カーネル（P2）までは描画のみ。</p>
+      <button class="btn btn-s" style="padding:6px 12px;font-size:12px;margin-top:9px">参照データを追加する</button>
+  </div>
+  </div>
+  <div style="margin-top:16px">
+    
+  <div class="card" style="padding:18px 20px">
+    <div class="lbl" style="margin-bottom:12px">通知（右下・4秒で消える）</div><div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div class="card" style="box-shadow:var(--sh-md);padding:10px 14px;display:flex;align-items:center;gap:9px;font-size:12.5px">
+          <span style="color:var(--ok)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 6 9 17l-5-5"></path></svg></span> ミナト様 ご提案.docx を作成しました <a style="font-weight:700">開く</a></div>
+        <div class="card" style="box-shadow:var(--sh-md);padding:10px 14px;display:flex;align-items:center;gap:9px;font-size:12.5px">
+          <span style="color:var(--bad)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3 2 20h20z"></path><path d="M12 10v4M12 17h.01"></path></svg></span> タスクが失敗しました <a style="font-weight:700">詳細</a></div>
+        <div class="card" style="box-shadow:var(--sh-md);padding:10px 14px;display:flex;align-items:center;gap:9px;font-size:12.5px">
+          <span style="color:var(--warn)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg></span> 今月の呼び出しが上限の80%に達しました</div>
+      </div>
+  </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

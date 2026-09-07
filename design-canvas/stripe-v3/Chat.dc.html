@@ -1,0 +1,237 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;700;800&display=swap">
+  <style>
+  :root{
+    --ink:#0a2540; --ink2:#425466; --ink3:#687385; --ink4:#8898aa;
+    --bg:#f6f9fc; --surface:#ffffff; --line:#e6ebf1; --line2:#d5dbe1;
+    --brand:#635bff; --brand-h:#5851df; --brand-soft:#f4f4ff; --brand-line:#dedbff;
+    --ok:#1a9c6b; --ok-soft:#e6f6ef; --warn:#b25e09; --warn-soft:#fdf3e7;
+    --bad:#df1b41; --bad-soft:#fdeef1; --info:#0570de; --info-soft:#e9f2fd;
+    --sales:#4f46e5; --mkt:#9333ea; --acct:#0284c7; --anl:#0d9488; --gen:#475569;
+    --sh-sm:0 1px 2px rgba(16,36,64,.07),0 1px 5px rgba(16,36,64,.04);
+    --sh-md:0 6px 12px -2px rgba(50,50,93,.12),0 3px 7px -3px rgba(0,0,0,.12);
+    --sh-lg:0 15px 35px rgba(60,66,87,.11),0 5px 15px rgba(0,0,0,.07);
+    --grad:linear-gradient(90deg,#11efe3,#635bff 46%,#e932a5);
+  }
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:'Figtree','Hiragino Sans','Noto Sans JP',-apple-system,sans-serif;
+    -webkit-font-smoothing:antialiased;font-size:14px;line-height:1.55;}
+  a{color:var(--brand);text-decoration:none} a:hover{color:var(--brand-h)}
+  .num{font-variant-numeric:tabular-nums}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--sh-sm)}
+  .btn{display:inline-flex;align-items:center;gap:7px;border-radius:8px;font-weight:600;font-size:13.5px;
+    padding:8px 16px;border:1px solid transparent;cursor:pointer}
+  .btn-p{background:var(--brand);color:#fff;box-shadow:0 1px 2px rgba(10,37,64,.24),inset 0 1px 0 rgba(255,255,255,.16)}
+  .btn-s{background:#fff;color:var(--ink);border-color:var(--line2);box-shadow:var(--sh-sm)}
+  .btn-g{background:transparent;color:var(--ink2)}
+  .chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;font-size:11.5px;font-weight:600;padding:3px 10px}
+  .seg{display:inline-flex;background:#eef2f7;border-radius:9px;padding:3px;gap:2px}
+  .seg button{border:none;background:transparent;border-radius:7px;padding:5px 13px;font-size:12.5px;
+    font-weight:600;color:var(--ink3);cursor:pointer;font-family:inherit;white-space:nowrap}
+  .seg .on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(16,36,64,.14)}
+  .th{font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--ink3);text-transform:uppercase}
+  .lbl{font-size:11px;font-weight:700;letter-spacing:.07em;color:var(--ink3);text-transform:uppercase}
+  .avatar{display:flex;align-items:center;justify-content:center;border-radius:999px;overflow:hidden;flex:none}
+</style>
+</helmet>
+<div style="width:1440px;height:900px;display:flex;background:var(--bg);overflow:hidden">
+  <aside style="width:248px;flex:none;background:var(--surface);border-right:1px solid var(--line);
+      display:flex;flex-direction:column;padding:14px 12px 12px">
+    <div style="display:flex;align-items:center;gap:9px;padding:2px 8px 14px">
+      <span style="width:26px;height:26px;border-radius:7px;background:var(--brand);display:flex;align-items:center;justify-content:center;box-shadow:var(--sh-sm)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><path d="M4 6h16M4 12h11M4 18h7"></path></svg>
+      </span>
+      <span style="font-size:15.5px;font-weight:800;letter-spacing:-.02em">FLOW</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:9px;padding:8px 10px;background:#fff;box-shadow:var(--sh-sm)">
+      <span class="avatar" style="width:22px;height:22px;background:var(--ink);color:#fff;font-size:10px;font-weight:800">株</span>
+      <span style="min-width:0;flex:1">
+        <span style="display:block;font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">株式会社フェイズラ</span>
+        <span style="display:block;font-size:10.5px;color:var(--ink3)">STARTER プラン</span>
+      </span>
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--ink4)" stroke-width="2.4" stroke-linecap="round"><path d="m7 9 5-5 5 5M7 15l5 5 5-5"></path></svg>
+    </div>
+    <nav style="display:flex;flex-direction:column;gap:2px;margin-top:14px">
+      <div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;
+      color:var(--ink2);font-weight:500">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M3 10.5 12 3l9 7.5"></path><path d="M5 9.5V21h14V9.5"></path></svg><span style="flex:1">ホーム</span>
+      
+    </div><div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;
+      color:var(--ink2);font-weight:500">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M4 20V10"></path><path d="M10 20V4"></path><path d="M16 20v-6"></path><path d="M22 20H2"></path></svg><span style="flex:1">ダッシュボード</span>
+      
+    </div><div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;
+      background:var(--brand-soft);color:var(--brand);font-weight:700">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M21 12a8 8 0 0 1-8 8H4l2-3a8 8 0 1 1 15-5z"></path></svg><span style="flex:1">チャット</span>
+      <span class="chip" style="background:#fff;color:var(--ink3);padding:1px 8px">3</span>
+    </div><div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;
+      color:var(--ink2);font-weight:500">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="5" y="8" width="14" height="11" rx="3"></rect><path d="M12 4v4M9 13h.01M15 13h.01"></path></svg><span style="flex:1">エージェント</span>
+      
+    </div><div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;
+      color:var(--ink2);font-weight:500">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M6 3h8l4 4v14H6z"></path><path d="M14 3v4h4"></path></svg><span style="flex:1">成果物</span>
+      <span class="chip" style="background:var(--bg);color:var(--ink3);padding:1px 8px">新着</span>
+    </div><div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;
+      color:var(--ink2);font-weight:500">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M4 6h2M4 12h2M4 18h2M10 6h10M10 12h10M10 18h10"></path></svg><span style="flex:1">タスク</span>
+      
+    </div>
+      <div class="lbl" style="margin:14px 10px 5px">業務ページ</div>
+      <div style="display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;border-radius:8px;color:var(--ink2)">
+          <span style="width:8px;height:8px;border-radius:3px;background:var(--sales);flex:none"></span><span>営業パイプライン</span></div><div style="display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;border-radius:8px;color:var(--ink2)">
+          <span style="width:8px;height:8px;border-radius:3px;background:var(--anl);flex:none"></span><span>データ分析</span></div><div style="display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;border-radius:8px;color:var(--ink2)">
+          <span style="width:8px;height:8px;border-radius:3px;background:var(--mkt);flex:none"></span><span>SNS投稿</span></div>
+      <div class="lbl" style="margin:14px 10px 5px">管理</div>
+      <div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;
+      color:var(--ink2);font-weight:500">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"></path></svg><span style="flex:1">ガバナンス</span>
+      <span class="chip" style="background:var(--bg);color:var(--ink3);padding:1px 8px">1</span>
+    </div><div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;
+      color:var(--ink2);font-weight:500">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"></path></svg><span style="flex:1">設定</span>
+      
+    </div>
+    </nav>
+    <div style="margin-top:auto">
+      <div style="border:1px solid var(--line);border-radius:10px;padding:11px 12px;background:#fff">
+        <div style="display:flex;justify-content:space-between;font-size:11.5px;font-weight:700">
+          <span style="color:var(--ink2)">今月の AI 呼び出し</span><span class="num">62 / 100</span>
+        </div>
+        <div style="height:5px;border-radius:99px;background:var(--bg);margin-top:7px;overflow:hidden">
+          <div style="width:62%;height:100%;border-radius:99px;background:var(--brand)"></div>
+        </div>
+        <div style="font-size:10.5px;color:var(--ink3);margin-top:6px">9月1日にリセット</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:9px;padding:10px 8px 0">
+        <span class="avatar" style="width:26px;height:26px;background:var(--bg);border:1px solid var(--line);font-size:11px;font-weight:800;color:var(--ink2)">濱</span>
+        <span style="flex:1;min-width:0">
+          <span style="display:block;font-size:12px;font-weight:700">濱田 大和</span>
+          <span style="display:block;font-size:10.5px;color:var(--ink3)">OWNER</span>
+        </span>
+      </div>
+    </div>
+  </aside>
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+    <header style="height:56px;flex:none;background:var(--surface);border-bottom:1px solid var(--line);
+      display:flex;align-items:center;gap:14px;padding:0 20px">
+    <div style="display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--line);
+        border-radius:8px;padding:6px 11px;width:280px;color:var(--ink4)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4-4"></path></svg><span style="font-size:12.5px">会話・成果物・エージェントを検索</span>
+      <span style="margin-left:auto;font-size:10.5px;font-weight:700;border:1px solid var(--line);border-radius:5px;padding:0 5px;background:#fff">⌘K</span>
+    </div>
+    <div class="seg" role="tablist" aria-label="部署で絞り込み"><button role="tab" class="">すべて</button><button role="tab" class="on">営業部</button><button role="tab" class="">マーケ部</button><button role="tab" class="">経理部</button><button role="tab" class="">データ分析</button><button role="tab" class="">総合</button></div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+      <span class="chip" style="background:var(--ok-soft);color:var(--ok)">
+        <span style="width:6px;height:6px;border-radius:99px;background:var(--ok)"></span>n8n 稼働中</span>
+      
+    </div>
+  </header>
+    <div style="flex:1;display:flex;min-height:0">
+    <div style="width:250px;flex:none;border-right:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;padding:12px">
+      <button class="btn btn-p" style="justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 5v14M5 12h14"></path></svg> 新しい会話</button>
+      <div style="display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;margin-top:10px;color:var(--ink4);font-size:12px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4-4"></path></svg> 会話を検索</div>
+      <div class="lbl" style="margin:14px 4px 6px">今日</div>
+      <div style="padding:8px 10px;border-radius:8px;background:var(--brand-soft)">
+          <div style="font-size:12.5px;font-weight:700;color:var(--brand)">ミナト向け提案書</div>
+          <div style="font-size:11px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">提案書のドラフトを作成しました…</div></div><div style="padding:8px 10px;border-radius:8px;">
+          <div style="font-size:12.5px;font-weight:700;">7月の受注集計</div>
+          <div style="font-size:11px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">営業部が全体の62%を占め…</div></div><div style="padding:8px 10px;border-radius:8px;">
+          <div style="font-size:12.5px;font-weight:700;">9月のSNS投稿案</div>
+          <div style="font-size:11px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">3本の下書きが揃いました</div></div>
+      <div class="lbl" style="margin:14px 4px 6px">先週</div>
+      <div style="padding:7px 10px;border-radius:8px;font-size:12.5px;font-weight:600;color:var(--ink2)">8月前半の経費仕訳</div><div style="padding:7px 10px;border-radius:8px;font-size:12.5px;font-weight:600;color:var(--ink2)">就業規則の改定メモ</div>
+    </div>
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg)">
+      <div style="display:flex;align-items:center;gap:12px;background:var(--surface);border-bottom:1px solid var(--line);padding:10px 20px">
+        <img src="char-sales.png" alt="" style="width:28px;height:28px;border-radius:99px;object-fit:cover">
+        <div><div style="font-size:13.5px;font-weight:800">ミナト向け提案書</div>
+        <div style="font-size:11px;color:var(--ink3)">セールスくん · 営業部 · Sonnet 4.6</div></div>
+        <span class="chip" style="margin-left:auto;background:var(--ok-soft);color:var(--ok)">実行中 1件</span>
+      </div>
+      <div style="flex:1;overflow:hidden;padding:20px 26px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;gap:11px">
+          <span class="avatar" style="width:28px;height:28px;background:var(--surface);border:1px solid var(--line);font-size:11px;font-weight:800;color:var(--ink2)">濱</span>
+          <div style="max-width:620px">
+            <div style="font-size:11.5px;font-weight:700;color:var(--ink3);margin-bottom:4px">濱田 大和</div>
+            <div class="card" style="padding:11px 14px;font-size:13px">株式会社ミナト向けの提案書をつくりたい。先方は物流で、繁忙期の配車調整に困っている。
+              <div style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:7px;padding:4px 9px;margin-top:8px;font-size:11.5px;color:var(--ink2)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M6 3h8l4 4v14H6z"></path><path d="M14 3v4h4"></path></svg> ミナト_ヒアリングメモ.pdf <span style="color:var(--ink4)">248 KB</span></div>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:11px">
+          <img src="char-sales.png" alt="" style="width:28px;height:28px;border-radius:99px;object-fit:cover">
+          <div style="max-width:680px;min-width:0">
+            <div style="font-size:11.5px;font-weight:700;color:var(--ink3);margin-bottom:4px">セールスくん</div>
+            <div class="card" style="padding:13px 16px;border-left:3px solid var(--brand)">
+              <div class="lbl" style="color:var(--brand);margin-bottom:6px">これから行うこと</div>
+              <div style="font-size:12.5px;color:var(--ink2)">アップロードされたヒアリングメモと、<b>ミナトの商談履歴3件</b>を参照して、物流業向けの提案書ドラフトを作成します。<b>金額は書きません</b>（単価表が未導入のため）。</div>
+              <div style="display:flex;gap:8px;margin-top:11px">
+                <button class="btn btn-p" style="padding:6px 13px;font-size:12.5px">この内容で実行</button>
+                <button class="btn btn-s" style="padding:6px 13px;font-size:12.5px">参照先を変える</button>
+              </div>
+            </div>
+            <div class="card" style="padding:13px 16px;margin-top:10px">
+              <div style="font-size:13px">提案書のドラフトができました。先方の課題は「繁忙期（11〜12月）に配車担当1名へ問い合わせが集中し、1日あたり<b>約2.5時間</b>が電話対応に消えている」点<a style="font-size:10.5px;font-weight:800"> f1</a> です。これに対し、問い合わせの一次受けをAIエージェントに寄せる構成を提案しています。過去の類似案件では、同規模の商談が <b>3件</b> 受注に至っています<a style="font-size:10.5px;font-weight:800"> f2</a>。</div>
+              <div style="border-top:1px dashed var(--line);margin-top:11px;padding-top:9px">
+                <div class="lbl" style="margin-bottom:5px">この回答の根拠</div>
+                <div style="display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:var(--ink2)">
+                  <span><b>f1</b> ミナト_ヒアリングメモ.pdf · 3ページ目 <a>開く</a></span>
+                  <span><b>f2</b> 商談テーブル · stage=WON · 物流業 3件 <a>開く</a></span>
+                </div>
+              </div>
+            </div>
+            <div class="card" style="padding:11px 16px;margin-top:10px;display:flex;align-items:center;gap:12px;background:var(--brand-soft);border-color:var(--brand-line)">
+              <span style="font-size:12px;color:var(--ink2)"><b>この流れをエージェントにしますか？</b> 「商談を参照して物流業向けの提案書を書く」を保存すると、次回から1クリックで実行できます。</span>
+              <button class="btn btn-p" style="padding:5px 12px;font-size:12px;flex:none">作成する</button>
+              <button class="btn btn-g" style="padding:5px 8px;font-size:12px;flex:none">あとで</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="padding:0 26px 16px">
+        <div style="display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--ink3);margin-bottom:8px">
+          成果物にする：
+          <button class="btn btn-s" style="padding:4px 10px;font-size:11.5px">ドキュメント</button><button class="btn btn-s" style="padding:4px 10px;font-size:11.5px">スプレッドシート</button><button class="btn btn-s" style="padding:4px 10px;font-size:11.5px">スライド</button>
+          <button class="btn btn-s" style="padding:4px 10px;font-size:11.5px;color:var(--ink4)">Slack · 要接続</button>
+        </div>
+        <div class="card" style="display:flex;align-items:center;gap:11px;padding:9px 10px 9px 16px;box-shadow:var(--sh-md)">
+          <span style="flex:1;color:var(--ink4);font-size:13.5px">セールスくんに指示する…</span>
+          <span style="font-size:11px;color:var(--ink4)">ファイル添付 / エージェント指定</span>
+          <button class="btn btn-p" style="padding:7px 14px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M22 2 11 13"></path><path d="M22 2 15 22l-4-9-9-4z"></path></svg> 送信</button>
+        </div>
+      </div>
+    </div>
+    <div style="width:250px;flex:none;border-left:1px solid var(--line);background:var(--surface);padding:14px;display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:center"><span style="font-size:12.5px;font-weight:800">実行の様子</span>
+        <span class="chip" style="margin-left:auto;background:var(--info-soft);color:var(--info)">1件 実行中</span></div>
+      <div class="card" style="padding:12px 14px;box-shadow:none">
+        <div style="display:flex;align-items:center;font-size:12.5px;font-weight:700">提案書ドラフト<span class="num" style="margin-left:auto;font-size:11px;color:var(--ink3)">00:42</span></div>
+        <div style="display:flex;flex-direction:column;gap:9px;margin-top:11px;font-size:11.5px">
+          <div style="display:flex;gap:8px">
+              <span style="width:16px;height:16px;border-radius:99px;flex:none;display:flex;align-items:center;justify-content:center;
+                background:var(--ok-soft);color:var(--ok)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 6 9 17l-5-5"></path></svg></span>
+              <span><b style="display:block;color:var(--ink)">添付ファイルを読み込み</b><span style="color:var(--ink3)">2ファイル · 18チャンク索引</span></span></div><div style="display:flex;gap:8px">
+              <span style="width:16px;height:16px;border-radius:99px;flex:none;display:flex;align-items:center;justify-content:center;
+                background:var(--ok-soft);color:var(--ok)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 6 9 17l-5-5"></path></svg></span>
+              <span><b style="display:block;color:var(--ink)">商談履歴を照合</b><span style="color:var(--ink3)">Deal 3件 · stage=WON</span></span></div><div style="display:flex;gap:8px">
+              <span style="width:16px;height:16px;border-radius:99px;flex:none;display:flex;align-items:center;justify-content:center;
+                background:var(--info-soft);color:var(--info)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg></span>
+              <span><b style="display:block;color:var(--ink)">本文を生成中…</b><span style="color:var(--ink3)">n8n webhook · agent-cm7</span></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

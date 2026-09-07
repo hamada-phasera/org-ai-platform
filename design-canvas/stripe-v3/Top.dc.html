@@ -1,0 +1,198 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;700;800&display=swap">
+  <style>
+  :root{
+    --ink:#0a2540; --ink2:#425466; --ink3:#687385; --ink4:#8898aa;
+    --bg:#f6f9fc; --surface:#ffffff; --line:#e6ebf1; --line2:#d5dbe1;
+    --brand:#635bff; --brand-h:#5851df; --brand-soft:#f4f4ff; --brand-line:#dedbff;
+    --ok:#1a9c6b; --ok-soft:#e6f6ef; --warn:#b25e09; --warn-soft:#fdf3e7;
+    --bad:#df1b41; --bad-soft:#fdeef1; --info:#0570de; --info-soft:#e9f2fd;
+    --sales:#4f46e5; --mkt:#9333ea; --acct:#0284c7; --anl:#0d9488; --gen:#475569;
+    --sh-sm:0 1px 2px rgba(16,36,64,.07),0 1px 5px rgba(16,36,64,.04);
+    --sh-md:0 6px 12px -2px rgba(50,50,93,.12),0 3px 7px -3px rgba(0,0,0,.12);
+    --sh-lg:0 15px 35px rgba(60,66,87,.11),0 5px 15px rgba(0,0,0,.07);
+    --grad:linear-gradient(90deg,#11efe3,#635bff 46%,#e932a5);
+  }
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:'Figtree','Hiragino Sans','Noto Sans JP',-apple-system,sans-serif;
+    -webkit-font-smoothing:antialiased;font-size:14px;line-height:1.55;}
+  a{color:var(--brand);text-decoration:none} a:hover{color:var(--brand-h)}
+  .num{font-variant-numeric:tabular-nums}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--sh-sm)}
+  .btn{display:inline-flex;align-items:center;gap:7px;border-radius:8px;font-weight:600;font-size:13.5px;
+    padding:8px 16px;border:1px solid transparent;cursor:pointer}
+  .btn-p{background:var(--brand);color:#fff;box-shadow:0 1px 2px rgba(10,37,64,.24),inset 0 1px 0 rgba(255,255,255,.16)}
+  .btn-s{background:#fff;color:var(--ink);border-color:var(--line2);box-shadow:var(--sh-sm)}
+  .btn-g{background:transparent;color:var(--ink2)}
+  .chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;font-size:11.5px;font-weight:600;padding:3px 10px}
+  .seg{display:inline-flex;background:#eef2f7;border-radius:9px;padding:3px;gap:2px}
+  .seg button{border:none;background:transparent;border-radius:7px;padding:5px 13px;font-size:12.5px;
+    font-weight:600;color:var(--ink3);cursor:pointer;font-family:inherit;white-space:nowrap}
+  .seg .on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(16,36,64,.14)}
+  .th{font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--ink3);text-transform:uppercase}
+  .lbl{font-size:11px;font-weight:700;letter-spacing:.07em;color:var(--ink3);text-transform:uppercase}
+  .avatar{display:flex;align-items:center;justify-content:center;border-radius:999px;overflow:hidden;flex:none}
+</style>
+</helmet>
+<div style="width:1440px;height:900px;display:flex;background:var(--bg);overflow:hidden">
+  <aside style="width:248px;flex:none;background:var(--surface);border-right:1px solid var(--line);
+      display:flex;flex-direction:column;padding:14px 12px 12px">
+    <div style="display:flex;align-items:center;gap:9px;padding:2px 8px 14px">
+      <span style="width:26px;height:26px;border-radius:7px;background:var(--brand);display:flex;align-items:center;justify-content:center;box-shadow:var(--sh-sm)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><path d="M4 6h16M4 12h11M4 18h7"></path></svg>
+      </span>
+      <span style="font-size:15.5px;font-weight:800;letter-spacing:-.02em">FLOW</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:9px;padding:8px 10px;background:#fff;box-shadow:var(--sh-sm)">
+      <span class="avatar" style="width:22px;height:22px;background:var(--ink);color:#fff;font-size:10px;font-weight:800">株</span>
+      <span style="min-width:0;flex:1">
+        <span style="display:block;font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">株式会社フェイズラ</span>
+        <span style="display:block;font-size:10.5px;color:var(--ink3)">STARTER プラン</span>
+      </span>
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--ink4)" stroke-width="2.4" stroke-linecap="round"><path d="m7 9 5-5 5 5M7 15l5 5 5-5"></path></svg>
+    </div>
+    <nav style="display:flex;flex-direction:column;gap:2px;margin-top:14px">
+      <div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;
+      background:var(--brand-soft);color:var(--brand);font-weight:700">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M3 10.5 12 3l9 7.5"></path><path d="M5 9.5V21h14V9.5"></path></svg><span style="flex:1">ホーム</span>
+      
+    </div><div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;
+      color:var(--ink2);font-weight:500">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M4 20V10"></path><path d="M10 20V4"></path><path d="M16 20v-6"></path><path d="M22 20H2"></path></svg><span style="flex:1">ダッシュボード</span>
+      
+    </div><div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;
+      color:var(--ink2);font-weight:500">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M21 12a8 8 0 0 1-8 8H4l2-3a8 8 0 1 1 15-5z"></path></svg><span style="flex:1">チャット</span>
+      <span class="chip" style="background:var(--bg);color:var(--ink3);padding:1px 8px">3</span>
+    </div><div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;
+      color:var(--ink2);font-weight:500">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="5" y="8" width="14" height="11" rx="3"></rect><path d="M12 4v4M9 13h.01M15 13h.01"></path></svg><span style="flex:1">エージェント</span>
+      
+    </div><div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;
+      color:var(--ink2);font-weight:500">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M6 3h8l4 4v14H6z"></path><path d="M14 3v4h4"></path></svg><span style="flex:1">成果物</span>
+      <span class="chip" style="background:var(--bg);color:var(--ink3);padding:1px 8px">新着</span>
+    </div><div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;
+      color:var(--ink2);font-weight:500">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M4 6h2M4 12h2M4 18h2M10 6h10M10 12h10M10 18h10"></path></svg><span style="flex:1">タスク</span>
+      
+    </div>
+      <div class="lbl" style="margin:14px 10px 5px">業務ページ</div>
+      <div style="display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;border-radius:8px;color:var(--ink2)">
+          <span style="width:8px;height:8px;border-radius:3px;background:var(--sales);flex:none"></span><span>営業パイプライン</span></div><div style="display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;border-radius:8px;color:var(--ink2)">
+          <span style="width:8px;height:8px;border-radius:3px;background:var(--anl);flex:none"></span><span>データ分析</span></div><div style="display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;border-radius:8px;color:var(--ink2)">
+          <span style="width:8px;height:8px;border-radius:3px;background:var(--mkt);flex:none"></span><span>SNS投稿</span></div>
+      <div class="lbl" style="margin:14px 10px 5px">管理</div>
+      <div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;
+      color:var(--ink2);font-weight:500">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"></path></svg><span style="flex:1">ガバナンス</span>
+      <span class="chip" style="background:var(--bg);color:var(--ink3);padding:1px 8px">1</span>
+    </div><div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;
+      color:var(--ink2);font-weight:500">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"></path></svg><span style="flex:1">設定</span>
+      
+    </div>
+    </nav>
+    <div style="margin-top:auto">
+      <div style="border:1px solid var(--line);border-radius:10px;padding:11px 12px;background:#fff">
+        <div style="display:flex;justify-content:space-between;font-size:11.5px;font-weight:700">
+          <span style="color:var(--ink2)">今月の AI 呼び出し</span><span class="num">62 / 100</span>
+        </div>
+        <div style="height:5px;border-radius:99px;background:var(--bg);margin-top:7px;overflow:hidden">
+          <div style="width:62%;height:100%;border-radius:99px;background:var(--brand)"></div>
+        </div>
+        <div style="font-size:10.5px;color:var(--ink3);margin-top:6px">9月1日にリセット</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:9px;padding:10px 8px 0">
+        <span class="avatar" style="width:26px;height:26px;background:var(--bg);border:1px solid var(--line);font-size:11px;font-weight:800;color:var(--ink2)">濱</span>
+        <span style="flex:1;min-width:0">
+          <span style="display:block;font-size:12px;font-weight:700">濱田 大和</span>
+          <span style="display:block;font-size:10.5px;color:var(--ink3)">OWNER</span>
+        </span>
+      </div>
+    </div>
+  </aside>
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+    <header style="height:56px;flex:none;background:var(--surface);border-bottom:1px solid var(--line);
+      display:flex;align-items:center;gap:14px;padding:0 20px">
+    <div style="display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--line);
+        border-radius:8px;padding:6px 11px;width:280px;color:var(--ink4)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4-4"></path></svg><span style="font-size:12.5px">会話・成果物・エージェントを検索</span>
+      <span style="margin-left:auto;font-size:10.5px;font-weight:700;border:1px solid var(--line);border-radius:5px;padding:0 5px;background:#fff">⌘K</span>
+    </div>
+    <div class="seg" role="tablist" aria-label="部署で絞り込み"><button role="tab" class="on">すべて</button><button role="tab" class="">営業部</button><button role="tab" class="">マーケ部</button><button role="tab" class="">経理部</button><button role="tab" class="">データ分析</button><button role="tab" class="">総合</button></div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+      <span class="chip" style="background:var(--ok-soft);color:var(--ok)">
+        <span style="width:6px;height:6px;border-radius:99px;background:var(--ok)"></span>n8n 稼働中</span>
+      
+    </div>
+  </header>
+    <main style="flex:1;overflow:hidden;display:flex;flex-direction:column;align-items:center;padding:64px 40px 0">
+    <div style="width:760px">
+      <div style="height:3px;border-radius:99px;background:var(--grad);width:64px;margin-bottom:26px"></div>
+      <h1 style="margin:0;font-size:30px;font-weight:800;letter-spacing:-.02em">おはようございます、濱田さん。</h1>
+      <p style="margin:8px 0 0;color:var(--ink2);font-size:14.5px">今日やることを一行で伝えてください。担当の部署AIに振り分けます。</p>
+      <div class="card" style="margin-top:24px;display:flex;align-items:center;gap:12px;padding:10px 10px 10px 18px;box-shadow:var(--sh-md)">
+        <span style="color:var(--ink4)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"></path></svg></span>
+        <span style="flex:1;color:var(--ink4);font-size:14.5px">今日は何をしますか？</span>
+        <button class="btn btn-p">送信 <span style="font-size:11px;opacity:.75">⏎</span></button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:26px">
+        
+  <div class="card" style="padding:20px 22px;display:flex;flex-direction:column;gap:10px;box-shadow:var(--sh-md);cursor:pointer">
+    <div style="display:flex;align-items:center;gap:12px">
+      <span style="width:38px;height:38px;border-radius:10px;background:var(--brand-soft);color:var(--brand);display:flex;align-items:center;justify-content:center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M6 3h8l4 4v14H6z"></path><path d="M14 3v4h4"></path></svg></span>
+      <span style="font-size:16.5px;font-weight:800;letter-spacing:-.01em">提案書をつくる</span>
+      <span style="margin-left:auto;color:var(--ink4)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></span>
+    </div>
+    <div style="font-size:13px;color:var(--ink2)">商談の履歴と手元の資料から、営業部AIが下書きを起こします。</div>
+    <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink3)"><img src="char-sales.png" alt="" style="width:20px;height:20px;border-radius:99px;object-fit:cover">セールスくん が担当</div>
+  </div>
+        
+  <div class="card" style="padding:20px 22px;display:flex;flex-direction:column;gap:10px;box-shadow:var(--sh-md);cursor:pointer">
+    <div style="display:flex;align-items:center;gap:12px">
+      <span style="width:38px;height:38px;border-radius:10px;background:var(--info-soft);color:var(--info);display:flex;align-items:center;justify-content:center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M4 20V10"></path><path d="M10 20V4"></path><path d="M16 20v-6"></path><path d="M22 20H2"></path></svg></span>
+      <span style="font-size:16.5px;font-weight:800;letter-spacing:-.01em">数字を見る</span>
+      <span style="margin-left:auto;color:var(--ink4)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></span>
+    </div>
+    <div style="font-size:13px;color:var(--ink2)">削減できた時間と、部署ごとの内訳。押すとこの場で開きます。</div>
+    <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink3)"><img src="char-analytics.png" alt="" style="width:20px;height:20px;border-radius:99px;object-fit:cover">アナリーゼ が担当</div>
+  </div>
+        
+  <div class="card" style="padding:20px 22px;display:flex;flex-direction:column;gap:10px;box-shadow:var(--sh-md);cursor:pointer">
+    <div style="display:flex;align-items:center;gap:12px">
+      <span style="width:38px;height:38px;border-radius:10px;background:var(--warn-soft);color:var(--warn);display:flex;align-items:center;justify-content:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 6 9 17l-5-5"></path></svg></span>
+      <span style="font-size:16.5px;font-weight:800;letter-spacing:-.01em">承認する <span class="chip" style="background:var(--warn-soft);color:var(--warn);margin-left:2px">1件</span></span>
+      <span style="margin-left:auto;color:var(--ink4)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></span>
+    </div>
+    <div style="font-size:13px;color:var(--ink2)">あなたの確認を待っているもの。承認するまで外部には出ません。</div>
+    <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink3)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg> Instagram 投稿 3本の下書き</div>
+  </div>
+        
+  <div class="card" style="padding:20px 22px;display:flex;flex-direction:column;gap:10px;box-shadow:var(--sh-md);cursor:pointer">
+    <div style="display:flex;align-items:center;gap:12px">
+      <span style="width:38px;height:38px;border-radius:10px;background:var(--ok-soft);color:var(--ok);display:flex;align-items:center;justify-content:center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="5" y="8" width="14" height="11" rx="3"></rect><path d="M12 4v4M9 13h.01M15 13h.01"></path></svg></span>
+      <span style="font-size:16.5px;font-weight:800;letter-spacing:-.01em">エージェントを動かす</span>
+      <span style="margin-left:auto;color:var(--ink4)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></span>
+    </div>
+    <div style="font-size:13px;color:var(--ink2)">保存済みの手順を、ひと押しで実行します。</div>
+    <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink3)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M4 6h2M4 12h2M4 18h2M10 6h10M10 12h10M10 18h10"></path></svg> 5件を保存済み</div>
+  </div>
+      </div>
+      <p style="text-align:center;color:var(--ink3);font-size:12px;margin-top:26px">
+        もっと細かく見るときは、左のメニューから。ここには「いま決めること」だけを置いています。</p>
+    </div>
+  </main>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
