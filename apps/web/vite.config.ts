@@ -6,7 +6,13 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      '/api': { target: 'http://localhost:4000', changeOrigin: true },
+      // 既定はローカルの api-gateway。バックエンドを起動せずに本番APIで試すときは
+      //   VITE_PROXY_TARGET=https://org-ai-api-gateway.onrender.com npx vite
+      // （プロキシ経由なので CORS 設定に依存しない）
+      '/api': {
+        target: process.env.VITE_PROXY_TARGET || 'http://localhost:4000',
+        changeOrigin: true,
+      },
     },
   },
   build: {
