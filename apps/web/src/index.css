@@ -3,100 +3,76 @@
 @tailwind utilities;
 
 /* ================================================================
- * FLOW Design System v2 — 白基調の法人向け SaaS
+ * FLOW Design System v3 — Stripe風モダンSaaS（白基調＋#635BFF）
  *
- * 面はフラットな白。ガラス（半透明＋ぼかし）を使ってよいのは
- * 「上に浮いているもの」＝タブ・ボトムナビ・TOPの入口だけ。
- * カード・表・サイドバー・モーダル本体には使わない
- * （密度の高い数字が背景に溶けて読めなくなるため）。
+ * 面は不透明な白＋ソフトシャドウ3段。半透明ガラス・backdrop-filter は
+ * 使わない（v2 リキッドガラスは全面撤去）。ダークモードは廃止。
+ * 正本のモック: design-canvas/stripe-v3/（main ブランチ）
  *
- * 変数名は v1 から変えていない。全コンポーネントが参照しているため、
- * 名前は保ったまま値だけ入れ替え、足りないものを追加する方針。
+ * 変数名は v1/v2 から変えていない。全コンポーネントが参照しているため、
+ * 名前は保ったまま値だけ入れ替える方針。
  * ================================================================ */
 
 :root {
   /* ── 面 ── */
-  --bg: #fbfbfc;
+  --bg: #f6f9fc;
   --surface: #ffffff;
-  --surface-2: #f5f6f8;
-  --hairline: #f0f1f4;
-  --border: #e7e9ed;
-  --border-strong: #d8dce3;
+  --surface-2: #eef2f7;
+  --hairline: #eef2f6;
+  --border: #e6ebf1;
+  --border-strong: #d5dbe1;
 
   /* ── 文字 ──
    * --text-muted が下限。これより薄い色を文字に使わないこと。
-   * 比率はキャンバス地 #FBFBFC 上の実測（白地より厳しい方）:
-   *   --text-secondary 6.04:1 / --text-muted 4.69:1
-   * v1 の #6E7784 は白地では 4.53:1 だがキャンバス地では 4.38:1 で AA を割っていた。 */
-  --text-primary: #101521;
-  --text-secondary: #59616f;
-  --text-muted: #6a7280;
+   * 比率はキャンバス地 #F6F9FC 上の実測:
+   *   --text-secondary 7.6:1 / --text-muted 4.9:1 */
+  --text-primary: #0a2540;
+  --text-secondary: #425466;
+  --text-muted: #687385;
   --text-inverse: #ffffff;
   /* 文字には使わない。罫線と装飾アイコン専用。 */
-  --ink-decorative: #a9b0bb;
+  --ink-decorative: #a3acb9;
 
-  /* ── 主アクション ──
-   * ガラスの上では色を塗らない（参考画像準拠: 塗るとのっぺりする）。
-   * フラットな文脈（サイドバー選択・メーター）だけこのインクを使う。
-   * 青はリンクとフォーカスの --accent に限定し、面積を取らない。 */
-  --action: #101521;
-  --action-hover: #232a3a;
+  /* ── 主アクション ── v3 ではブランドのブルーバイオレットを塗る。
+   * ただし塗り面積は小さく保つ（主役は白とインク、青は導く色）。 */
+  --action: #635bff;
+  --action-hover: #5851df;
 
-  /* ── アクセント（フォーカス・リンク・選択中） ── */
-  --accent: #1e50ff;
-  --accent-hover: #1740d6;
-  --accent-soft: #eaf0ff;
-  --accent-soft-border: #d2e0ff;
-  --accent-on-dark: #bbd1ff;
-  --accent-glow: rgba(30, 80, 255, 0.22);
-  --focus-ring: #1e50ff;
+  /* ── アクセント（フォーカス・リンク・選択中）。主アクションと同色 ── */
+  --accent: #635bff;
+  --accent-hover: #5851df;
+  --accent-soft: #f4f4ff;
+  --accent-soft-border: #dedbff;
+  --accent-on-dark: #c6c2ff;
+  --accent-glow: rgba(99, 91, 255, 0.24);
+  --focus-ring: #635bff;
 
-  /* ── 影。角丸は 7 / 9 / 12 の3段のみ（tailwind.config.js の borderRadius） ── */
-  --shadow-1: 0 1px 2px rgba(16, 21, 33, 0.05);
-  --shadow-2: 0 1px 3px rgba(16, 21, 33, 0.06), 0 1px 2px rgba(16, 21, 33, 0.04);
-  --shadow-3: 0 4px 12px rgba(16, 21, 33, 0.08), 0 2px 4px rgba(16, 21, 33, 0.04);
-  --shadow-4: 0 12px 32px rgba(16, 21, 33, 0.12), 0 4px 8px rgba(16, 21, 33, 0.06);
+  /* ── 影3段（Stripe風ソフトシャドウ）。角丸は 8 / 12 / 16（tailwind.config.js） ── */
+  --shadow-1: 0 1px 2px rgba(16, 36, 64, 0.07), 0 1px 5px rgba(16, 36, 64, 0.04);
+  --shadow-2: 0 6px 12px -2px rgba(50, 50, 93, 0.12), 0 3px 7px -3px rgba(0, 0, 0, 0.12);
+  --shadow-3: 0 15px 35px rgba(60, 66, 87, 0.11), 0 5px 15px rgba(0, 0, 0, 0.07);
+  --shadow-4: 0 24px 48px rgba(50, 50, 93, 0.16), 0 8px 16px rgba(0, 0, 0, 0.08);
 
-  /* ── タブのガラス。ここでしか使わない ── */
-  /* リキッドガラス。原則: ガラスに色を塗らない。背景を加工して見せる。
-   * 面はほぼ透明（白 5〜14%）で、色は backdrop-filter が背景から拾う。
-   * だから背景が青ければ青いガラス、暖色なら琥珀のガラスになる。 */
-  --glass-fill: linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.05) 46%, rgba(255,255,255,0.10) 100%);
-  --glass-blur: blur(9px) saturate(170%);
-  /* 選択中＝すりガラスの影。塗らずに背景を暗くする */
-  --smoke-fill: rgba(18, 26, 48, 0.14);
-  --smoke-filter: blur(13px) saturate(120%) brightness(0.44) contrast(1.05);
-  /* リム＝薄膜干渉（シャボン玉・油膜）。角度で色相が回る conic。彩度は低く、縁だけに出す */
-  --glass-rim: conic-gradient(from 205deg at 50% 50%,
-    rgba(255,255,255,1) 0deg, rgba(255,214,236,0.92) 44deg, rgba(255,238,198,0.88) 92deg,
-    rgba(208,255,228,0.86) 148deg, rgba(196,231,255,0.96) 208deg, rgba(219,206,255,0.92) 268deg,
-    rgba(255,255,255,1) 330deg);
-  --glass-spec: linear-gradient(180deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.10) 44%, rgba(255,255,255,0) 62%);
-  --glass-shadow:
-    0 10px 24px rgba(16, 21, 33, 0.16),
-    0 2px 5px rgba(16, 21, 33, 0.08),
-    /* コースティクス: 白い光だまり＋色収差の滲みが背景に写る */
-    0 20px 30px -14px rgba(255, 255, 255, 0.95),
-    10px 26px 38px -20px rgba(255, 205, 225, 0.5),
-    -10px 26px 38px -20px rgba(185, 255, 225, 0.45),
-    0 30px 46px -22px rgba(140, 185, 255, 0.55),
-    inset 0 1px 1px rgba(255, 255, 255, 0.9),
-    inset 0 -8px 14px rgba(16, 21, 33, 0.05);
+  /* ── ブランドのグラデーション。3px のストリップ専用（面には塗らない） ── */
+  --grad: linear-gradient(90deg, #11efe3, #635bff 46%, #e932a5);
+
+  /* ── セグメントコントロールのトラック（タブ・部署トグル） ── */
+  --seg-track: #eef2f7;
 
   /* モーダル等のスクリム */
-  --overlay: rgba(16, 21, 33, 0.42);
+  --overlay: rgba(10, 37, 64, 0.42);
 
   /* ── ステータス（意味の色）。tailwind の success/warning/danger/info はここを指す ──
    * *-rgb は Tailwind のアルファ修飾（bg-danger/10 等）用の三つ組。hex と必ず同じ色に保つ。 */
-  --success: #16a34a;
-  --warning: #d97706;
-  --danger: #dc2626;
-  --info: #0284c7;
-  --success-rgb: 22 163 74;
-  --warning-rgb: 217 119 6;
-  --danger-rgb: 220 38 38;
-  --info-rgb: 2 132 199;
-  --accent-rgb: 30 80 255;
+  --success: #1a9c6b;
+  --warning: #b25e09;
+  --danger: #df1b41;
+  --info: #0570de;
+  --success-rgb: 26 156 107;
+  --warning-rgb: 178 94 9;
+  --danger-rgb: 223 27 65;
+  --info-rgb: 5 112 222;
+  --accent-rgb: 99 91 255;
 
   /* ── 部署（データの色） ── */
   --dept-sales: #4f46e5;
@@ -107,73 +83,6 @@
   --dept-assistant: #4f46e5;
 }
 
-.dark {
-  --bg: #0b0f17;
-  --surface: #131a26;
-  --surface-2: #1b2333;
-  --hairline: #1f2836;
-  --border: #232c3d;
-  --border-strong: #313c52;
-
-  --text-primary: #e9edf3;
-  --text-secondary: #a3adbd;
-  --text-muted: #8b95a5;
-  --text-inverse: #101521;
-  --ink-decorative: #5c6678;
-
-  /* ダークでは近黒が沈むので白抜きに反転 */
-  --action: #e9edf3;
-  --action-hover: #ffffff;
-
-  --accent: #6a92ff;
-  --accent-hover: #8fadff;
-  --accent-soft: rgba(30, 80, 255, 0.20);
-  --accent-soft-border: rgba(120, 158, 255, 0.34);
-  --accent-on-dark: #bbd1ff;
-  --accent-glow: rgba(30, 80, 255, 0.34);
-  --focus-ring: #6a92ff;
-
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-2: 0 1px 3px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-3: 0 4px 14px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.35);
-  --shadow-4: 0 16px 40px rgba(0, 0, 0, 0.6), 0 4px 10px rgba(0, 0, 0, 0.4);
-
-  --glass-fill: linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.03) 46%, rgba(255,255,255,0.06) 100%);
-  --glass-blur: blur(12px) saturate(150%);
-  /* ダークでは「暗くする」と沈むので、選択中は逆に明るいすりガラス */
-  --smoke-fill: rgba(255, 255, 255, 0.10);
-  --smoke-filter: blur(14px) saturate(140%) brightness(1.45);
-  --glass-rim: conic-gradient(from 205deg at 50% 50%,
-    rgba(255,255,255,0.42) 0deg, rgba(255,190,225,0.28) 44deg, rgba(255,228,170,0.24) 92deg,
-    rgba(170,255,215,0.22) 148deg, rgba(160,205,255,0.36) 208deg, rgba(196,180,255,0.30) 268deg,
-    rgba(255,255,255,0.40) 330deg);
-  --glass-spec: linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.03) 44%, rgba(255,255,255,0) 62%);
-  --glass-shadow: 0 14px 30px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35),
-    0 20px 30px -14px rgba(150, 180, 255, 0.14),
-    inset 0 1px 1px rgba(255, 255, 255, 0.24),
-    inset 0 -9px 18px rgba(0, 0, 0, 0.28);
-
-  --overlay: rgba(0, 0, 0, 0.62);
-
-  /* 暗い地では一段明るく */
-  --success: #4ade80;
-  --warning: #fbbf24;
-  --danger: #f87171;
-  --info: #38bdf8;
-  --success-rgb: 74 222 128;
-  --warning-rgb: 251 191 36;
-  --danger-rgb: 248 113 113;
-  --info-rgb: 56 189 248;
-  --accent-rgb: 106 146 255;
-
-  --dept-sales: #818cf8;
-  --dept-marketing: #c084fc;
-  --dept-accounting: #38bdf8;
-  --dept-analytics: #2dd4bf;
-  --dept-general: #94a3b8;
-  --dept-assistant: #818cf8;
-}
-
 html,
 body {
   background: var(--bg);
@@ -181,7 +90,7 @@ body {
 }
 
 body {
-  font-family: 'Manrope', 'Noto Sans JP', system-ui, sans-serif;
+  font-family: 'Figtree', 'Hiragino Sans', 'Noto Sans JP', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
@@ -199,7 +108,7 @@ body {
 }
 
 .font-display {
-  font-family: 'Manrope', 'Noto Sans JP', system-ui, sans-serif;
+  font-family: 'Figtree', 'Hiragino Sans', 'Noto Sans JP', system-ui, sans-serif;
   letter-spacing: -0.02em;
 }
 
@@ -263,219 +172,11 @@ body {
     content: none;
   }
 
-  /* ══ リキッドガラス ══
-   * 面（半透明＋backdrop-filter）／リム（グラデーションの枠）／艶（上面スペキュラ）の3層。
-   * 単色の border だと縁が均一に光って樹脂に見えるので、リムは mask-composite の枠で作る。
-   *
-   * .liquid-*-shell は v1 で中身を空にされたスタブだが JSX からは参照され続けている。
-   * ここに実装を戻すだけで、ボトムナビが component 改修ゼロでガラスになる。
-   *
-   * 使ってよいのは「浮いているもの」だけ — ボタン・入力・タブ・ボトムナビ・トースト。
-   * ログ表やダッシュボードの数字には使わない（背景の帯が数字に重なって読めなくなる）。 */
-  .tab-glass,
-  .liquid-glass,
-  .liquid-pill-shell,
-  .liquid-bar-shell,
-  .liquid-unified-nav-shell,
-  .liquid-icon-shell,
-  .footer-search-iridescent {
-    position: relative;
-    isolation: isolate;
-    border: none;
-    background: var(--glass-fill);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    box-shadow: var(--glass-shadow);
-    border-radius: 14px;
-  }
-  .liquid-icon-shell {
+  /* ── ブランドの3pxストリップ（ヒーロー・モーダル上端の唯一のグラデ許可地） ── */
+  .brand-strip {
+    height: 3px;
     border-radius: 9999px;
-  }
-
-  /* 艶（上面スペキュラ）。光源が上にある想定。 */
-  .tab-glass::before,
-  .liquid-glass::before,
-  .liquid-pill-shell::before,
-  .liquid-bar-shell::before,
-  .liquid-unified-nav-shell::before,
-  .liquid-icon-shell::before,
-  .footer-search-iridescent::before {
-    content: '';
-    position: absolute;
-    inset: 1px;
-    border-radius: inherit;
-    /* 上面の艶 ＋ 分散した光の筋（コースティクス） */
-    background:
-      linear-gradient(115deg, transparent 12%, rgba(255,255,255,0.5) 26%, rgba(255,224,240,0.24) 34%,
-        transparent 44%, transparent 58%, rgba(212,236,255,0.34) 72%, transparent 86%),
-      var(--glass-spec);
-    filter: blur(3px);
-    pointer-events: none;
-    z-index: -1;
-  }
-
-  /* リム（レンズの縁）。border ではなく枠だけを塗る。 */
-  .tab-glass::after,
-  .liquid-glass::after,
-  .liquid-pill-shell::after,
-  .liquid-bar-shell::after,
-  .liquid-unified-nav-shell::after,
-  .liquid-icon-shell::after,
-  .footer-search-iridescent::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    padding: 2px;
-    background: var(--glass-rim);
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    mask-composite: exclude;
-    pointer-events: none;
-  }
-
-  /* 主アクション＝濃いスモーク＋内部のコースティクス帯（参考画像の Primary Action）。
-   * 色は塗らない。副ボタン（素通し）との差は「密度」と「光の帯」で付ける。 */
-  .liquid-primary {
-    background: var(--smoke-fill);
-    backdrop-filter: var(--smoke-filter);
-    -webkit-backdrop-filter: var(--smoke-filter);
-    box-shadow:
-      0 3px 10px rgba(16, 21, 33, 0.26),
-      0 18px 28px -12px rgba(255, 255, 255, 0.65),
-      inset 0 1px 1px rgba(255, 255, 255, 0.5),
-      inset 0 -8px 16px rgba(8, 12, 26, 0.24);
-  }
-  .liquid-primary::before {
-    /* 分散した光の帯。ガラスの厚みを通った光 */
-    background: linear-gradient(
-      112deg,
-      transparent 8%,
-      rgba(255, 255, 255, 0.75) 24%,
-      rgba(255, 226, 242, 0.45) 33%,
-      transparent 46%,
-      transparent 60%,
-      rgba(214, 238, 255, 0.55) 74%,
-      transparent 88%
-    );
-    filter: blur(6px);
-    mix-blend-mode: screen;
-  }
-
-  /* 選択中＝すりガラスの影。塗らずに背景を暗くする（ダークでは明るくする）。
-   * 「選択中は濃い」— 密度の差で ON が読める。塗りの選択（明るいレンズ／コバルト塗り）は
-   * どちらも実写比較で不採用: 前者は ON/OFF が見分けられず、後者はのっぺりした。
-   * 自身が backdrop-filter を持つので、下を通過した文字はすりガラス越しに屈折する。 */
-  .liquid-lens,
-  .liquid-smoke {
-    background: var(--smoke-fill);
-    backdrop-filter: var(--smoke-filter);
-    -webkit-backdrop-filter: var(--smoke-filter);
-    box-shadow:
-      0 2px 8px rgba(16, 21, 33, 0.22),
-      inset 0 1px 1px rgba(255, 255, 255, 0.5),
-      inset 0 -8px 16px rgba(8, 12, 26, 0.22);
-  }
-
-  /* スイッチの溝。OFF＝素通しのガラス / ON＝すりガラスの影（スモーク） */
-  .liquid-trough-off {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.22));
-    backdrop-filter: blur(12px) saturate(180%);
-    -webkit-backdrop-filter: blur(12px) saturate(180%);
-    box-shadow:
-      inset 0 0 0 1px rgba(255, 255, 255, 0.6),
-      inset 0 2px 5px rgba(16, 21, 33, 0.14),
-      inset 0 -1px 1px rgba(255, 255, 255, 0.7),
-      0 1px 2px rgba(16, 21, 33, 0.06);
-  }
-  .liquid-trough-on {
-    background: var(--smoke-fill);
-    backdrop-filter: var(--smoke-filter);
-    -webkit-backdrop-filter: var(--smoke-filter);
-    box-shadow:
-      0 2px 8px rgba(16, 21, 33, 0.24),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.4),
-      inset 0 2px 6px rgba(8, 12, 26, 0.24);
-  }
-  /* 真珠のつまみ。上左からの光で球に見せる */
-  .liquid-thumb {
-    background: radial-gradient(120% 120% at 34% 26%, #ffffff 0%, #fdfeff 42%, #e9eef8 100%);
-    box-shadow:
-      0 2px 6px rgba(10, 20, 60, 0.3),
-      0 0 0 0.5px rgba(255, 255, 255, 0.9),
-      inset 0 1.5px 1px rgba(255, 255, 255, 1),
-      inset 0 -3px 6px rgba(16, 21, 33, 0.1);
-  }
-
-  /* 内側は shell 側がガラスを持つので素通しにする（白を二重に重ねない） */
-  .liquid-pill-inner,
-  .liquid-bar-inner,
-  .liquid-unified-nav-inner,
-  .liquid-icon-inner {
-    background: transparent;
-    border: none;
-    box-shadow: none;
-  }
-}
-
-/* Chromium: SVG 変位で本物の屈折（下の文字が縁で歪む）。
- * Safari/Firefox は url() を解さず blur のみ（上の宣言）で描画される。 */
-@supports (backdrop-filter: url('#lgRefract')) {
-  .tab-glass,
-  .liquid-glass,
-  .liquid-pill-shell,
-  .liquid-bar-shell,
-  .liquid-unified-nav-shell,
-  .liquid-icon-shell,
-  .footer-search-iridescent {
-    backdrop-filter: url('#lgRefract') blur(5px) saturate(170%);
-    -webkit-backdrop-filter: url('#lgRefract') blur(5px) saturate(170%);
-  }
-  /* スモークを併用する要素は、屈折＋暗化を合成する。
-   * このブロックは @layer 外＝layered より強いので、ここで再宣言しないと
-   * スモークの backdrop-filter が上書きされて消える（実際に消えた）。 */
-  .liquid-primary,
-  .liquid-smoke,
-  .liquid-lens,
-  .liquid-trough-on {
-    backdrop-filter: url('#lgRefract') var(--smoke-filter);
-    -webkit-backdrop-filter: url('#lgRefract') var(--smoke-filter);
-  }
-}
-
-/* backdrop-filter が効かない環境では不透明に落とす。
- * これが無いと、透けない環境で半透明の白がそのまま出て文字が背景に溶ける。 */
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .tab-glass,
-  .liquid-glass,
-  .liquid-pill-shell,
-  .liquid-bar-shell,
-  .liquid-unified-nav-shell,
-  .liquid-icon-shell,
-  .footer-search-iridescent {
-    background: var(--surface);
-    box-shadow: var(--shadow-3);
-  }
-  .tab-glass::after,
-  .liquid-glass::after,
-  .liquid-pill-shell::after,
-  .liquid-bar-shell::after,
-  .liquid-unified-nav-shell::after,
-  .liquid-icon-shell::after,
-  .footer-search-iridescent::after {
-    background: var(--border);
-  }
-  .liquid-primary {
-    background: var(--action);
-  }
-  .liquid-lens,
-  .liquid-smoke,
-  .liquid-trough-on {
-    background: var(--action);
-  }
-  .liquid-trough-off {
-    background: var(--surface-2);
+    background: var(--grad);
   }
 }
 

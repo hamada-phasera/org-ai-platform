@@ -1,6 +1,5 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  darkMode: 'class',
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
@@ -60,8 +59,6 @@ export default {
       },
 
       // タブ・ボトムナビ専用。カードや表には使わない（index.css のコメント参照）
-      backdropBlur: { tab: '14px' },
-
       boxShadow: {
         'elev-0': 'none',
         'elev-1': 'var(--shadow-1)',
@@ -74,21 +71,22 @@ export default {
       /* 角丸は 7（部品）/ 9（カード）/ 12（パネル）の3段だけ。
        * 既存クラス名は全部残したまま、6キーを3つの値に畳んでいる。
        * こうするとコンポーネントを1行も触らずに階段が3段に揃う。 */
+      /* v3: 角丸は 8（部品）/ 12（カード）/ 16（パネル・モーダル）の3段 */
       borderRadius: {
-        xs: '7px',
-        sm: '7px',
-        md: '9px',
-        lg: '9px',
-        xl: '12px',
-        '2xl': '12px',
-        control: '7px',
-        card: '9px',
-        panel: '12px',
+        xs: '8px',
+        sm: '8px',
+        md: '12px',
+        lg: '12px',
+        xl: '16px',
+        '2xl': '16px',
+        control: '8px',
+        card: '12px',
+        panel: '16px',
       },
 
       fontFamily: {
-        sans: ["'Manrope'", "'Noto Sans JP'", 'system-ui', 'sans-serif'],
-        display: ["'Manrope'", "'Noto Sans JP'", 'system-ui', 'sans-serif'],
+        sans: ["'Figtree'", "'Hiragino Sans'", "'Noto Sans JP'", 'system-ui', 'sans-serif'],
+        display: ["'Figtree'", "'Hiragino Sans'", "'Noto Sans JP'", 'system-ui', 'sans-serif'],
         mono: ["'IBM Plex Mono'", 'ui-monospace', 'monospace'],
       },
 

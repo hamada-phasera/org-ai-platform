@@ -12,7 +12,7 @@ export function AmbientBackground() {
       />
       {/* faint grid */}
       <div
-        className="absolute inset-0 opacity-[0.5] dark:opacity-[0.35]"
+        className="absolute inset-0 opacity-[0.5]"
         style={{
           backgroundImage:
             'linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px)',

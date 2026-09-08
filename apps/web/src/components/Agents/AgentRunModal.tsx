@@ -112,7 +112,7 @@ export function AgentRunModal({ agent, onClose }: Props) {
 
   return (
     <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-overlay backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-overlay"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -123,11 +123,12 @@ export function AgentRunModal({ agent, onClose }: Props) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="agent-run-title"
-        className="bg-elevated border border-border rounded-lg w-full max-w-lg max-h-[85vh] overflow-y-auto p-6 shadow-elev-3"
+        className="bg-elevated border border-border rounded-panel overflow-hidden w-full max-w-lg max-h-[85vh] overflow-y-auto p-6 shadow-elev-3"
         initial={{ scale: 0.95, y: 12 }}
         animate={{ scale: 1, y: 0 }}
         onClick={(e) => e.stopPropagation()}
       >
+        <div className="brand-strip -mx-6 -mt-6 mb-5 rounded-none" aria-hidden="true" />
         <div className="flex items-start justify-between mb-1">
           <div className="flex items-center gap-2">
             <span className="text-xl">{agent.icon ?? '🤖'}</span>

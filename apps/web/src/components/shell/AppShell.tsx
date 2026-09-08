@@ -1,7 +1,8 @@
 import { Outlet, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Moon, Sun } from 'lucide-react';
-import { useThemeStore } from '../../store/themeStore';
+import { useDeptFilterStore } from '../../store/deptFilterStore';
+import { DEPARTMENTS } from '../../constants/departments';
+import { LiquidTabs } from '../motion/LiquidTabs';
 import { Sidebar } from './Sidebar';
 import { MobileNav } from './MobileNav';
 import { DesktopOnly } from './DesktopOnly';
@@ -17,8 +18,8 @@ import { useMotion, usePrefersReducedMotion } from '../motion/springs';
  */
 export function AppShell() {
   const location = useLocation();
-  const theme = useThemeStore((s) => s.theme);
-  const toggleTheme = useThemeStore((s) => s.toggle);
+  const dept = useDeptFilterStore((s) => s.dept);
+  const setDept = useDeptFilterStore((s) => s.setDept);
   const transition = useMotion('enter');
   const reduced = usePrefersReducedMotion();
 
@@ -29,23 +30,20 @@ export function AppShell() {
       <Sidebar />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-[52px] shrink-0 items-center gap-3 px-4 lg:px-6">
-          <div className="ml-auto flex items-center gap-2">
-            {/* デスクトップのテーマ切替はサイドバー下部の LiquidOrbToggle。
-                ここはサイドバーが無いモバイルだけの簡易ボタン。 */}
-            <button
-              type="button"
-              onClick={toggleTheme}
-              aria-label={theme === 'dark' ? 'ライトモードに切り替え' : 'ダークモードに切り替え'}
-              className="flex h-11 w-11 items-center justify-center rounded-sm border border-border bg-elevated text-secondary transition-colors duration-fast hover:text-primary lg:hidden"
-            >
-              {theme === 'dark' ? (
-                <Sun size={14} strokeWidth={2} aria-hidden="true" />
-              ) : (
-                <Moon size={14} strokeWidth={2} aria-hidden="true" />
-              )}
-            </button>
-          </div>
+        {/* 部署トグル常設のトップバー（v3）。選択は deptFilterStore に載り、
+            現状の実データ連動はチャット（送信時の department）のみ。 */}
+        <header className="hidden h-[52px] shrink-0 items-center gap-3 border-b border-border bg-elevated px-4 lg:flex lg:px-6">
+          <LiquidTabs
+            id="global-dept"
+            size="sm"
+            label="部署で絞り込み"
+            items={[
+              { value: 'ALL', label: 'すべて' },
+              ...DEPARTMENTS.map((d) => ({ value: d.key, label: d.label })),
+            ]}
+            value={dept ?? 'ALL'}
+            onChange={(v) => setDept(v === 'ALL' ? null : v)}
+          />
         </header>
 
         <main className="relative min-h-0 flex-1 overflow-y-auto pb-14 lg:pb-0">

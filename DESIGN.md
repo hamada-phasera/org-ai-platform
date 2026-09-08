@@ -1,13 +1,14 @@
-# FLOW Design System v2 — 白基調の法人SaaS × 塗らないリキッドガラス
+# FLOW Design System v3 — Stripe風モダンSaaS（白基調＋ブルーバイオレット）
 
 > **目的**: `org-ai-platform` のデザインの単一の情報源。
 > コードを書く前にこれを読み、ここにあるトークンとコンポーネントだけを使うこと。
-> **値の正本はコード側**にある: 色・影・ガラスは `apps/web/src/index.css`、
-> Tailwind キーは `apps/web/tailwind.config.js`、モーションは
-> `apps/web/src/components/motion/springs.ts`。このドキュメントは構造と規範を説明する。
+> **値の正本はコード側**: 色・影は `apps/web/src/index.css`、Tailwind キーは
+> `apps/web/tailwind.config.js`、モーションは `apps/web/src/components/motion/springs.ts`。
+> 承認済みモックの正本は `design-canvas/stripe-v3/`（公開キャンバス: そのREADME参照）。
 
-旧 v1（"Liquid Glass Prism" 虹グラデ）は 2026-08 に全面置換された。
-`rainbow-*` / `aurora-*` / クリーム系の色は存在しない。見つけたら消してよい。
+履歴: v1 "Liquid Glass Prism"（虹グラデ）→ v2 "塗らないリキッドガラス"（2026-08、ダークモード付き）→
+**v3（2026-09、現行）**。v2 のガラス・スモーク・ダークモードは**全廃**。`tab-glass` / `liquid-*` /
+`dark:` / `backdrop-filter` が生えたら退行 — `npm run check:tokens` が検出する。
 
 ---
 
@@ -15,83 +16,63 @@
 
 | 原則 | 意味 |
 |---|---|
-| **フラットな白** | カード・表・サイドバー・モーダル本体は不透明な白（`--surface`）。数字が載る面に半透明は使わない |
-| **塗らないガラス** | ガラスに色を塗らない。面はほぼ透明（白5〜14%）で、色は `backdrop-filter` が**背景から拾う**。選択中も塗らず、背景を暗くする（smoke） |
-| **ガラスは浮いているものだけ** | 許可: タブ・チップ・主ボタン・入力バー・ボトムナビ・トースト・TOPの入口。禁止: カード・表・サイドバー・モーダル本体 |
-| **青は面積を取らない** | `--accent`（青）はリンク・フォーカス・選択インジケータのみ。主アクションはインク（`--action`、ダークでは白抜きに反転） |
+| **不透明な白＋ソフトシャドウ** | 面は白 `--surface` ＋ 罫線 ＋ 影3段。半透明・backdrop-filter は使わない |
+| **青は導く色** | ブランドの `#635BFF`（`--action`=`--accent`）は主ボタン・選択・リンクにだけ塗る。**塗り面積は小さく**、主役は白とインク |
+| **グラデは3pxストリップだけ** | `--grad`（cyan→blurple→pink）は `.brand-strip`（ヒーロー・モーダル上端）専用。面には塗らない |
+| **ダークモードなし** | ライトのみ。テーマトグルは置かない |
 | **数字は等幅** | 金額・件数・%が縦に並ぶ場所は `font-mono` か `.tabular` |
 
 ## 2. トークン（`src/index.css` が正本）
 
-### 面と文字
-`--bg` / `--surface` / `--surface-2` / `--hairline` / `--border` / `--border-strong`
-`--text-primary` / `--text-secondary` / `--text-muted`（**文字色の下限**。これより薄い文字は禁止。キャンバス地で4.69:1）/ `--text-inverse` / `--ink-decorative`（文字に使わない。罫線・装飾アイコン専用）
-
-Tailwind キー: `bg-canvas` `bg-elevated` `bg-sunken`、`text-primary` `text-secondary` `text-muted`、`border-border` `border-border-strong`。
-※ `muted` は**文字**、面は `sunken`。逆にすると白地に白の文字になる（v1 の実バグ）。
-
-### 意味の色・データの色
-- ステータス: `success` / `warning` / `danger` / `info`（= `var(--success)` 等。ダークで一段明るくなる）
-- 部署色: `constants/departments.ts` の `DEPT_ACCENT` / `DEPT_LABEL`（データの色。style での直接使用可）
-- 外部ブランド色: `constants/brand.ts`（Twitter/Instagram/LinkedIn）
-- **上記以外の hex 直書きは禁止**。`node apps/web/scripts/check-design-tokens.mjs` が検出する
-  （除外: `src/taskmanager/**`＝凍結領域、constants の2ファイル、生成物）
-
-### ガラス（3層）と smoke
-- `--glass-fill`（ほぼ透明の面）+ `--glass-blur`（blur+saturate）+ `--glass-rim`（薄膜干渉の conic 枠）+ `--glass-spec`（上面の艶）+ `--glass-shadow`（コースティクス入りの影）
-- 選択中 = `--smoke-fill` + `--smoke-filter`（ライトは brightness 0.44 で暗く、ダークは 1.45 で明るく）
-- クラス: `.tab-glass`（ガラス面）、`.liquid-primary`（主ボタン: smoke＋内部コースティクス帯）、`.liquid-smoke`（選択インジケータ/選択チップ）、`.liquid-trough-on/off` + `.liquid-thumb`（スイッチ）
-- Chromium では `@supports` ブロックが `backdrop-filter: url('#lgRefract')`（index.html の SVG 変位フィルタ）を重ねて**本物のDOM屈折**になる。他ブラウザは blur のみ。`backdrop-filter` 非対応は不透明フォールバック
-
-### 角丸・影・タイポ
-- 角丸は **7 / 9 / 12 px の3段**のみ（`rounded-sm|control`=7, `rounded-md|lg|card`=9, `rounded-xl|2xl|panel`=12）
-- 影: `shadow-elev-1..4`（`--shadow-*`）。`shadow-glow-primary` はフォーカスの青い輪
-- フォント: Manrope + Noto Sans JP、等幅は IBM Plex Mono。サイズキー: `micro`(10) `xs`(11) `sm`(13) `body`(14) `h3`(18) `h2`(22) `h1`(28) `display`(34)
+- 面: `bg-canvas`(#f6f9fc) / `bg-elevated`(#fff) / `bg-sunken`、罫線: `border-border`(#e6ebf1) / `border-border-strong`
+- 文字: `text-primary`(#0a2540) / `text-secondary`(#425466) / `text-muted`(#687385 — **文字色の下限**) / `text-ink-decorative`（文字に使わない。罫線・装飾専用）
+- アクション/アクセント: `bg-action`+`hover:bg-action-hover`（=#635BFF）、`accent-soft` / `accent-soft-border` は選択面
+- 影: `shadow-elev-1..4`（Stripe風ソフトシャドウ。カード=1、浮いた面=2、モーダル=3〜4）
+- 角丸: **8 / 12 / 16 の3段**（`rounded-sm|control`=8, `rounded-md|lg|card`=12, `rounded-xl|2xl|panel`=16）
+- 意味色: `success`/`warning`/`danger`/`info`（CSS変数＋`*-rgb`三つ組。`bg-danger/10` 等のアルファ修飾が使える）
+- 部署色（データの色）: `constants/departments.ts` の `DEPT_ACCENT`/`DEPT_LABEL`、外部ブランド色は `constants/brand.ts`。**この2ファイル以外に hex を書かない**
+- セグメントのトラック: `--seg-track`（=`bg-sunken` と同系）
+- フォント: **Figtree + Noto Sans JP**（index.html で読み込み）、等幅 IBM Plex Mono
 
 ## 3. コンポーネント（`src/components/ui/`）
 
-| 部品 | 用途 | 備考 |
-|---|---|---|
-| `Card` / `Surface` | 面。フラットな白＋境界＋`shadow-elev-*` | `variant`: thin(沈んだ面)/regular/thick/chrome は影の段階。旧 `GlassCard`/`GlassSurface` |
-| `Button` | ボタンの正本 | `primary`=リキッドガラス（tab-glass liquid-primary）。`tone` に部署キーを渡したときだけ単色。`secondary`=素のガラス、`ghost`、`glass`=フラット白、`danger`。旧 `GlassButton` |
-| `Input` | テキスト入力 | フラット白＋focus でアクセント枠。ラベルは呼び出し側で `htmlFor` 紐付け必須。旧 `GlassInput` |
-| `Badge` / `DeptBadge` | ラベル・ステータスピル | `tone`/`color` 無指定はニュートラル（bg-sunken）。旧 `GlassBadge` |
-| `PageHeader` `EmptyState` `ErrorState` `Skeleton*` `Spinner` `StatusDot` `AmbientBackground` | 補助 | AmbientBackground は認証ページのみ |
-
-旧 `Glass*` 名は**移行用シム**（同ファイル名で新実装を re-export）。全ページの import が新名称になったらシムを消す。`TabSwitch` と旧 `ui/Button` は削除済み — 排他タブは必ず `motion/LiquidTabs` を使う。
+| 部品 | v3 での姿 |
+|---|---|
+| `Card` / `Surface` | 白＋罫線＋`shadow-elev-*`。variant thin/regular/thick/chrome は影の段階 |
+| `Button` | `primary`=#635BFF塗り＋inset ハイライト、`secondary`=白＋強罫線、`ghost`、`glass`=フラット白（歴史的名称）、`danger` |
+| `Input` | 白＋罫線、focus でアクセント枠。`htmlFor` 紐付け必須 |
+| `Badge` / `DeptBadge` | tone 無指定はニュートラル。意味色 tone（success 等）は color-mix で淡色地 |
+| `PageHeader` `EmptyState` `ErrorState` `Skeleton*` `StatusDot` | v3 トークンで着色済み |
+| `.brand-strip` | 3px のブランドグラデ。モーダル上端（-mx-6 -mt-6 で貼る）とヒーローに |
 
 ### モーション（`src/components/motion/`）
-- `springs.ts` — スプリング値の正本（`indicator` / `morph` / `enter`）。数値を散らさない
-- `LiquidTabs` — タブ/セグメント。**`id` 必須**（v1 の `layoutId="activeTab"` はグローバルで衝突した）。インジケータは位置と幅の両方を補間。`role=tablist`・矢印キー対応
-- `ExpandableCard` — 押した場所から液体的に展開（`layoutId` 共有）。展開面は不透明な白
-- `LiquidSwitch` — ON/OFF。trough がガラス、thumb は真珠
-- すべて `useReducedMotion` を尊重。CSS 側も `prefers-reduced-motion` で即時切替
+- `springs.ts` — スプリング値の正本（indicator / morph / enter）
+- `LiquidTabs` — **名前は歴史的だが実体はセグメントコントロール**: 沈んだトラック＋選択中は白い面＋影。`id` 必須（layoutId 衝突防止）、矢印キー対応。排他選択は必ずこれを使う（自前 flex+button のタブ列を作らない）
+- `ExpandableCard` — 押した場所から展開（layoutId 共有）。面は不透明な白
 
-### テーマ切替
-- デスクトップ: サイドバー下部の `theme-toggle/LiquidOrbToggle`（WebGPU のシャボン玉。`orb-runtime.gen.js` は生成物 — 手編集禁止、`demo/orb-gen/make-react-runtime.py` で再生成）。WebGPU 不可は CSS バブルに自動フォールバック
-- モバイル: ヘッダーの簡易ボタン。状態は `store/themeStore`（`<html>` に `.dark`）
-- `<theme-toggle>` Web Component（3状態 light/dark/clear）も同ディレクトリにあり、デモは `demo/theme-toggle.html`
+### 部署トグル（トップバー常設）
+`AppShell` の header に `LiquidTabs id="global-dept"`（すべて＋5部署）。選択は
+`store/deptFilterStore.ts` に載る。実データ連動は現状チャット（送信 department）のみで、
+他ページへの連動は受信箱スプリントで拡張予定。
 
-## 4. レイアウトとテーマ
+## 4. レイアウト
 
-- シェルは `shell/AppShell` の1つだけ（サイドバー+トップバー+本文+MobileNav）。ルート追加は `shell/navConfig.ts`
-- TOP (`/`) は最小: 指示入力＋入口4つ。**KPI の数字を置かない**（許可は承認件数ドットのみ）。密なダッシュボードは `/dashboard`
-- モバイルで開けるのは `MOBILE_ROUTES`（/ /chat /deliverables）のみ。他は `DesktopOnly` が誘導
-- ダーク: トークン経由なら自動で追従する。raw の white/black 透過（`bg-white/40` 等）を書かない。ダーク保証は v2 移行済み画面のみ（`src/taskmanager/**` は対象外）
+- シェルは `shell/AppShell` の1つ（サイドバー＋部署トグルのトップバー＋本文＋MobileNav）。ルート追加は `shell/navConfig.ts`（※ MobileNav.tsx の TABS/MOBILE_OK が別定義なので両方更新）
+- サイドバー選択中 = `bg-accent-soft text-accent`
+- TOP (`/`) は最小: ブランドストリップ＋指示入力＋入口4つ。KPI数字は置かない（例外は承認件数のみ）
+- モバイルで開けるのは `MOBILE_ROUTES` のみ、他は `DesktopOnly`
 
-## 5. アクセシビリティ（実装済みの前提を壊さない）
+## 5. アクセシビリティ
 
-- `:focus-visible` はグローバル定義済み。**outline を消さない**
-- 排他選択は LiquidTabs（radio 相当のキーボード操作込み）。自前 flex+button のタブ列を作らない
-- モーダル: `role="dialog"` `aria-modal` `aria-labelledby`、Escape で閉じ、初期フォーカスと復帰
-- ストリーミング/非同期状態は `aria-live="polite"`
-- アイコンだけのボタンに `aria-label`
-- コントラスト: 文字は `--text-muted` が下限（AA）。それより薄くしたければ文字ではなく装飾（`--ink-decorative`）
+- `:focus-visible` はグローバル定義済み。outline を消さない
+- モーダル: `role="dialog"` `aria-modal` `aria-labelledby`、Escape、初期フォーカスと復帰
+- ストリーミング/非同期状態は `aria-live="polite"`、アイコンだけのボタンに `aria-label`
+- コントラスト: 文字は `--text-muted` が下限（キャンバス地で4.9:1）
 
 ## 6. 検証
 
 ```bash
-node apps/web/scripts/check-design-tokens.mjs   # hex 直書き 0 件であること
-npm run build --workspace=apps/web              # ビルド
-npx tsc --noEmit                                # 既知の赤（ImportMeta.env 等）以外を増やさない
+npm run check:tokens --workspace=apps/web   # hex直書き・dark:・ガラス残骸 = 0
+npm run build --workspace=apps/web
+npx tsc --noEmit                            # 0 エラーを維持（ベースライン0達成済み）
 ```

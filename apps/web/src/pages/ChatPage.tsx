@@ -8,6 +8,7 @@ import {
 import { api } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { useChatStore } from '../store/chatStore';
+import { useDeptFilterStore } from '../store/deptFilterStore';
 import { humanizeTaskManagerError } from '../utils/humanizeLlmError';
 import { AgentSuggestions } from '../components/Chat/AgentSuggestions';
 import { InlineChatResult } from '../components/Chat/InlineChatResult';
@@ -55,7 +56,9 @@ export default function ChatPage() {
   } = useChatStore();
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [selectedDept, setSelectedDept] = useState<string | null>(null);
+  // 部署選択はトップバー常設のグローバルトグル（v3）。旧サイドバーのチップ列は撤去済み
+  const selectedDept = useDeptFilterStore((st) => st.dept);
+  const setSelectedDept = useDeptFilterStore((st) => st.setDept);
   const [showSidebar, setShowSidebar] = useState(true);
   const [inlineTasks, setInlineTasks] = useState<InlineTask[]>([]);
   const [isListening, setIsListening] = useState(false);
@@ -494,7 +497,7 @@ export default function ChatPage() {
             <div className="p-4 flex items-center gap-2">
               <motion.button
                 onClick={createSession}
-                className="flex-1 flex items-center justify-center gap-2 tab-glass liquid-primary text-white text-xs font-bold px-4 py-3 rounded-full transition-all"
+                className="flex-1 flex items-center justify-center gap-2 bg-action hover:bg-action-hover text-white text-xs font-bold px-4 py-3 rounded-md shadow-[0_1px_2px_rgba(10,37,64,0.24),inset_0_1px_0_rgba(255,255,255,0.16)] transition-colors"
                 whileHover={{ scale: 1.01 }}
                 whileTap={{ scale: 0.99 }}
               >
@@ -507,42 +510,6 @@ export default function ChatPage() {
               >
                 <PanelLeftClose size={15} />
               </button>
-            </div>
-
-            {/* Department filter */}
-            <div className="px-4 pb-3">
-              <div className="flex flex-wrap gap-1">
-                <button
-                  onClick={() => { setSelectedDept(null); setSelectedAgent(null); }}
-                  className={`text-[10px] px-2.5 py-1 rounded-full transition-all ${
-                    !selectedDept ? 'liquid-smoke text-white font-semibold' : 'tab-glass text-secondary hover:text-primary'
-                  }`}
-                  aria-pressed={!selectedDept}
-                >
-                  全部署
-                </button>
-                {DEPARTMENTS.map((d) => {
-                  const char = DEPT_CHARACTER[d.key];
-                  const active = selectedDept === d.key;
-                  return (
-                    <button
-                      key={d.key}
-                      onClick={() => { setSelectedDept(d.key); setSelectedAgent(null); }}
-                      className={`flex items-center gap-1 text-[10px] py-0.5 rounded-full transition-all ${
-                        char ? 'pl-0.5 pr-2.5' : 'px-2.5 py-1'
-                      } ${active ? 'liquid-smoke text-white font-semibold' : 'tab-glass text-secondary hover:text-primary'}`}
-                      aria-pressed={active}
-                    >
-                      {char ? (
-                        <img src={char.image} alt="" className="w-5 h-5 rounded-full object-cover bg-sunken" />
-                      ) : (
-                        <span>{d.icon}</span>
-                      )}
-                      {d.label}
-                    </button>
-                  );
-                })}
-              </div>
             </div>
 
             {/* Session list */}
@@ -594,7 +561,7 @@ export default function ChatPage() {
               <div className="flex gap-3 justify-center flex-wrap">
                 <motion.button
                   onClick={createSession}
-                  className="tab-glass liquid-primary text-white text-sm font-bold px-6 py-3 rounded-full transition-all flex items-center gap-2"
+                  className="bg-action hover:bg-action-hover text-white text-sm font-bold px-6 py-3 rounded-md shadow-[0_1px_2px_rgba(10,37,64,0.24),inset_0_1px_0_rgba(255,255,255,0.16)] transition-colors flex items-center gap-2"
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
@@ -887,7 +854,7 @@ export default function ChatPage() {
                 />
 
                 {/* Input container */}
-                <div className="tab-glass rounded-xl px-4 py-3 transition-all">
+                <div className="rounded-xl border border-border bg-elevated px-4 py-3 shadow-elev-2 transition-all">
                   {/* Attached files chips */}
                   {attachedFiles.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mb-2">

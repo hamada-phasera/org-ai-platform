@@ -82,7 +82,7 @@ export function ExpandableCard({
           aria-expanded={false}
           aria-label={label}
           onClick={() => onOpenChange(true)}
-          className={`tab-glass block w-full overflow-hidden rounded-xl text-left ${className} ${collapsedClassName}`}
+          className={`bg-elevated border border-border shadow-elev-2 block w-full overflow-hidden rounded-xl text-left ${className} ${collapsedClassName}`}
         >
           {collapsed}
         </motion.button>

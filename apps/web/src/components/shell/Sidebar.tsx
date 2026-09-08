@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronsUpDown } from 'lucide-react';
 import { api } from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
-import { LiquidOrbToggle } from '../theme-toggle/LiquidOrbToggle';
 import { ADMIN_NAV, MAIN_NAV, WORK_PAGES } from './navConfig';
 import type { NavEntry } from './navConfig';
 
@@ -24,7 +23,7 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
     'flex w-full items-center gap-2.5 h-8 px-2.5 rounded-sm text-sm font-semibold',
     'transition-colors duration-fast ease-standard',
     isActive
-      ? 'bg-action text-inverse'
+      ? 'bg-accent-soft text-accent'
       : 'text-secondary hover:bg-sunken hover:text-primary',
   ].join(' ');
 
@@ -133,10 +132,6 @@ export function Sidebar() {
       </nav>
 
       <div className="mt-auto">
-        <div className="mb-2 flex justify-center">
-          <LiquidOrbToggle />
-        </div>
-
         {usage && (
           <div className="rounded-md border border-border bg-canvas px-2.5 py-2.5">
             <div className="flex items-center justify-between text-xs font-bold text-secondary">

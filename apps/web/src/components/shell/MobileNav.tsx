@@ -112,7 +112,7 @@ export function MobileNav() {
       </AnimatePresence>
 
       <nav
-        className="tab-glass fixed inset-x-0 bottom-0 z-50 flex rounded-none border-x-0 border-b-0 lg:hidden"
+        className="bg-elevated border border-border shadow-elev-3 fixed inset-x-0 bottom-0 z-50 flex rounded-none border-x-0 border-b-0 lg:hidden"
         aria-label="モバイルナビゲーション"
       >
         {TABS.map((tab) => (

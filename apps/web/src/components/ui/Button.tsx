@@ -29,8 +29,8 @@ const iconSize: Record<Size, number> = { xs: 11, sm: 13, md: 14, lg: 16 };
 /**
  * Button — ボタンの正本（旧 GlassButton）。
  *
- * primary はリキッドガラス（すりガラスの影＝smoke。塗らない）。
- * 部署色 tone を渡したときだけ単色になる（データの色は塗ってよい）。
+ * v3: primary はブランドのブルーバイオレット塗り（--action）。塗り面積は小さく保つ。
+ * 部署色 tone を渡したときはその単色になる（データの色）。
  * v1 の重複 ui/Button.tsx（紫の直書きだったもの）はこのファイルに置き換えられた。
  */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
@@ -62,9 +62,16 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
                 className: 'text-inverse font-semibold shadow-elev-1 hover:shadow-elev-2',
                 style: { background: toneColor },
               }
-            : { className: 'tab-glass liquid-primary text-white font-bold', style: undefined };
+            : {
+                className:
+                  'bg-action text-white font-bold shadow-[0_1px_2px_rgba(10,37,64,0.24),inset_0_1px_0_rgba(255,255,255,0.16)] hover:bg-action-hover',
+                style: undefined,
+              };
         case 'secondary':
-          return { className: 'tab-glass text-primary font-bold', style: undefined };
+          return {
+            className: 'bg-elevated border border-border-strong text-primary font-bold shadow-elev-1',
+            style: undefined,
+          };
         case 'ghost':
           return {
             className: 'bg-transparent text-secondary hover:text-primary hover:bg-sunken',

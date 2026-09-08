@@ -104,14 +104,9 @@ export default function TopPage() {
 
   return (
     <div className="relative h-full overflow-y-auto">
-      {/* 背景のにじみ。ガラスの入口が「何かの上に乗っている」ことを成立させる。 */}
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -top-28 left-24 h-[520px] w-[620px] rounded-full bg-[radial-gradient(circle_at_50%_50%,var(--accent-glow),transparent_68%)]" />
-        <div className="absolute right-[-80px] top-44 h-[520px] w-[560px] rounded-full opacity-70 bg-[radial-gradient(circle_at_50%_50%,var(--dept-analytics),transparent_62%)] [mask-image:radial-gradient(circle,black,transparent_70%)] [--tw-bg-opacity:0.08]" />
-      </div>
-
       <div className="relative mx-auto w-full max-w-[760px] px-5 pb-16 pt-10 lg:pt-14">
         <div className="text-center">
+          <div className="brand-strip mb-6 w-16" aria-hidden="true" />
           <h1 className="font-display text-[26px] font-extrabold leading-snug lg:text-[34px]">
             {greeting()}、{user?.name ?? 'ようこそ'}さん。
           </h1>
@@ -121,7 +116,7 @@ export default function TopPage() {
         </div>
 
         <form
-          className="tab-glass mt-7 flex items-center gap-3 rounded-xl px-4 py-2"
+          className="mt-7 flex items-center gap-3 rounded-xl border border-border bg-elevated px-4 py-2 shadow-elev-2"
           onSubmit={(e) => {
             e.preventDefault();
             submit();
@@ -139,7 +134,7 @@ export default function TopPage() {
           />
           <button
             type="submit"
-            className="tab-glass liquid-primary flex h-11 shrink-0 items-center gap-1.5 rounded-full px-5 text-sm font-bold text-white"
+            className="flex h-11 shrink-0 items-center gap-1.5 rounded-md bg-action px-5 text-sm font-bold text-white shadow-[0_1px_2px_rgba(10,37,64,0.24),inset_0_1px_0_rgba(255,255,255,0.16)] transition-colors duration-fast hover:bg-action-hover"
           >
             <Send size={14} strokeWidth={2.2} aria-hidden="true" />
             送信
@@ -151,7 +146,7 @@ export default function TopPage() {
           <button
             type="button"
             onClick={() => navigate('/chat', { state: { department: 'SALES' } })}
-            className="tab-glass flex min-h-[150px] flex-col rounded-xl p-5 text-left"
+            className="flex min-h-[150px] flex-col rounded-xl border border-border bg-elevated p-5 text-left shadow-elev-2 transition-shadow duration-base hover:shadow-elev-3"
           >
             <span className="flex items-center gap-3">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-dept-sales/10">

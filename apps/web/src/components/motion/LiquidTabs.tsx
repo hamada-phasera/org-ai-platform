@@ -28,13 +28,8 @@ interface LiquidTabsProps<T extends string> {
 }
 
 /**
- * 液体的に追従するタブ。インジケータが位置だけでなく**幅も**補間されるのが肝で、
- * これは layoutId を当てるだけで framer-motion が面倒を見てくれる。
- *
- * 選択中は「濃いコバルトのガラス＋白文字」。明るいレンズ方式は
- * スイッチの ON/OFF がほぼ見分けられなかったため不採用（実写比較で確認）。
- *
- * ガラスを使ってよいのはタブ・ボトムナビ・TOPの入口だけ（src/index.css 参照）。
+ * セグメントコントロール（v3 / Stripe流）。トラックは沈んだ面、選択中は
+ * 白い面＋影で持ち上げる。インジケータは layoutId で位置と幅の両方を補間。
  */
 export function LiquidTabs<T extends string>({
   id,
@@ -68,7 +63,7 @@ export function LiquidTabs<T extends string>({
       role="tablist"
       aria-label={label}
       onKeyDown={onKeyDown}
-      className={`tab-glass inline-flex items-center gap-0.5 rounded-full p-1 ${className}`}
+      className={`inline-flex items-center gap-0.5 rounded-md bg-sunken p-[3px] ${className}`}
     >
       {items.map((item) => {
         const selected = item.value === value;
@@ -83,8 +78,8 @@ export function LiquidTabs<T extends string>({
             aria-selected={selected}
             tabIndex={selected ? 0 : -1}
             onClick={() => onChange(item.value)}
-            className={`relative ${height} ${padding} ${text} inline-flex items-center gap-1.5 whitespace-nowrap rounded-full font-semibold transition-colors duration-fast ease-standard ${
-              selected ? 'text-white' : 'text-secondary hover:text-primary'
+            className={`relative ${height} ${padding} ${text} inline-flex items-center gap-1.5 whitespace-nowrap rounded-[7px] font-semibold transition-colors duration-fast ease-standard ${
+              selected ? 'text-primary' : 'text-secondary hover:text-primary'
             }`}
           >
             {selected && (
@@ -92,7 +87,7 @@ export function LiquidTabs<T extends string>({
                 layoutId={`liquid-tab-${id}`}
                 transition={transition}
                 aria-hidden="true"
-                className="liquid-smoke absolute inset-0 -z-10 rounded-full"
+                className="absolute inset-0 -z-10 rounded-[7px] bg-elevated shadow-[0_1px_2px_rgba(16,36,64,0.14)]"
               />
             )}
             {item.label}
