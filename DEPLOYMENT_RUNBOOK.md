@@ -15,7 +15,8 @@ You must rotate every key that has touched git history.
 
 | Key | Where to rotate |
 |---|---|
-| `GROQ_API_KEY` | https://console.groq.com/keys — revoke old, create new |
+| `ANTHROPIC_API_KEY` | https://console.anthropic.com — revoke old, create new |
+| `GEMINI_API_KEY` | https://aistudio.google.com/apikey — revoke old, create new |
 | `N8N_API_KEY` | n8n Cloud → Settings → API → revoke + recreate |
 | `JWT_SECRET` | `openssl rand -hex 32` |
 | Postgres password | created fresh by Neon (never reuse dev password) |
@@ -50,7 +51,8 @@ After rotation, save the values in your password manager — do **not** commit t
 NODE_ENV=production
 DATABASE_URL=<Neon direct URL>      # migrations + app use
 JWT_SECRET=<32+ chars>
-GROQ_API_KEY=<new>
+ANTHROPIC_API_KEY=<new>
+GEMINI_API_KEY=<optional>
 FRONTEND_URL=https://<your-vercel-domain>    # comma-separated if multi
 AI_ENGINE_URL=https://org-ai-ai-engine.onrender.com
 # Optional provider keys
@@ -66,7 +68,8 @@ N8N_WEBHOOK_AUTH_TOKEN=
 **`org-ai-ai-engine`**:
 ```
 DATABASE_URL=<Neon pooled URL>
-GROQ_API_KEY=<new>
+ANTHROPIC_API_KEY=<new>
+GEMINI_API_KEY=<optional>
 API_GATEWAY_URL=https://org-ai-api-gateway.onrender.com
 ```
 
@@ -190,7 +193,7 @@ Check DevTools:
 | Frontend 401 on every API call | Token not being sent — check `VITE_API_URL` matches gateway, check CORS `FRONTEND_URL` |
 | CORS error in browser | Gateway `FRONTEND_URL` missing your Vercel domain |
 | Prisma P1001 can't reach DB | Use Neon **pooled** URL; ensure `?sslmode=require` |
-| AI Engine 500 "GROQ_API_KEY missing" | Set on both services (gateway forwards, engine calls) |
+| AI Engine 500 "ANTHROPIC_API_KEY missing" | Set on both services (gateway forwards, engine calls) |
 
 ---
 

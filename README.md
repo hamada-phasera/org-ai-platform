@@ -14,21 +14,22 @@
 |---|---|---|
 | web | 3000 | React SPA (フロントエンド) |
 | api-gateway | 4000 | Fastify (認証・API・DBアクセス) |
-| ai-engine | 8000 | FastAPI (Groq LLM・エージェント) |
+| ai-engine | 8000 | FastAPI (Claude/Gemini LLM・エージェント) |
 
 ## セットアップ
 
 ### 前提条件
 - Node.js 20+
 - Python 3.11+
-- Groq APIキー ([console.groq.com](https://console.groq.com))
+- Anthropic APIキー ([console.anthropic.com](https://console.anthropic.com))
+- （任意）Gemini APIキー — STARTER/PROプランのルーティング用。詳細は docs/llm-provider-tiers.md
 
 ### 1. 環境変数を設定
 
 ```bash
 cd org-ai-platform
 cp .env.example .env
-# .envを編集してGROQ_API_KEYとJWT_SECRETを設定
+# .envを編集してANTHROPIC_API_KEYとJWT_SECRETを設定
 ```
 
 ### 2. 依存パッケージをインストール
@@ -64,7 +65,7 @@ cd ../..
 ```bash
 cd apps/ai-engine
 source .venv/bin/activate
-GROQ_API_KEY=your_key uvicorn app.main:app --reload --port 8000
+ANTHROPIC_API_KEY=your_key uvicorn app.main:app --reload --port 8000
 ```
 
 **ターミナル2 — api-gateway:**
@@ -88,7 +89,7 @@ npm run dev
 ## Docker Compose (全サービス一括起動)
 
 ```bash
-cp .env.example .env  # GROQ_API_KEY, JWT_SECRETを設定
+cp .env.example .env  # ANTHROPIC_API_KEY, JWT_SECRETを設定
 docker-compose up --build
 ```
 
@@ -107,7 +108,8 @@ docker-compose up --build
 
 | 変数名 | 必須 | 説明 |
 |---|---|---|
-| GROQ_API_KEY | ✅ | Groq APIキー |
+| ANTHROPIC_API_KEY | ✅ | Anthropic APIキー |
+| GEMINI_API_KEY | 任意 | 梅/竹プラン用（未設定なら全プランClaude） |
 | JWT_SECRET | ✅ | JWT署名シークレット (32文字以上) |
 | DATABASE_URL | - | SQLiteパス (デフォルト: file:./data/app.db) |
 | AI_ENGINE_URL | - | ai-engineのURL (デフォルト: http://localhost:8000) |

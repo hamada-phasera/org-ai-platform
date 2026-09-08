@@ -19,6 +19,7 @@ export async function requireOwner(
   reply: FastifyReply,
 ): Promise<void> {
   await requireAuth(request, reply);
+  if (reply.sent) return; // 認証失敗時は requireAuth が 401 を送信済み。続行すると request.user 未定義で落ちる
   const user = request.user as { role: string };
   if (user.role !== 'OWNER') {
     reply.code(403).send({
