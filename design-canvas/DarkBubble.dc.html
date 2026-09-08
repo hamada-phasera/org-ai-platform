@@ -1,0 +1,176 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; font-family: 'Manrope','Noto Sans JP',system-ui,sans-serif; -webkit-font-smoothing: antialiased; }
+    .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+    /* ══ ダークの虹彩ガラス ══
+       原則は昼と同じ「塗らない」。面はほぼ透明で、背景の光を拾う。
+       ダークでは背景側の光を鮮やかにし、リムの薄膜干渉を強める。 */
+    .g{position:relative;isolation:isolate;border:none;color:#F2F5FB;
+      background:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,.03) 46%,rgba(255,255,255,.06));
+      backdrop-filter:blur(14px) saturate(190%);
+      -webkit-backdrop-filter:blur(14px) saturate(190%);
+      box-shadow:
+        0 16px 34px rgba(0,0,0,.55),
+        0 2px 6px rgba(0,0,0,.4),
+        /* 背景に落ちる色つきの光だまり */
+        0 24px 40px -16px rgba(255,80,220,.20),
+        -14px 30px 46px -20px rgba(0,210,255,.22),
+        14px 30px 46px -20px rgba(150,110,255,.22),
+        inset 0 1px 1px rgba(255,255,255,.5),
+        inset 0 -9px 18px rgba(0,0,0,.35);}
+    @supports (backdrop-filter: url('#dbRefract')) {
+      .g{backdrop-filter:url('#dbRefract') blur(8px) saturate(190%);
+         -webkit-backdrop-filter:url('#dbRefract') blur(8px) saturate(190%);}
+    }
+    /* リム: 薄膜干渉を昼より強く。暗い地では縁の光が主役になる */
+    .g::after{content:'';position:absolute;inset:0;border-radius:inherit;padding:1.6px;pointer-events:none;
+      background:conic-gradient(from 200deg at 50% 50%,
+        rgba(255,255,255,.85) 0deg, rgba(255,120,220,.7) 46deg, rgba(255,220,130,.55) 95deg,
+        rgba(120,255,210,.6) 150deg, rgba(90,190,255,.85) 210deg, rgba(180,130,255,.75) 268deg,
+        rgba(255,255,255,.8) 330deg);
+      -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+      -webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude}
+    /* 高光沢: 上面の鋭いスペキュラ */
+    .g::before{content:'';position:absolute;inset:1px;border-radius:inherit;pointer-events:none;z-index:-1;
+      background:
+        linear-gradient(115deg, transparent 14%, rgba(255,190,240,.12) 26%, rgba(255,255,255,.18) 33%,
+          transparent 46%, transparent 62%, rgba(140,220,255,.13) 76%, transparent 88%),
+        linear-gradient(180deg, rgba(255,255,255,.26), rgba(255,255,255,.03) 40%, transparent 60%);
+      filter:blur(3px)}
+
+    /* 選択中: ダークでは「明るいすりガラス」（昼の逆） */
+    .sel{background:rgba(255,255,255,.10);
+      backdrop-filter:blur(15px) saturate(160%) brightness(1.75);
+      -webkit-backdrop-filter:blur(15px) saturate(160%) brightness(1.75);
+      box-shadow:0 2px 10px rgba(0,0,0,.4),
+        0 0 22px rgba(160,200,255,.25),
+        inset 0 1px 1px rgba(255,255,255,.55),
+        inset 0 -8px 16px rgba(0,0,0,.20)}
+
+    /* シャボン玉: 中は空、縁だけが虹 */
+    .bub{position:absolute;border-radius:50%;pointer-events:none;
+      background:conic-gradient(from 210deg,
+        rgba(255,120,220,.8), rgba(255,220,130,.65), rgba(120,255,210,.7),
+        rgba(90,190,255,.85), rgba(180,130,255,.8), rgba(255,120,220,.8));
+      -webkit-mask:radial-gradient(circle at 50% 50%, transparent 58%, #000 66%, #000 86%, transparent 94%);
+      mask:radial-gradient(circle at 50% 50%, transparent 58%, #000 66%, #000 86%, transparent 94%);
+      filter:blur(.4px);opacity:.85}
+    .bub-spec{position:absolute;border-radius:50%;pointer-events:none;
+      background:radial-gradient(circle at 32% 26%, rgba(255,255,255,.9) 0%, rgba(255,255,255,.25) 9%, transparent 16%);}
+    .bub-fill{position:absolute;border-radius:50%;pointer-events:none;
+      background:radial-gradient(circle at 60% 65%, rgba(120,190,255,.10), rgba(255,255,255,.02) 55%, transparent 75%);
+      backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px)}
+
+    .sw{width:74px;height:40px;border-radius:999px;padding:4px;display:inline-flex;align-items:center;box-sizing:border-box}
+    .thumb{width:32px;height:32px;border-radius:50%;position:relative;z-index:2;
+      background:radial-gradient(120% 120% at 34% 26%,#fff 0%,#F4F8FF 44%,#C9D6EE 100%);
+      box-shadow:0 3px 8px rgba(0,0,0,.5),0 0 12px rgba(180,210,255,.35),
+        inset 0 1.5px 1px #fff,inset 0 -3px 6px rgba(20,30,60,.22)}
+    .cap{font-size:11px;font-weight:600;color:rgba(226,233,246,.55);margin-top:9px;text-align:center}
+  </style>
+</helmet>
+
+<div style="width:1080px;height:1080px;color:#F2F5FB;box-sizing:border-box;position:relative;overflow:hidden;
+            background:
+              radial-gradient(640px 520px at 12% 6%,  rgba(120,60,255,.34), transparent 60%),
+              radial-gradient(560px 460px at 92% 22%, rgba(255,60,200,.26), transparent 58%),
+              radial-gradient(620px 520px at 78% 94%, rgba(0,190,255,.25), transparent 60%),
+              radial-gradient(480px 420px at 8% 88%,  rgba(0,255,200,.14), transparent 62%),
+              linear-gradient(165deg,#0A0D18 0%,#0C1020 48%,#090C16 100%);">
+
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <filter id="dbRefract" x="-20%" y="-20%" width="140%" height="140%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.007 0.012" numOctaves="1" seed="11" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="46" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </svg>
+
+  <!-- 浮遊するシャボン玉 -->
+  <span class="bub" style="left:64px;top:130px;width:190px;height:190px;"></span>
+  <span class="bub-fill" style="left:64px;top:130px;width:190px;height:190px;"></span>
+  <span class="bub-spec" style="left:64px;top:130px;width:190px;height:190px;"></span>
+  <span class="bub" style="right:78px;top:430px;width:120px;height:120px;opacity:.7;"></span>
+  <span class="bub-spec" style="right:78px;top:430px;width:120px;height:120px;"></span>
+  <span class="bub" style="left:140px;bottom:110px;width:84px;height:84px;opacity:.6;"></span>
+  <span class="bub-spec" style="left:140px;bottom:110px;width:84px;height:84px;"></span>
+  <span class="bub" style="right:180px;top:96px;width:56px;height:56px;opacity:.5;"></span>
+
+  <div style="position:absolute;left:52px;top:44px;">
+    <div style="font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:rgba(226,233,246,.5);">FLOW Design System v2 — ダーク・スタディ</div>
+    <div style="font-size:24px;font-weight:800;letter-spacing:-0.02em;margin-top:6px;">虹彩バブル — ダークの質感</div>
+  </div>
+
+  <!-- ══ 中央: モバイルUI ══ -->
+  <div style="position:absolute;left:50%;top:150px;transform:translateX(-50%);width:392px;">
+
+    <div style="text-align:center;">
+      <div style="font-size:24px;font-weight:800;letter-spacing:-0.02em;line-height:1.45;">おはようございます、<br>濱田さん。</div>
+      <div style="font-size:12.5px;color:rgba(226,233,246,.6);margin-top:8px;">今日やることを一行で伝えてください。</div>
+    </div>
+
+    <div class="g" style="display:flex;align-items:center;gap:10px;height:54px;border-radius:999px;padding:0 6px 0 18px;margin-top:22px;">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="rgba(226,233,246,.65)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M21 11.5a8.4 8.4 0 01-9 8.4 8.9 8.9 0 01-4-.9L3 21l1.9-4.9A8.4 8.4 0 013.6 11 8.4 8.4 0 0112 3a8.4 8.4 0 019 8.5z"/></svg>
+      <span style="flex:1;font-size:14px;color:rgba(226,233,246,.5);">今日は何をしますか？</span>
+      <span class="g sel" style="width:44px;height:44px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0B0F1A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      </span>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:22px;">
+      <button class="g" style="border-radius:18px;padding:16px 15px;text-align:left;font-family:inherit;color:inherit;display:flex;flex-direction:column;min-height:126px;box-sizing:border-box;cursor:pointer;">
+        <span style="width:36px;height:36px;border-radius:11px;background:rgba(255,120,220,.16);display:flex;align-items:center;justify-content:center;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#FF9BE2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/></svg></span>
+        <span style="font-size:14px;font-weight:800;margin-top:10px;line-height:1.45;">提案書を<br>つくる</span>
+      </button>
+      <button class="g" style="border-radius:18px;padding:16px 15px;text-align:left;font-family:inherit;color:inherit;display:flex;flex-direction:column;min-height:126px;box-sizing:border-box;cursor:pointer;">
+        <span style="width:36px;height:36px;border-radius:11px;background:rgba(0,210,255,.14);display:flex;align-items:center;justify-content:center;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#7DE2FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V10M10 19V5M16 19v-6M21 19H3"/></svg></span>
+        <span style="font-size:14px;font-weight:800;margin-top:10px;line-height:1.45;">数字を<br>見る</span>
+      </button>
+      <button class="g" style="border-radius:18px;padding:16px 15px;text-align:left;font-family:inherit;color:inherit;display:flex;flex-direction:column;min-height:126px;box-sizing:border-box;cursor:pointer;">
+        <span style="display:flex;align-items:center;gap:8px;">
+          <span style="width:36px;height:36px;border-radius:11px;background:rgba(255,220,130,.16);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#FFD98C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg></span>
+          <span class="g sel" style="display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:7px;font-size:10.5px;font-weight:800;color:#0B0F1A;">1件</span>
+        </span>
+        <span style="font-size:14px;font-weight:800;margin-top:10px;line-height:1.45;">承認する</span>
+      </button>
+      <button class="g" style="border-radius:18px;padding:16px 15px;text-align:left;font-family:inherit;color:inherit;display:flex;flex-direction:column;min-height:126px;box-sizing:border-box;cursor:pointer;">
+        <span style="width:36px;height:36px;border-radius:11px;background:rgba(150,110,255,.18);display:flex;align-items:center;justify-content:center;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#C1A8FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="2.5"/><path d="M12 8V4M9 14h.01M15 14h.01"/></svg></span>
+        <span style="font-size:14px;font-weight:800;margin-top:10px;line-height:1.45;">エージェントを<br>動かす</span>
+      </button>
+    </div>
+
+    <!-- タブ + スイッチ -->
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:22px;">
+      <div class="g" style="border-radius:999px;padding:4px;display:inline-flex;position:relative;">
+        <span class="sel" style="position:absolute;top:4px;left:4px;width:86px;height:36px;border-radius:999px;"></span>
+        <span style="position:relative;z-index:1;height:36px;padding:0 20px;display:inline-flex;align-items:center;font-size:13px;font-weight:800;color:#0B0F1A;">今日</span>
+        <span style="position:relative;z-index:1;height:36px;padding:0 20px;display:inline-flex;align-items:center;font-size:13px;font-weight:600;color:rgba(226,233,246,.6);">今週</span>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;">
+        <span class="g sw" style="justify-content:flex-start;"><span class="thumb" style="opacity:.55;box-shadow:0 3px 8px rgba(0,0,0,.5);"></span></span>
+        <span class="g sel sw" style="justify-content:flex-end;"><span class="thumb"></span></span>
+      </div>
+    </div>
+  </div>
+
+  <div style="position:absolute;left:52px;bottom:40px;right:52px;display:flex;justify-content:space-between;align-items:flex-end;">
+    <div style="font-size:11.5px;color:rgba(226,233,246,.55);line-height:1.75;max-width:560px;">
+      原則は昼と同じ<b style="color:#F2F5FB;">「塗らないガラス」</b>。ダークでは背景の光を鮮やかにし、リムの薄膜干渉を強め、
+      選択中は<b style="color:#F2F5FB;">明るいすりガラス</b>（昼の逆）。シャボン玉は縁だけが虹で、中は空。
+    </div>
+    <div class="mono" style="font-size:10px;color:rgba(226,233,246,.4);">1080×1080 — dark iridescent study</div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

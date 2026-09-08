@@ -38,11 +38,11 @@ interface DeliverablesState {
 
 const DEFAULT_FOLDERS: Folder[] = [
   { id: 'all', name: 'すべて', itemIds: [] },
-  { id: 'sales', name: '営業部', color: '#8b85ff', itemIds: [] },
-  { id: 'marketing', name: 'マーケ部', color: '#9a95ff', itemIds: [] },
-  { id: 'accounting', name: '経理部', color: '#b0acff', itemIds: [] },
-  { id: 'analytics', name: 'データ分析', color: '#8d9dff', itemIds: [] },
-  { id: 'general', name: '総合', color: '#0EA5E9', itemIds: [] },
+  { id: 'sales', name: '営業部', color: 'var(--dept-sales)', itemIds: [] },
+  { id: 'marketing', name: 'マーケ部', color: 'var(--dept-marketing)', itemIds: [] },
+  { id: 'accounting', name: '経理部', color: 'var(--dept-accounting)', itemIds: [] },
+  { id: 'analytics', name: 'データ分析', color: 'var(--dept-analytics)', itemIds: [] },
+  { id: 'general', name: '総合', color: 'var(--dept-general)', itemIds: [] },
 ];
 
 export const useDeliverablesStore = create<DeliverablesState>()(

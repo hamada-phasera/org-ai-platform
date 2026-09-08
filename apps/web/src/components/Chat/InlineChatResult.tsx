@@ -6,6 +6,7 @@ import {
   Twitter, Instagram, Linkedin,
 } from 'lucide-react';
 import { DEPT_ACCENT, DEPT_LABEL } from '../../constants/departments';
+import { PLATFORM_COLOR } from '../../constants/brand';
 import { parseOutputJson } from '../../utils/parseTaskOutput';
 
 interface TaskLog {
@@ -39,7 +40,7 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-      className="flex items-center gap-1 text-[10px] text-[#8A8A8A] hover:text-[#8b85ff] transition-colors px-1.5 py-0.5 rounded-lg"
+      className="flex items-center gap-1 text-micro text-text-muted hover:text-accent transition-colors px-1.5 py-0.5 rounded-lg"
     >
       {copied ? <Check size={10} /> : <Copy size={10} />}
       {copied ? 'コピー済' : 'コピー'}
@@ -52,22 +53,22 @@ function EmailPreview({ data, onAction }: { data: any; onAction?: (action: strin
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 mb-2">
-        <Mail size={14} className="text-[#8b85ff]" />
-        <span className="text-xs font-semibold text-[#2D2D2D]">メール</span>
+        <Mail size={14} className="text-accent" />
+        <span className="text-xs font-semibold text-primary">メール</span>
         <CopyButton text={`To: ${data.to}\n件名: ${data.subject}\n\n${data.body}`} />
       </div>
-      <div className="text-[11px] space-y-1">
-        <p><span className="text-[#8A8A8A]">To:</span> {data.to}</p>
-        {data.cc && <p><span className="text-[#8A8A8A]">CC:</span> {data.cc}</p>}
-        <p><span className="text-[#8A8A8A]">件名:</span> {data.subject}</p>
+      <div className="text-xs space-y-1">
+        <p><span className="text-text-muted">To:</span> {data.to}</p>
+        {data.cc && <p><span className="text-text-muted">CC:</span> {data.cc}</p>}
+        <p><span className="text-text-muted">件名:</span> {data.subject}</p>
       </div>
-      <div className="p-2.5 bg-[#f5f5f0] rounded-xl text-[11px] whitespace-pre-wrap max-h-36 overflow-y-auto text-[#2D2D2D] leading-relaxed">
+      <div className="p-2.5 bg-sunken rounded-xl text-xs whitespace-pre-wrap max-h-36 overflow-y-auto text-primary leading-relaxed">
         {data.body}
       </div>
       {onAction && (
         <motion.button
           onClick={() => onAction('send_email')}
-          className="w-full bg-[#8b85ff] hover:bg-[#7c76f2] text-white text-xs font-semibold py-2 rounded-xl flex items-center justify-center gap-1.5"
+          className="w-full bg-action hover:bg-action-hover text-inverse text-xs font-semibold py-2 rounded-xl flex items-center justify-center gap-1.5"
           whileTap={{ scale: 0.98 }}
         >
           <Send size={12} /> Gmail で送信
@@ -78,26 +79,25 @@ function EmailPreview({ data, onAction }: { data: any; onAction?: (action: strin
 }
 
 const PLATFORM_ICON: Record<string, typeof Twitter> = { twitter: Twitter, instagram: Instagram, linkedin: Linkedin };
-const PLATFORM_COLOR: Record<string, string> = { twitter: '#1DA1F2', instagram: '#E4405F', linkedin: '#0A66C2' };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function SNSPreview({ data, onAction }: { data: any; onAction?: (action: string) => void }) {
   const Icon = PLATFORM_ICON[data.platform] ?? Share2;
-  const color = PLATFORM_COLOR[data.platform] ?? '#8A8A8A';
+  const color = PLATFORM_COLOR[data.platform] ?? 'var(--text-secondary)';
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <Icon size={14} style={{ color }} />
-        <span className="text-xs font-semibold text-[#2D2D2D]">{data.platform?.toUpperCase()}</span>
+        <span className="text-xs font-semibold text-primary">{data.platform?.toUpperCase()}</span>
         <CopyButton text={data.content + '\n' + (data.hashtags ?? []).map((t: string) => `#${t}`).join(' ')} />
       </div>
-      <div className="p-2.5 bg-[#f5f5f0] rounded-xl text-[11px] whitespace-pre-wrap text-[#2D2D2D]">
+      <div className="p-2.5 bg-sunken rounded-xl text-xs whitespace-pre-wrap text-primary">
         {data.content}
       </div>
       {data.hashtags?.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {data.hashtags.map((tag: string) => (
-            <span key={tag} className="text-[10px] text-[#8b85ff] font-medium">#{tag}</span>
+            <span key={tag} className="text-micro text-accent font-medium">#{tag}</span>
           ))}
         </div>
       )}
@@ -120,13 +120,13 @@ function DocumentPreview({ data }: { data: any }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <FileText size={14} className="text-[#9a95ff]" />
-        <span className="text-xs font-semibold text-[#2D2D2D]">{data.title}</span>
+        <FileText size={14} className="text-accent" />
+        <span className="text-xs font-semibold text-primary">{data.title}</span>
         <CopyButton text={data.content ?? data.summary ?? ''} />
       </div>
-      {data.summary && <p className="text-[11px] text-[#8A8A8A]">{data.summary}</p>}
+      {data.summary && <p className="text-xs text-text-muted">{data.summary}</p>}
       {data.content && (
-        <div className="p-2.5 bg-[#f5f5f0] rounded-xl text-[11px] whitespace-pre-wrap max-h-40 overflow-y-auto text-[#2D2D2D] leading-relaxed">
+        <div className="p-2.5 bg-sunken rounded-xl text-xs whitespace-pre-wrap max-h-40 overflow-y-auto text-primary leading-relaxed">
           {typeof data.content === 'string' ? data.content.slice(0, 800) : JSON.stringify(data.content, null, 2).slice(0, 800)}
           {(data.content?.length ?? 0) > 800 ? '...' : ''}
         </div>
@@ -140,26 +140,26 @@ function SchedulePreview({ data, onAction }: { data: any; onAction?: (action: st
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <Calendar size={14} className="text-[#b0acff]" />
-        <span className="text-xs font-semibold text-[#2D2D2D]">{data.title}</span>
+        <Calendar size={14} className="text-accent" />
+        <span className="text-xs font-semibold text-primary">{data.title}</span>
       </div>
       {data.preferredDates && (
         <div className="space-y-1">
           {data.preferredDates.map((d: string, i: number) => (
-            <div key={i} className="flex items-center gap-2 text-[11px] text-[#2D2D2D] bg-[#f5f5f0] rounded-lg px-3 py-1.5">
-              <Calendar size={10} className="text-[#b0acff]" /> {d}
-              {data.duration && <span className="text-[#8A8A8A]">({data.duration}分)</span>}
+            <div key={i} className="flex items-center gap-2 text-xs text-primary bg-sunken rounded-lg px-3 py-1.5">
+              <Calendar size={10} className="text-accent" /> {d}
+              {data.duration && <span className="text-text-muted">({data.duration}分)</span>}
             </div>
           ))}
         </div>
       )}
       {data.participants?.length > 0 && (
-        <p className="text-[11px] text-[#8A8A8A]">参加者: {data.participants.join(', ')}</p>
+        <p className="text-xs text-text-muted">参加者: {data.participants.join(', ')}</p>
       )}
       {onAction && (
         <motion.button
           onClick={() => onAction('create_event')}
-          className="w-full bg-[#b0acff] hover:bg-[#c06806] text-white text-xs font-semibold py-2 rounded-xl flex items-center justify-center gap-1.5"
+          className="w-full bg-action hover:bg-action-hover text-inverse text-xs font-semibold py-2 rounded-xl flex items-center justify-center gap-1.5"
           whileTap={{ scale: 0.98 }}
         >
           <Calendar size={12} /> カレンダーに登録
@@ -174,35 +174,35 @@ function MeetingNotesPreview({ data }: { data: any }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <FileText size={14} className="text-[#8b85ff]" />
-        <span className="text-xs font-semibold text-[#2D2D2D]">{data.title}</span>
-        {data.date && <span className="text-[10px] text-[#8A8A8A]">{data.date}</span>}
+        <FileText size={14} className="text-accent" />
+        <span className="text-xs font-semibold text-primary">{data.title}</span>
+        {data.date && <span className="text-micro text-text-muted">{data.date}</span>}
       </div>
       {data.attendees?.length > 0 && (
-        <p className="text-[11px] text-[#8A8A8A]">参加者: {data.attendees.join(', ')}</p>
+        <p className="text-xs text-text-muted">参加者: {data.attendees.join(', ')}</p>
       )}
       {data.decisions?.length > 0 && (
         <div className="space-y-1">
-          <p className="text-[10px] font-semibold text-[#8A8A8A]">決定事項</p>
+          <p className="text-micro font-semibold text-text-muted">決定事項</p>
           {data.decisions.map((d: string, i: number) => (
-            <div key={i} className="flex gap-1.5 text-[11px] text-[#2D2D2D]">
-              <Check size={10} className="text-green-500 mt-0.5 flex-shrink-0" /> {d}
+            <div key={i} className="flex gap-1.5 text-xs text-primary">
+              <Check size={10} className="text-success mt-0.5 flex-shrink-0" /> {d}
             </div>
           ))}
         </div>
       )}
       {data.actionItems?.length > 0 && (
         <div className="space-y-1">
-          <p className="text-[10px] font-semibold text-[#8A8A8A]">アクションアイテム</p>
+          <p className="text-micro font-semibold text-text-muted">アクションアイテム</p>
           {data.actionItems.map((a: { assignee: string; task: string; deadline?: string }, i: number) => (
-            <div key={i} className="text-[11px] text-[#2D2D2D] bg-[#f5f5f0] rounded-lg px-2.5 py-1.5">
+            <div key={i} className="text-xs text-primary bg-sunken rounded-lg px-2.5 py-1.5">
               <span className="font-medium">{a.assignee}</span>: {a.task}
-              {a.deadline && <span className="text-[#8A8A8A] ml-1">({a.deadline})</span>}
+              {a.deadline && <span className="text-text-muted ml-1">({a.deadline})</span>}
             </div>
           ))}
         </div>
       )}
-      {data.summary && <p className="text-[11px] text-[#8A8A8A] italic">{data.summary}</p>}
+      {data.summary && <p className="text-xs text-text-muted italic">{data.summary}</p>}
     </div>
   );
 }
@@ -212,14 +212,14 @@ function ReceiptSummaryPreview({ data }: { data: any }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <FileText size={14} className="text-[#b0acff]" />
-        <span className="text-xs font-semibold text-[#2D2D2D]">経費まとめ</span>
+        <FileText size={14} className="text-accent" />
+        <span className="text-xs font-semibold text-primary">経費まとめ</span>
       </div>
       {data.receipts?.length > 0 && (
         <div className="overflow-x-auto">
-          <table className="w-full text-[11px]">
+          <table className="w-full text-xs">
             <thead>
-              <tr className="text-[#8A8A8A] border-b border-[#eae8e3]">
+              <tr className="text-text-muted border-b border-border">
                 <th className="text-left py-1 pr-2">日付</th>
                 <th className="text-left py-1 pr-2">取引先</th>
                 <th className="text-left py-1 pr-2">分類</th>
@@ -228,24 +228,24 @@ function ReceiptSummaryPreview({ data }: { data: any }) {
             </thead>
             <tbody>
               {data.receipts.map((r: { date: string; vendor: string; category: string; amount: number }, i: number) => (
-                <tr key={i} className="border-b border-[#f5f5f0]">
-                  <td className="py-1 pr-2 text-[#8A8A8A]">{r.date}</td>
-                  <td className="py-1 pr-2 text-[#2D2D2D]">{r.vendor}</td>
-                  <td className="py-1 pr-2 text-[#8A8A8A]">{r.category}</td>
-                  <td className="py-1 text-right text-[#2D2D2D] font-medium">¥{r.amount?.toLocaleString()}</td>
+                <tr key={i} className="border-b border-hairline">
+                  <td className="py-1 pr-2 text-text-muted">{r.date}</td>
+                  <td className="py-1 pr-2 text-primary">{r.vendor}</td>
+                  <td className="py-1 pr-2 text-text-muted">{r.category}</td>
+                  <td className="py-1 text-right text-primary font-medium">¥{r.amount?.toLocaleString()}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr className="font-semibold">
-                <td colSpan={3} className="py-1.5 text-[#8A8A8A]">合計</td>
-                <td className="py-1.5 text-right text-[#2D2D2D]">¥{data.totalAmount?.toLocaleString()}</td>
+                <td colSpan={3} className="py-1.5 text-text-muted">合計</td>
+                <td className="py-1.5 text-right text-primary">¥{data.totalAmount?.toLocaleString()}</td>
               </tr>
             </tfoot>
           </table>
         </div>
       )}
-      {data.summary && <p className="text-[11px] text-[#8A8A8A]">{data.summary}</p>}
+      {data.summary && <p className="text-xs text-text-muted">{data.summary}</p>}
     </div>
   );
 }
@@ -256,25 +256,25 @@ function AnalyticsPreview({ data }: { data: any }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <BarChart3 size={14} className="text-[#8d9dff]" />
-        <span className="text-xs font-semibold text-[#2D2D2D]">{data.title}</span>
+        <BarChart3 size={14} className="text-accent" />
+        <span className="text-xs font-semibold text-primary">{data.title}</span>
       </div>
-      {data.summary && <p className="text-[11px] text-[#8A8A8A]">{data.summary}</p>}
+      {data.summary && <p className="text-xs text-text-muted">{data.summary}</p>}
       {/* Simple bar chart */}
       {data.chartType === 'bar' && data.data?.length > 0 && (
         <div className="space-y-1.5 pt-1">
           {data.data.slice(0, 8).map((d: { label: string; value: number }, i: number) => (
-            <div key={i} className="flex items-center gap-2 text-[11px]">
-              <span className="w-16 text-[#8A8A8A] truncate flex-shrink-0">{d.label}</span>
-              <div className="flex-1 h-4 bg-[#f5f5f0] rounded-full overflow-hidden">
+            <div key={i} className="flex items-center gap-2 text-xs">
+              <span className="w-16 text-text-muted truncate flex-shrink-0">{d.label}</span>
+              <div className="flex-1 h-4 bg-sunken rounded-full overflow-hidden">
                 <motion.div
-                  className="h-full rounded-full bg-[#8d9dff]"
+                  className="h-full rounded-full bg-accent"
                   initial={{ width: 0 }}
                   animate={{ width: `${(d.value / maxVal) * 100}%` }}
                   transition={{ duration: 0.5, delay: i * 0.05 }}
                 />
               </div>
-              <span className="text-[#2D2D2D] font-medium w-12 text-right">{d.value}</span>
+              <span className="text-primary font-medium w-12 text-right">{d.value}</span>
             </div>
           ))}
         </div>
@@ -284,15 +284,15 @@ function AnalyticsPreview({ data }: { data: any }) {
         <div className="space-y-2 pt-1">
           {data.sections.slice(0, 4).map((s: { heading: string; content: string }, i: number) => (
             <div key={i}>
-              <p className="text-[11px] font-semibold text-[#2D2D2D]">{s.heading}</p>
-              <p className="text-[11px] text-[#8A8A8A] line-clamp-3">{s.content}</p>
+              <p className="text-xs font-semibold text-primary">{s.heading}</p>
+              <p className="text-xs text-text-muted line-clamp-3">{s.content}</p>
             </div>
           ))}
         </div>
       )}
       {data.conclusion && (
-        <div className="p-2 bg-[#8d9dff]/5 rounded-lg">
-          <p className="text-[11px] text-[#8d9dff] font-medium">{data.conclusion}</p>
+        <div className="p-2 bg-accent-soft rounded-lg">
+          <p className="text-xs text-accent font-medium">{data.conclusion}</p>
         </div>
       )}
     </div>
@@ -302,7 +302,7 @@ function AnalyticsPreview({ data }: { data: any }) {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function TaskResultPanel({ data, onAction }: { data: any; onAction?: (action: string) => void }) {
   const taskType = data?.taskType;
-  if (!taskType) return <pre className="text-[11px] text-[#8A8A8A] whitespace-pre-wrap">{JSON.stringify(data, null, 2)}</pre>;
+  if (!taskType) return <pre className="text-xs text-text-muted whitespace-pre-wrap">{JSON.stringify(data, null, 2)}</pre>;
 
   switch (taskType) {
     case 'email': return <EmailPreview data={data} onAction={onAction} />;
@@ -322,22 +322,24 @@ function TaskResultPanel({ data, onAction }: { data: any; onAction?: (action: st
 
 export function InlineChatResult({ taskTitle, department, logs, status, output, onApprove, onReject, onAction }: InlineChatResultProps) {
   const [expanded, setExpanded] = useState(true);
-  const accent = DEPT_ACCENT[department] ?? '#8A8A8A';
+  const accent = DEPT_ACCENT[department] ?? DEPT_ACCENT.GENERAL;
   const currentStep = Math.min(logs.length, STEP_LABELS.length - 1);
 
   const parsedOutput = useMemo(() => parseOutputJson(output), [output]);
 
   return (
     <motion.div
-      className="bg-white border border-[#eae8e3] rounded-2xl overflow-hidden shadow-sm"
+      className="bg-elevated border border-border rounded-2xl overflow-hidden shadow-elev-1"
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
     >
       {/* Header */}
-      <div
-        className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-[#faf9f7] transition-colors"
+      <button
+        type="button"
+        className="w-full text-left flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-sunken transition-colors"
         onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
       >
         <div
           className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -346,17 +348,17 @@ export function InlineChatResult({ taskTitle, department, logs, status, output, 
           <Zap size={15} style={{ color: accent }} />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-[#2D2D2D] truncate">{taskTitle}</p>
-          <p className="text-[10px] text-[#8A8A8A]">
+          <p className="text-sm font-semibold text-primary truncate">{taskTitle}</p>
+          <p className="text-micro text-text-muted">
             {DEPT_LABEL[department] ?? department} タスク
           </p>
         </div>
-        {status === 'executing' && <Loader2 size={14} className="text-[#8b85ff] animate-spin" />}
-        {status === 'done' && <Check size={14} className="text-green-500" />}
-        {status === 'failed' && <AlertCircle size={14} className="text-red-400" />}
-        {status === 'rejected' && <X size={14} className="text-red-400" />}
-        {expanded ? <ChevronUp size={14} className="text-[#BCBCBC]" /> : <ChevronDown size={14} className="text-[#BCBCBC]" />}
-      </div>
+        {status === 'executing' && <Loader2 size={14} className="text-accent animate-spin" />}
+        {status === 'done' && <Check size={14} className="text-success" />}
+        {status === 'failed' && <AlertCircle size={14} className="text-danger" />}
+        {status === 'rejected' && <X size={14} className="text-danger" />}
+        {expanded ? <ChevronUp size={14} className="text-text-muted" /> : <ChevronDown size={14} className="text-text-muted" />}
+      </button>
 
       {/* Content */}
       <AnimatePresence>
@@ -372,11 +374,11 @@ export function InlineChatResult({ taskTitle, department, logs, status, output, 
               {/* Executing */}
               {status === 'executing' && (
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-xs text-[#8b85ff] font-medium">
+                  <div className="flex items-center gap-2 text-xs text-accent font-medium" aria-live="polite">
                     <Loader2 size={12} className="animate-spin" />
                     {STEP_LABELS[currentStep]}
                   </div>
-                  <div className="w-full h-1.5 bg-[#f5f5f0] rounded-full overflow-hidden">
+                  <div className="w-full h-1.5 bg-sunken rounded-full overflow-hidden">
                     <motion.div
                       className="h-full rounded-full"
                       style={{ backgroundColor: accent }}
@@ -388,9 +390,9 @@ export function InlineChatResult({ taskTitle, department, logs, status, output, 
                   {logs.length > 0 && (
                     <div className="max-h-32 overflow-y-auto space-y-1 pt-1">
                       {logs.map((log, i) => (
-                        <motion.div key={i} className="flex items-start gap-2 text-[11px]" initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}>
-                          <span className={`w-1.5 h-1.5 rounded-full mt-1 flex-shrink-0 ${log.level === 'ERROR' ? 'bg-red-400' : log.level === 'WARN' ? 'bg-yellow-400' : 'bg-green-400'}`} />
-                          <span className="text-[#8A8A8A]">{log.message}</span>
+                        <motion.div key={i} className="flex items-start gap-2 text-xs" initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}>
+                          <span className={`w-1.5 h-1.5 rounded-full mt-1 flex-shrink-0 ${log.level === 'ERROR' ? 'bg-danger' : log.level === 'WARN' ? 'bg-warning' : 'bg-success'}`} />
+                          <span className="text-text-muted">{log.message}</span>
                         </motion.div>
                       ))}
                     </div>
@@ -401,14 +403,14 @@ export function InlineChatResult({ taskTitle, department, logs, status, output, 
               {/* Done: タスクタイプ別リッチ表示 */}
               {status === 'done' && (
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-xs text-green-600 font-medium">
+                  <div className="flex items-center gap-2 text-xs text-success font-medium">
                     <Check size={12} />
                     タスク完了
                   </div>
                   {parsedOutput ? (
                     <TaskResultPanel data={parsedOutput} onAction={onAction} />
                   ) : output ? (
-                    <div className="p-2.5 bg-[#f5f5f0] rounded-xl text-[11px] whitespace-pre-wrap max-h-48 overflow-y-auto text-[#2D2D2D]">
+                    <div className="p-2.5 bg-sunken rounded-xl text-xs whitespace-pre-wrap max-h-48 overflow-y-auto text-primary">
                       {output}
                     </div>
                   ) : null}
@@ -418,15 +420,15 @@ export function InlineChatResult({ taskTitle, department, logs, status, output, 
               {/* Failed */}
               {status === 'failed' && (
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-xs text-red-500 font-medium">
+                  <div className="flex items-center gap-2 text-xs text-danger font-medium">
                     <AlertCircle size={12} /> タスク失敗
                   </div>
                   {logs.length > 0 && (
                     <div className="max-h-24 overflow-y-auto space-y-1 pt-1">
                       {logs.slice(-3).map((log, i) => (
-                        <div key={i} className="flex items-start gap-2 text-[11px]">
-                          <span className={`w-1.5 h-1.5 rounded-full mt-1 flex-shrink-0 ${log.level === 'ERROR' ? 'bg-red-400' : 'bg-gray-400'}`} />
-                          <span className="text-[#8A8A8A]">{log.message}</span>
+                        <div key={i} className="flex items-start gap-2 text-xs">
+                          <span className={`w-1.5 h-1.5 rounded-full mt-1 flex-shrink-0 ${log.level === 'ERROR' ? 'bg-danger' : 'bg-ink-decorative'}`} />
+                          <span className="text-text-muted">{log.message}</span>
                         </div>
                       ))}
                     </div>
@@ -436,7 +438,7 @@ export function InlineChatResult({ taskTitle, department, logs, status, output, 
 
               {/* Rejected */}
               {status === 'rejected' && (
-                <div className="flex items-center gap-2 text-xs text-[#8A8A8A] py-1">
+                <div className="flex items-center gap-2 text-xs text-text-muted py-1">
                   <X size={12} /> タスクをキャンセルしました
                 </div>
               )}
@@ -444,10 +446,10 @@ export function InlineChatResult({ taskTitle, department, logs, status, output, 
               {/* Pending */}
               {status === 'pending' && (
                 <div className="flex gap-2 pt-2">
-                  <motion.button onClick={onApprove} className="flex-1 bg-[#8b85ff] hover:bg-[#7c76f2] text-white text-xs font-semibold py-2.5 rounded-xl flex items-center justify-center gap-1.5" whileTap={{ scale: 0.98 }}>
+                  <motion.button onClick={onApprove} className="flex-1 bg-action hover:bg-action-hover text-inverse text-xs font-semibold py-2.5 rounded-xl flex items-center justify-center gap-1.5" whileTap={{ scale: 0.98 }}>
                     <Check size={13} /> 承認・実行
                   </motion.button>
-                  <motion.button onClick={onReject} className="flex-1 bg-[#f5f5f0] hover:bg-gray-200 text-[#8A8A8A] text-xs font-semibold py-2.5 rounded-xl flex items-center justify-center gap-1.5" whileTap={{ scale: 0.98 }}>
+                  <motion.button onClick={onReject} className="flex-1 bg-sunken hover:bg-border text-text-muted text-xs font-semibold py-2.5 rounded-xl flex items-center justify-center gap-1.5" whileTap={{ scale: 0.98 }}>
                     <X size={13} /> 却下
                   </motion.button>
                 </div>

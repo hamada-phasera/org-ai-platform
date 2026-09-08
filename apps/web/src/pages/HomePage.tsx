@@ -5,9 +5,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BarChart, Bar, ResponsiveContainer, XAxis, Tooltip, Cell } from 'recharts';
 import { Plus, Play, Clock, Target, TrendingUp, Bot, ArrowRight } from 'lucide-react';
 import { api } from '../services/api';
-import { GlassCard } from '../components/ui/GlassCard';
-import { GlassButton } from '../components/ui/GlassButton';
-import { GlassBadge } from '../components/ui/GlassBadge';
+import { Card } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
 import { Spinner } from '../components/ui/LoadingSkeleton';
 import { CreateAgentModal } from '../components/Agents/CreateAgentModal';
 import { AgentRunModal } from '../components/Agents/AgentRunModal';
@@ -65,9 +65,9 @@ export default function HomePage() {
             </h1>
             <p className="text-sm text-secondary mt-1">AIが肩代わりした業務量と、1日25%削減の達成度</p>
           </div>
-          <GlassButton variant="primary" icon={<Plus size={14} />} onClick={() => setShowCreate(true)}>
+          <Button variant="primary" icon={<Plus size={14} />} onClick={() => setShowCreate(true)}>
             エージェント作成
-          </GlassButton>
+          </Button>
         </div>
 
         {isLoading ? (
@@ -99,7 +99,7 @@ export default function HomePage() {
             {/* 25% goal + trend */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-3">
               {/* Goal */}
-              <GlassCard variant="regular" padding="none" className="p-5 lg:col-span-1">
+              <Card variant="regular" padding="none" className="p-5 lg:col-span-1">
                 <div className="flex items-center gap-2 mb-4">
                   <Target size={16} className="text-accent" />
                   <span className="text-sm font-semibold text-primary">1日の目標: 業務の25%削減</span>
@@ -114,13 +114,13 @@ export default function HomePage() {
                 {eff?.today.targetReached && (
                   <p className="text-center text-xs text-success font-medium mt-1">🎉 本日の目標達成！</p>
                 )}
-              </GlassCard>
+              </Card>
 
               {/* Trend */}
-              <GlassCard variant="regular" padding="none" className="p-5 lg:col-span-2">
+              <Card variant="regular" padding="none" className="p-5 lg:col-span-2">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-sm font-semibold text-primary">直近7日の削減時間（分）</span>
-                  <GlassBadge>目標 {target}分/日</GlassBadge>
+                  <Badge>目標 {target}分/日</Badge>
                 </div>
                 <div className="h-44">
                   <ResponsiveContainer width="100%" height="100%">
@@ -145,18 +145,18 @@ export default function HomePage() {
                       />
                       <Bar dataKey="minutesSaved" radius={[5, 5, 0, 0]} maxBarSize={34}>
                         {trend.map((d, i) => (
-                          <Cell key={i} fill={d.minutesSaved >= target ? '#16A34A' : 'var(--accent)'} />
+                          <Cell key={i} fill={d.minutesSaved >= target ? 'var(--success)' : 'var(--accent)'} />
                         ))}
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
-              </GlassCard>
+              </Card>
             </div>
 
             {/* Department breakdown */}
             {(eff?.byDepartment.length ?? 0) > 0 && (
-              <GlassCard variant="regular" padding="none" className="p-5 mb-3">
+              <Card variant="regular" padding="none" className="p-5 mb-3">
                 <span className="text-sm font-semibold text-primary">部署別の貢献</span>
                 <div className="mt-3 space-y-2.5">
                   {eff!.byDepartment.map((d) => (
@@ -164,7 +164,7 @@ export default function HomePage() {
                       <span className="w-20 text-xs text-secondary flex-shrink-0">
                         {DEPT_LABEL[d.department] ?? d.department}
                       </span>
-                      <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                      <div className="flex-1 h-2 rounded-full bg-sunken overflow-hidden">
                         <div
                           className="h-full rounded-full"
                           style={{
@@ -179,7 +179,7 @@ export default function HomePage() {
                     </div>
                   ))}
                 </div>
-              </GlassCard>
+              </Card>
             )}
 
             {/* Agents */}
@@ -193,19 +193,19 @@ export default function HomePage() {
               </button>
             </div>
             {(agents?.length ?? 0) === 0 ? (
-              <GlassCard variant="regular" padding="none" className="p-6 text-center">
+              <Card variant="regular" padding="none" className="p-6 text-center">
                 <Bot size={26} className="mx-auto mb-2 text-text-muted" />
                 <p className="text-sm text-secondary mb-3">
                   まだエージェントがありません。作成すると業務を自動化できます。
                 </p>
-                <GlassButton variant="primary" size="sm" icon={<Plus size={13} />} onClick={() => setShowCreate(true)}>
+                <Button variant="primary" size="sm" icon={<Plus size={13} />} onClick={() => setShowCreate(true)}>
                   最初のエージェントを作成
-                </GlassButton>
-              </GlassCard>
+                </Button>
+              </Card>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {agents!.slice(0, 6).map((a) => (
-                  <GlassCard key={a.id} variant="regular" padding="none" className="p-4 flex flex-col">
+                  <Card key={a.id} variant="regular" padding="none" className="p-4 flex flex-col">
                     <div className="flex items-center gap-2 mb-1.5">
                       <span className="text-lg">{a.icon ?? '🤖'}</span>
                       <span className="text-sm font-semibold text-primary truncate">{a.name}</span>
@@ -214,12 +214,12 @@ export default function HomePage() {
                       {a.description || a.instructions}
                     </p>
                     <div className="flex items-center justify-between">
-                      <GlassBadge>{DEPT_LABEL[a.department] ?? a.department}</GlassBadge>
-                      <GlassButton size="sm" icon={<Play size={12} />} onClick={() => setRunAgent(a)} disabled={!a.enabled}>
+                      <Badge>{DEPT_LABEL[a.department] ?? a.department}</Badge>
+                      <Button size="sm" icon={<Play size={12} />} onClick={() => setRunAgent(a)} disabled={!a.enabled}>
                         実行
-                      </GlassButton>
+                      </Button>
                     </div>
-                  </GlassCard>
+                  </Card>
                 ))}
               </div>
             )}
@@ -250,14 +250,14 @@ export default function HomePage() {
 
 function KpiCard({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string; sub: string }) {
   return (
-    <GlassCard variant="regular" padding="none" className="p-4">
+    <Card variant="regular" padding="none" className="p-4">
       <div className="flex items-center gap-1.5 text-text-muted mb-2">
         {icon}
         <span className="text-xs font-medium">{label}</span>
       </div>
       <div className="text-h2 font-bold text-primary tracking-tight">{value}</div>
       <div className="text-xs text-secondary mt-1">{sub}</div>
-    </GlassCard>
+    </Card>
   );
 }
 
@@ -275,7 +275,7 @@ function Ring({ percent }: { percent: number }) {
           cy={66}
           r={r}
           fill="none"
-          stroke={reached ? '#16A34A' : 'var(--accent)'}
+          stroke={reached ? 'var(--success)' : 'var(--accent)'}
           strokeWidth={10}
           strokeLinecap="round"
           strokeDasharray={c}

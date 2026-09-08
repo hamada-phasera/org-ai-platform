@@ -52,7 +52,7 @@ export async function syncUpdateTaskStatus(localId: string, patch: Partial<Task>
     const tasks = res.data.data;
     // rawInputや作成タイミングで厳密には一致しないため、
     // 直近タスクのID照合はスキップし、タイトルベースで最初にマッチしたものを更新
-    const match = tasks.find((t) => t.title === patch.title ?? t.title);
+    const match = tasks.find((t) => t.title === patch.title);
     if (!match) return;
 
     const updateBody: Record<string, string> = {};

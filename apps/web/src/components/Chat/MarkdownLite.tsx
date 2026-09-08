@@ -112,5 +112,5 @@ export function MarkdownLite({ text }: { text: string }) {
     i += 1;
   }
 
-  return <div className="text-sm leading-relaxed text-[#2D2D2D]">{blocks}</div>;
+  return <div className="text-sm leading-relaxed text-primary">{blocks}</div>;
 }

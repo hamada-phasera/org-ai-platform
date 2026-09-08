@@ -66,6 +66,11 @@ services:
         sync: false
       - key: N8N_WEBHOOK_AUTH_TOKEN
         sync: false
+      # LINE 受信箱: チャネル資格情報 (channel secret / access token) の暗号化鍵。
+      # 32 バイトを 64 桁 hex または base64 で指定。未設定時は JWT_SECRET から導出
+      # （JWT_SECRET をローテすると既存の接続が復号不能になるため独立設定を推奨）。
+      - key: CHANNEL_CREDENTIAL_ENC_KEY
+        sync: false
 
   - type: web
     name: org-ai-ai-engine
@@ -89,7 +94,14 @@ services:
         sync: false
 
   - type: web
-    name: org-ai-n8n
+    # ⚠️ 実際に稼働しているサービス名は org-ai-n8n-web。ここが `org-ai-n8n` のままだと
+    #    宣言と実態が食い違う（2026-08-24 の実機確認: org-ai-n8n は
+    #    x-render-routing: suspend-by-user で停止中、org-ai-n8n-web が 200 を返し
+    #    Supabase の n8n スキーマに結線されている）。
+    # ⚠️ Blueprint 同期でサービス名を変更すると、Render は旧サービスを削除して新規作成する
+    #    ことがある。この行を変えたまま同期する前に、必ずダッシュボードで
+    #    org-ai-n8n-web が Blueprint 管理下にあるかを確認すること。
+    name: org-ai-n8n-web
     runtime: image
     image:
       # ⚠️ :latest は不意のメジャー更新→大量DBマイグレーション+OOM を誘発した実績あり（2026-07-08）。

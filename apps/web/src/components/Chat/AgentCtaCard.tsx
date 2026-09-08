@@ -21,13 +21,13 @@ interface Props {
  * 押し付けがましくならないよう、控えめなトーン＋「あとで」で閉じられる。
  */
 export function AgentCtaCard({ draft, onCreate, onDismiss }: Props) {
-  const accent = DEPT_ACCENT[draft.department] ?? '#4F46E5';
+  const accent = DEPT_ACCENT[draft.department] ?? DEPT_ACCENT.GENERAL;
   const char = DEPT_CHARACTER[draft.department];
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="max-w-md rounded-2xl border bg-white p-3.5 shadow-sm"
+      className="max-w-md rounded-2xl border bg-elevated p-3.5 shadow-sm"
       style={{ borderColor: `${accent}33` }}
     >
       <div className="flex items-start gap-3">
@@ -35,7 +35,7 @@ export function AgentCtaCard({ draft, onCreate, onDismiss }: Props) {
           <img
             src={char.image}
             alt=""
-            className="h-10 w-10 flex-shrink-0 rounded-full bg-muted object-cover"
+            className="h-10 w-10 flex-shrink-0 rounded-full bg-sunken object-cover"
             style={{ boxShadow: `0 0 0 2px ${accent}33` }}
           />
         ) : (
@@ -52,12 +52,12 @@ export function AgentCtaCard({ draft, onCreate, onDismiss }: Props) {
             <Sparkles size={13} style={{ color: accent }} />
             <span className="text-xs font-semibold text-primary">この作業、エージェント化できます</span>
           </div>
-          <p className="mb-2 text-[11px] leading-relaxed text-secondary">
+          <p className="mb-2 text-xs leading-relaxed text-secondary">
             次回からワンタップで自動実行できる
             <span className="font-semibold text-primary">「{draft.name}」</span>
             を作成しますか？
             <span
-              className="ml-1 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium align-middle"
+              className="ml-1 inline-block rounded-full px-1.5 py-0.5 text-micro font-medium align-middle"
               style={{ backgroundColor: `${accent}15`, color: accent }}
             >
               {DEPT_LABEL[draft.department] ?? draft.department}

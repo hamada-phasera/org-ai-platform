@@ -3,69 +3,84 @@
 @tailwind utilities;
 
 /* ================================================================
- * FLOW — Clean Professional (neutral slate + indigo accent)
- * Light + dark via CSS variables. Flat surfaces, hairline borders,
- * subtle shadows. No rainbow / heavy glass.
+ * FLOW Design System v3 — Stripe風モダンSaaS（白基調＋#635BFF）
+ *
+ * 面は不透明な白＋ソフトシャドウ3段。半透明ガラス・backdrop-filter は
+ * 使わない（v2 リキッドガラスは全面撤去）。ダークモードは廃止。
+ * 正本のモック: design-canvas/stripe-v3/（main ブランチ）
+ *
+ * 変数名は v1/v2 から変えていない。全コンポーネントが参照しているため、
+ * 名前は保ったまま値だけ入れ替える方針。
  * ================================================================ */
 
 :root {
-  --bg: #f7f8fa;
+  /* ── 面 ── */
+  --bg: #f6f9fc;
   --surface: #ffffff;
-  --surface-2: #f1f3f6;
-  --border: #e6e8ec;
-  --border-strong: #d7dbe2;
+  --surface-2: #eef2f7;
+  --hairline: #eef2f6;
+  --border: #e6ebf1;
+  --border-strong: #d5dbe1;
 
-  --text-primary: #0f172a;
-  --text-secondary: #5b6573;
-  --text-muted: #98a1ae;
+  /* ── 文字 ──
+   * --text-muted が下限。これより薄い色を文字に使わないこと。
+   * 比率はキャンバス地 #F6F9FC 上の実測:
+   *   --text-secondary 7.6:1 / --text-muted 4.9:1 */
+  --text-primary: #0a2540;
+  --text-secondary: #425466;
+  --text-muted: #687385;
   --text-inverse: #ffffff;
+  /* 文字には使わない。罫線と装飾アイコン専用。 */
+  --ink-decorative: #a3acb9;
 
-  --accent: #4f46e5;
-  --accent-hover: #4338ca;
-  --accent-soft: #eef2ff;
-  --accent-glow: rgba(79, 70, 229, 0.16);
+  /* ── 主アクション ── v3 ではブランドのブルーバイオレットを塗る。
+   * ただし塗り面積は小さく保つ（主役は白とインク、青は導く色）。 */
+  --action: #635bff;
+  --action-hover: #5851df;
 
-  --shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05);
-  --shadow-2: 0 1px 3px rgba(15, 23, 42, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-3: 0 4px 12px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.04);
-  --shadow-4: 0 12px 32px rgba(15, 23, 42, 0.12), 0 4px 8px rgba(15, 23, 42, 0.06);
+  /* ── アクセント（フォーカス・リンク・選択中）。主アクションと同色 ── */
+  --accent: #635bff;
+  --accent-hover: #5851df;
+  --accent-soft: #f4f4ff;
+  --accent-soft-border: #dedbff;
+  --accent-on-dark: #c6c2ff;
+  --accent-glow: rgba(99, 91, 255, 0.24);
+  --focus-ring: #635bff;
 
+  /* ── 影3段（Stripe風ソフトシャドウ）。角丸は 8 / 12 / 16（tailwind.config.js） ── */
+  --shadow-1: 0 1px 2px rgba(16, 36, 64, 0.07), 0 1px 5px rgba(16, 36, 64, 0.04);
+  --shadow-2: 0 6px 12px -2px rgba(50, 50, 93, 0.12), 0 3px 7px -3px rgba(0, 0, 0, 0.12);
+  --shadow-3: 0 15px 35px rgba(60, 66, 87, 0.11), 0 5px 15px rgba(0, 0, 0, 0.07);
+  --shadow-4: 0 24px 48px rgba(50, 50, 93, 0.16), 0 8px 16px rgba(0, 0, 0, 0.08);
+
+  /* ── ブランドのグラデーション。3px のストリップ専用（面には塗らない） ── */
+  --grad: linear-gradient(90deg, #11efe3, #635bff 46%, #e932a5);
+
+  /* ── セグメントコントロールのトラック（タブ・部署トグル） ── */
+  --seg-track: #eef2f7;
+
+  /* モーダル等のスクリム */
+  --overlay: rgba(10, 37, 64, 0.42);
+
+  /* ── ステータス（意味の色）。tailwind の success/warning/danger/info はここを指す ──
+   * *-rgb は Tailwind のアルファ修飾（bg-danger/10 等）用の三つ組。hex と必ず同じ色に保つ。 */
+  --success: #1a9c6b;
+  --warning: #b25e09;
+  --danger: #df1b41;
+  --info: #0570de;
+  --success-rgb: 26 156 107;
+  --warning-rgb: 178 94 9;
+  --danger-rgb: 223 27 65;
+  --info-rgb: 5 112 222;
+  --accent-rgb: 99 91 255;
+
+  /* ── 部署（データの色） ── */
   --dept-sales: #4f46e5;
-  --dept-marketing: #7c3aed;
-  --dept-accounting: #0ea5e9;
+  --dept-marketing: #9333ea;
+  --dept-accounting: #0284c7;
   --dept-analytics: #0d9488;
   --dept-general: #475569;
   --dept-assistant: #4f46e5;
-}
-
-.dark {
-  --bg: #0b0f17;
-  --surface: #131a26;
-  --surface-2: #1b2333;
-  --border: #232c3d;
-  --border-strong: #313c52;
-
-  --text-primary: #e9edf3;
-  --text-secondary: #9aa4b4;
-  --text-muted: #6b7585;
-  --text-inverse: #ffffff;
-
-  --accent: #6366f1;
-  --accent-hover: #818cf8;
-  --accent-soft: rgba(99, 102, 241, 0.14);
-  --accent-glow: rgba(99, 102, 241, 0.25);
-
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-2: 0 1px 3px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-3: 0 4px 14px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.35);
-  --shadow-4: 0 16px 40px rgba(0, 0, 0, 0.6), 0 4px 10px rgba(0, 0, 0, 0.4);
-
-  --dept-sales: #818cf8;
-  --dept-marketing: #a78bfa;
-  --dept-accounting: #38bdf8;
-  --dept-analytics: #2dd4bf;
-  --dept-general: #94a3b8;
-  --dept-assistant: #818cf8;
 }
 
 html,
@@ -75,10 +90,16 @@ body {
 }
 
 body {
-  font-family: 'Inter', 'Noto Sans JP', system-ui, sans-serif;
+  font-family: 'Figtree', 'Hiragino Sans', 'Noto Sans JP', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
+}
+
+/* 数字は等幅・桁揃え。金額や件数が縦に並ぶと揃っていないのが目立つ。 */
+.tabular,
+.font-mono {
+  font-variant-numeric: tabular-nums;
 }
 
 ::selection {
@@ -87,8 +108,15 @@ body {
 }
 
 .font-display {
-  font-family: 'Inter', 'Noto Sans JP', system-ui, sans-serif;
-  letter-spacing: -0.01em;
+  font-family: 'Figtree', 'Hiragino Sans', 'Noto Sans JP', system-ui, sans-serif;
+  letter-spacing: -0.02em;
+}
+
+/* フォーカスリング。v1 は focus-visible が全12,750行で0件だった。 */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .scrollbar-hide::-webkit-scrollbar {
@@ -104,9 +132,20 @@ body {
 .text-pretty {
   text-wrap: pretty;
 }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
 
-/* ── Surfaces (formerly "glass-*"): now flat, clean cards ── */
 @layer components {
+  /* ── 面（旧 glass-*）。名前は JSX が参照しているので残し、中身はフラットな白 ── */
   .glass-thin {
     background: var(--surface-2);
     border: 1px solid var(--border);
@@ -126,38 +165,23 @@ body {
     border: 1px solid var(--border);
     box-shadow: var(--shadow-3);
   }
-  /* reflection / shimmer decorations → no-ops in the clean theme */
   .glass-reflection-top::before {
     content: none;
   }
   .glass-shimmer::after {
     content: none;
   }
+
+  /* ── ブランドの3pxストリップ（ヒーロー・モーダル上端の唯一のグラデ許可地） ── */
+  .brand-strip {
+    height: 3px;
+    border-radius: 9999px;
+    background: var(--grad);
+  }
 }
 
-/* ── Navigation pill / icon shells (formerly rainbow liquid) → clean ── */
-.liquid-pill-shell,
-.liquid-bar-shell,
-.liquid-icon-shell,
-.liquid-unified-nav-shell,
-.footer-search-iridescent {
-  border-radius: 14px;
-  background: transparent;
-}
-.liquid-pill-inner,
-.liquid-bar-inner,
-.liquid-icon-inner,
-.liquid-unified-nav-inner {
-  border-radius: 14px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-2);
-}
-.liquid-icon-shell,
-.liquid-icon-inner {
-  border-radius: 9999px;
-}
-
+/* CSS アニメーションはここで止まるが、framer-motion の transform は止まらない。
+ * JS 側は useReducedMotion() を見ること（components/motion/springs.ts）。 */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

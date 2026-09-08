@@ -1,101 +1,93 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  darkMode: 'class',
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {
-        // ── themeable tokens (CSS vars; switch in light/.dark) ──
+        // ── テーマ変数（src/index.css の :root / .dark で切り替わる） ──
         canvas: 'var(--bg)',
         elevated: 'var(--surface)',
-        muted: 'var(--surface-2)',
-        overlay: 'rgba(2, 6, 23, 0.55)',
+        // 面の色。`muted` という名前だと text-muted ユーティリティを乗っ取り、
+        // 111箇所の副次テキストが白地に白で描かれていた（v1 からの既存バグ）。
+        sunken: 'var(--surface-2)',
+        hairline: 'var(--hairline)',
+        overlay: 'var(--overlay)', // ダークで濃くなる（index.css）
 
         primary: 'var(--text-primary)',
         secondary: 'var(--text-secondary)',
+        // `muted` は文字の色。面は `sunken`。
+        // 逆にすると text-muted が面の色（ほぼ白）を指し、白地に白の文字になる。
+        muted: 'var(--text-muted)',
         'text-muted': 'var(--text-muted)',
-        inverse: '#FFFFFF',
+        'ink-decorative': 'var(--ink-decorative)', // 文字には使わない。罫線と装飾アイコン専用
+        inverse: 'var(--text-inverse)',
 
         border: 'var(--border)',
         'border-strong': 'var(--border-strong)',
 
+        // 主アクション。アクセント案(A/B/C)の切り替えは index.css の --action 2行だけ
+        action: {
+          DEFAULT: 'var(--action)',
+          hover: 'var(--action-hover)',
+        },
+
         accent: {
-          DEFAULT: 'var(--accent)',
+          DEFAULT: 'rgb(var(--accent-rgb) / <alpha-value>)',
           hover: 'var(--accent-hover)',
           soft: 'var(--accent-soft)',
+          'soft-border': 'var(--accent-soft-border)',
+          'on-dark': 'var(--accent-on-dark)',
           glow: 'var(--accent-glow)',
         },
 
-        // department accents — professional muted multi-hue (not pastel rainbow)
+        // 部署＝データの色。アクセントとは役割が違うので直値で持つ
         dept: {
-          sales: '#4F46E5', // indigo
-          marketing: '#7C3AED', // violet
-          accounting: '#0EA5E9', // sky
-          analytics: '#0D9488', // teal
-          general: '#475569', // slate
-          assistant: '#4F46E5',
+          sales: 'var(--dept-sales)',
+          marketing: 'var(--dept-marketing)',
+          accounting: 'var(--dept-accounting)',
+          analytics: 'var(--dept-analytics)',
+          general: 'var(--dept-general)',
+          assistant: 'var(--dept-assistant)',
         },
 
-        success: '#16A34A',
-        warning: '#D97706',
-        danger: '#DC2626',
-        info: '#0284C7',
-
-        // legacy "glass" tint keys kept so existing classes don't break,
-        // now mapped to flat surface vars.
-        glass: {
-          'tint-thin': 'var(--surface-2)',
-          'tint-regular': 'var(--surface)',
-          'tint-thick': 'var(--surface)',
-          'tint-chrome': 'var(--surface)',
-          'border-soft': 'var(--border)',
-          'border-bright': 'var(--border-strong)',
-          highlight: 'rgba(255,255,255,0.04)',
-        },
-        // legacy rainbow keys → neutral (kept to avoid breakage)
-        rainbow: {
-          coral: 'var(--surface)',
-          peach: 'var(--surface-2)',
-          gold: 'var(--surface-2)',
-          mint: 'var(--surface-2)',
-          sky: 'var(--surface-2)',
-          'fresh-blue': 'var(--accent-soft)',
-          rose: 'var(--surface-2)',
-        },
+        // <alpha-value> 形式にすると bg-danger/10 のような透過修飾が生成される
+        // （プレーンな var() 文字列だと Tailwind 3.4 はクラス自体を生成しない）
+        success: 'rgb(var(--success-rgb) / <alpha-value>)',
+        warning: 'rgb(var(--warning-rgb) / <alpha-value>)',
+        danger: 'rgb(var(--danger-rgb) / <alpha-value>)',
+        info: 'rgb(var(--info-rgb) / <alpha-value>)',
       },
 
-      backgroundImage: {
-        // subtle, professional accent gradient (no rainbow)
-        'rainbow-prism': 'linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%)',
-        'rainbow-prism-soft':
-          'linear-gradient(135deg, var(--accent-soft) 0%, var(--surface-2) 100%)',
-      },
-
-      backdropBlur: { thin: '6px', regular: '10px', thick: '14px', chrome: '18px' },
-
+      // タブ・ボトムナビ専用。カードや表には使わない（index.css のコメント参照）
       boxShadow: {
         'elev-0': 'none',
         'elev-1': 'var(--shadow-1)',
         'elev-2': 'var(--shadow-2)',
         'elev-3': 'var(--shadow-3)',
         'elev-4': 'var(--shadow-4)',
-        'glass-inset': 'none',
         'glow-primary': '0 0 0 3px var(--accent-glow)',
-        'glow-rainbow': 'var(--shadow-2)',
-        'glow-sales': '0 0 0 3px rgba(79,70,229,0.18)',
-        'glow-marketing': '0 0 0 3px rgba(124,58,237,0.18)',
-        'glow-accounting': '0 0 0 3px rgba(14,165,233,0.18)',
-        'glow-analytics': '0 0 0 3px rgba(13,148,136,0.18)',
-        'glow-general': '0 0 0 3px rgba(71,85,105,0.18)',
-        'glow-assistant': '0 0 0 3px rgba(79,70,229,0.18)',
       },
 
-      borderRadius: { xs: '6px', sm: '8px', md: '10px', lg: '14px', xl: '18px', '2xl': '22px' },
+      /* 角丸は 7（部品）/ 9（カード）/ 12（パネル）の3段だけ。
+       * 既存クラス名は全部残したまま、6キーを3つの値に畳んでいる。
+       * こうするとコンポーネントを1行も触らずに階段が3段に揃う。 */
+      /* v3: 角丸は 8（部品）/ 12（カード）/ 16（パネル・モーダル）の3段 */
+      borderRadius: {
+        xs: '8px',
+        sm: '8px',
+        md: '12px',
+        lg: '12px',
+        xl: '16px',
+        '2xl': '16px',
+        control: '8px',
+        card: '12px',
+        panel: '16px',
+      },
 
       fontFamily: {
-        sans: ["'Inter'", "'Noto Sans JP'", 'system-ui', 'sans-serif'],
-        display: ["'Inter'", "'Noto Sans JP'", 'system-ui', 'sans-serif'],
-        mono: ["'JetBrains Mono'", 'ui-monospace', 'monospace'],
+        sans: ["'Figtree'", "'Hiragino Sans'", "'Noto Sans JP'", 'system-ui', 'sans-serif'],
+        display: ["'Figtree'", "'Hiragino Sans'", "'Noto Sans JP'", 'system-ui', 'sans-serif'],
+        mono: ["'IBM Plex Mono'", 'ui-monospace', 'monospace'],
       },
 
       fontSize: {
@@ -106,31 +98,15 @@ export default {
         h3: ['18px', { lineHeight: '1.4' }],
         h2: ['22px', { lineHeight: '1.3' }],
         h1: ['28px', { lineHeight: '1.2' }],
-        display: ['40px', { lineHeight: '1.1' }],
+        display: ['34px', { lineHeight: '1.15' }],
       },
 
-      transitionDuration: { fast: '120ms', base: '200ms', slow: '320ms', dramatic: '600ms' },
+      /* モーションの値は components/motion/springs.ts が正本。
+       * ここは CSS トランジション用の最小限だけ持つ。 */
+      transitionDuration: { fast: '140ms', base: '220ms', slow: '380ms' },
       transitionTimingFunction: {
         standard: 'cubic-bezier(0.2, 0, 0, 1)',
         emphasized: 'cubic-bezier(0.2, 0, 0, 1.2)',
-        smooth: 'cubic-bezier(0.4, 0, 0.2, 1)',
-      },
-
-      keyframes: {
-        'aurora-drift-1': { '0%, 100%': { transform: 'translate(0,0)' }, '50%': { transform: 'translate(30px,-20px)' } },
-        'aurora-drift-2': { '0%, 100%': { transform: 'translate(0,0)' }, '50%': { transform: 'translate(-25px,20px)' } },
-        'aurora-drift-3': { '0%, 100%': { transform: 'translate(0,0)' }, '50%': { transform: 'translate(20px,25px)' } },
-        'glass-shimmer': { '0%': { backgroundPosition: '-200% 0' }, '100%': { backgroundPosition: '200% 0' } },
-        float: { '0%, 100%': { transform: 'translateY(0)' }, '50%': { transform: 'translateY(-5px)' } },
-        'pulse-glow': { '0%, 100%': { opacity: '1' }, '50%': { opacity: '0.6' } },
-      },
-      animation: {
-        'aurora-1': 'aurora-drift-1 30s ease-in-out infinite',
-        'aurora-2': 'aurora-drift-2 34s ease-in-out infinite',
-        'aurora-3': 'aurora-drift-3 28s ease-in-out infinite',
-        shimmer: 'glass-shimmer 3s linear infinite',
-        float: 'float 4s ease-in-out infinite',
-        'pulse-glow': 'pulse-glow 2.5s ease-in-out infinite',
       },
     },
   },

@@ -8,6 +8,7 @@ import {
 import { api } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { useChatStore } from '../store/chatStore';
+import { useDeptFilterStore } from '../store/deptFilterStore';
 import { humanizeTaskManagerError } from '../utils/humanizeLlmError';
 import { AgentSuggestions } from '../components/Chat/AgentSuggestions';
 import { InlineChatResult } from '../components/Chat/InlineChatResult';
@@ -55,7 +56,9 @@ export default function ChatPage() {
   } = useChatStore();
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [selectedDept, setSelectedDept] = useState<string | null>(null);
+  // 部署選択はトップバー常設のグローバルトグル（v3）。旧サイドバーのチップ列は撤去済み
+  const selectedDept = useDeptFilterStore((st) => st.dept);
+  const setSelectedDept = useDeptFilterStore((st) => st.setDept);
   const [showSidebar, setShowSidebar] = useState(true);
   const [inlineTasks, setInlineTasks] = useState<InlineTask[]>([]);
   const [isListening, setIsListening] = useState(false);
@@ -471,7 +474,7 @@ export default function ChatPage() {
       <AnimatePresence>
         {showSidebar && (
           <motion.div
-            className="absolute inset-0 bg-black/20 z-20 lg:hidden"
+            className="absolute inset-0 bg-overlay z-20 lg:hidden"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -484,8 +487,8 @@ export default function ChatPage() {
       <AnimatePresence>
         {showSidebar && (
           <motion.aside
-            className="absolute lg:relative z-30 lg:z-0 w-64 h-full flex-shrink-0 flex flex-col border-r border-[#eae8e3]"
-            style={{ background: 'linear-gradient(180deg, #fffcf7 0%, #faf5ef 100%)' }}
+            className="absolute lg:relative z-30 lg:z-0 w-64 h-full flex-shrink-0 flex flex-col border-r border-border bg-elevated"
+            aria-label="チャット履歴"
             initial={{ x: -256 }}
             animate={{ x: 0 }}
             exit={{ x: -256 }}
@@ -494,7 +497,7 @@ export default function ChatPage() {
             <div className="p-4 flex items-center gap-2">
               <motion.button
                 onClick={createSession}
-                className="flex-1 flex items-center gap-2 bg-[#8b85ff] hover:bg-[#7c76f2] text-white text-xs font-semibold px-4 py-3 rounded-2xl transition-all shadow-md shadow-glow-primary"
+                className="flex-1 flex items-center justify-center gap-2 bg-action hover:bg-action-hover text-white text-xs font-bold px-4 py-3 rounded-md shadow-[0_1px_2px_rgba(10,37,64,0.24),inset_0_1px_0_rgba(255,255,255,0.16)] transition-colors"
                 whileHover={{ scale: 1.01 }}
                 whileTap={{ scale: 0.99 }}
               >
@@ -502,50 +505,17 @@ export default function ChatPage() {
               </motion.button>
               <button
                 onClick={() => setShowSidebar(false)}
-                className="w-9 h-9 rounded-xl bg-white/60 flex items-center justify-center text-[#8A8A8A] hover:text-[#2D2D2D] transition-colors"
+                aria-label="履歴サイドバーを閉じる"
+                className="w-9 h-9 rounded-xl bg-sunken flex items-center justify-center text-secondary hover:text-primary transition-colors"
               >
                 <PanelLeftClose size={15} />
               </button>
             </div>
 
-            {/* Department filter */}
-            <div className="px-4 pb-3">
-              <div className="flex flex-wrap gap-1">
-                <button
-                  onClick={() => { setSelectedDept(null); setSelectedAgent(null); }}
-                  className={`text-[10px] px-2.5 py-1 rounded-full transition-all ${
-                    !selectedDept ? 'bg-accent text-white font-semibold' : 'glass-thin text-secondary hover:text-primary'
-                  }`}
-                >
-                  全部署
-                </button>
-                {DEPARTMENTS.map((d) => {
-                  const char = DEPT_CHARACTER[d.key];
-                  const active = selectedDept === d.key;
-                  return (
-                    <button
-                      key={d.key}
-                      onClick={() => { setSelectedDept(d.key); setSelectedAgent(null); }}
-                      className={`flex items-center gap-1 text-[10px] py-0.5 rounded-full transition-all ${
-                        char ? 'pl-0.5 pr-2.5' : 'px-2.5 py-1'
-                      } ${active ? 'bg-accent text-white font-semibold' : 'glass-thin text-secondary hover:text-primary'}`}
-                    >
-                      {char ? (
-                        <img src={char.image} alt="" className="w-5 h-5 rounded-full object-cover bg-muted" />
-                      ) : (
-                        <span>{d.icon}</span>
-                      )}
-                      {d.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
             {/* Session list */}
             <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-0.5 scrollbar-hide">
               {sessions.length === 0 && (
-                <p className="text-xs text-[#BCBCBC] text-center py-6">チャット履歴なし</p>
+                <p className="text-xs text-text-muted text-center py-6">チャット履歴なし</p>
               )}
               {sessions.map((s) => (
                 <button
@@ -553,9 +523,10 @@ export default function ChatPage() {
                   onClick={() => { navigate(`/chat/${s.id}`); setShowSidebar(false); }}
                   className={`w-full text-left px-3 py-2.5 rounded-xl text-xs truncate transition-all ${
                     s.id === id
-                      ? 'bg-white text-[#2D2D2D] font-semibold shadow-sm'
-                      : 'text-[#8A8A8A] hover:bg-white/60'
+                      ? 'bg-sunken text-primary font-semibold'
+                      : 'text-secondary hover:bg-sunken/60'
                   }`}
+                  aria-current={s.id === id ? 'page' : undefined}
                 >
                   {s.title ?? '新しいチャット'}
                 </button>
@@ -590,7 +561,7 @@ export default function ChatPage() {
               <div className="flex gap-3 justify-center flex-wrap">
                 <motion.button
                   onClick={createSession}
-                  className="bg-accent hover:bg-accent-hover text-white text-sm font-semibold px-6 py-3 rounded-lg transition-all shadow-elev-2 flex items-center gap-2"
+                  className="bg-action hover:bg-action-hover text-white text-sm font-bold px-6 py-3 rounded-md shadow-[0_1px_2px_rgba(10,37,64,0.24),inset_0_1px_0_rgba(255,255,255,0.16)] transition-colors flex items-center gap-2"
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
@@ -609,7 +580,7 @@ export default function ChatPage() {
                         setSelectedDept(d.key);
                         await createSession();
                       }}
-                      className="glass-regular rounded-lg p-3 text-left flex items-center gap-3 hover:border-accent transition-all"
+                      className="bg-elevated border border-border shadow-elev-1 rounded-lg p-3 text-left flex items-center gap-3 hover:border-accent transition-all"
                       whileHover={{ scale: 1.02, y: -2 }}
                       whileTap={{ scale: 0.98 }}
                     >
@@ -617,7 +588,7 @@ export default function ChatPage() {
                         <img
                           src={char.image}
                           alt={char.name}
-                          className="w-12 h-12 rounded-full object-cover bg-muted flex-shrink-0"
+                          className="w-12 h-12 rounded-full object-cover bg-sunken flex-shrink-0"
                           style={{ boxShadow: `0 0 0 2px ${DEPT_ACCENT[d.key]}33` }}
                         />
                       ) : (
@@ -640,7 +611,8 @@ export default function ChatPage() {
               {!showSidebar && (
                 <button
                   onClick={() => setShowSidebar(true)}
-                  className="w-8 h-8 rounded-md bg-muted flex items-center justify-center text-secondary hover:text-primary transition-colors"
+                  aria-label="履歴サイドバーを開く"
+                  className="w-8 h-8 rounded-md bg-sunken flex items-center justify-center text-secondary hover:text-primary transition-colors"
                 >
                   <PanelLeftOpen size={15} />
                 </button>
@@ -652,7 +624,7 @@ export default function ChatPage() {
                       <img
                         src={DEPT_CHARACTER[selectedDept].image}
                         alt={DEPT_CHARACTER[selectedDept].name}
-                        className="w-7 h-7 rounded-full object-cover bg-muted flex-shrink-0"
+                        className="w-7 h-7 rounded-full object-cover bg-sunken flex-shrink-0"
                         style={{ boxShadow: `0 0 0 2px ${DEPT_ACCENT[selectedDept]}33` }}
                       />
                     )}
@@ -664,6 +636,7 @@ export default function ChatPage() {
                     </span>
                     <button
                       onClick={() => { setSelectedDept(null); setSelectedAgent(null); }}
+                      aria-label="部署の指定を解除"
                       className="text-text-muted hover:text-secondary transition-colors"
                     >
                       <X size={14} />
@@ -674,7 +647,9 @@ export default function ChatPage() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowTaskSidebar(!showTaskSidebar)}
-                  className="w-8 h-8 rounded-md bg-muted flex items-center justify-center text-secondary hover:text-accent transition-colors relative"
+                  aria-label="タスク進行パネルを開閉"
+                  aria-expanded={showTaskSidebar}
+                  className="w-8 h-8 rounded-md bg-sunken flex items-center justify-center text-secondary hover:text-accent transition-colors relative"
                 >
                   <ClipboardList size={15} />
                   {inlineTasks.filter((t) => t.status === 'executing').length > 0 && (
@@ -685,16 +660,16 @@ export default function ChatPage() {
                 </button>
                 <Link
                   to="/tasks"
-                  className="text-xs text-[#8A8A8A] hover:text-[#8b85ff] transition-colors font-medium"
+                  className="text-xs text-secondary hover:text-accent transition-colors font-medium"
                 >
                   全タスク →
                 </Link>
               </div>
             </div>
 
-            <div className="px-4 py-1.5 bg-[#fffcf7] border-b border-[#eae8e3] text-[10px] text-[#8A8A8A] text-center flex flex-wrap items-center justify-center gap-1">
+            <div className="px-4 py-1.5 bg-sunken border-b border-border text-micro text-secondary text-center flex flex-wrap items-center justify-center gap-1">
               <span>チャットは相談・下書き用です。</span>
-              <Link to="/tasks" className="text-[#8b85ff] font-medium hover:underline">
+              <Link to="/tasks" className="text-accent font-medium hover:underline">
                 タスク管理
               </Link>
               <span>でメールや資料などの成果物パイプラインを回せます</span>
@@ -705,16 +680,16 @@ export default function ChatPage() {
               <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
                 {messages.length === 0 && !sending && (
                   <div className="flex flex-col items-center justify-center py-12 text-center px-2">
-                    <div className="w-12 h-12 bg-[#8b85ff]/10 rounded-2xl flex items-center justify-center mb-3">
-                      <Bot size={20} className="text-[#8b85ff]" />
+                    <div className="w-12 h-12 bg-accent-soft rounded-2xl flex items-center justify-center mb-3">
+                      <Bot size={20} className="text-accent" />
                     </div>
-                    <p className="text-sm text-[#8A8A8A] mb-1">
+                    <p className="text-sm text-secondary mb-1">
                       {selectedDept
                         ? `${DEPT_LABEL[selectedDept]}AIに質問してください`
                         : '何でも聞いてください'}
                     </p>
-                    <p className="text-xs text-[#BCBCBC] mb-4">担当部署が自動で応答します</p>
-                    <p className="text-[10px] text-[#8A8A8A] mb-2 w-full max-w-md">例（タップで入力欄に挿入）</p>
+                    <p className="text-xs text-text-muted mb-4">担当部署が自動で応答します</p>
+                    <p className="text-micro text-text-muted mb-2 w-full max-w-md">例（タップで入力欄に挿入）</p>
                     <div className="flex flex-col gap-2 w-full max-w-md">
                       {[
                         '今週の営業フォロー用に短いメールの下書きを作って',
@@ -728,7 +703,7 @@ export default function ChatPage() {
                             setInput(hint);
                             textareaRef.current?.focus();
                           }}
-                          className="text-left text-xs px-3 py-2.5 rounded-xl bg-white border border-[#eae8e3] text-[#5C5C5C] hover:border-[#8b85ff]/35 transition-colors"
+                          className="text-left text-xs px-3 py-2.5 rounded-xl bg-elevated border border-border text-secondary hover:border-accent transition-colors"
                         >
                           {hint}
                         </button>
@@ -749,34 +724,34 @@ export default function ChatPage() {
                       {/* Avatar */}
                       <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${
                         msg.role === 'user'
-                          ? 'bg-[#f5f5f0]'
-                          : 'bg-[#8b85ff]/10'
+                          ? 'bg-sunken'
+                          : 'bg-accent-soft'
                       }`}>
                         {msg.role === 'user'
-                          ? <UserIcon size={15} className="text-[#8A8A8A]" />
-                          : <Bot size={15} className="text-[#8b85ff]" />
+                          ? <UserIcon size={15} className="text-secondary" />
+                          : <Bot size={15} className="text-accent" />
                         }
                       </div>
 
                       {/* Content */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-semibold text-[#2D2D2D]">
+                          <span className="text-xs font-semibold text-primary">
                             {msg.role === 'user' ? 'あなた' : 'AI'}
                           </span>
                           {msg.role === 'assistant' && msg.department && (
                             <span
-                              className="text-[10px] px-2 py-0.5 rounded-full font-medium"
-                              style={{
-                                backgroundColor: `${DEPT_ACCENT[msg.department] ?? '#8A8A8A'}15`,
-                                color: DEPT_ACCENT[msg.department] ?? '#8A8A8A',
-                              }}
+                              className={`text-micro px-2 py-0.5 rounded-full font-medium ${DEPT_ACCENT[msg.department] ? '' : 'bg-sunken text-secondary'}`}
+                              style={DEPT_ACCENT[msg.department] ? {
+                                backgroundColor: `${DEPT_ACCENT[msg.department]}15`,
+                                color: DEPT_ACCENT[msg.department],
+                              } : undefined}
                             >
                               {DEPT_LABEL[msg.department] ?? msg.department}
                             </span>
                           )}
                         </div>
-                        <div className="text-sm leading-relaxed text-[#2D2D2D]">
+                        <div className="text-sm leading-relaxed text-primary">
                           {msg.role === 'assistant' ? (
                             <MarkdownLite text={stripJsonBlocks(msg.content)} />
                           ) : (
@@ -826,35 +801,35 @@ export default function ChatPage() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                   >
-                    <div className="w-8 h-8 bg-[#8b85ff]/10 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <Bot size={15} className="text-[#8b85ff]" />
+                    <div className="w-8 h-8 bg-accent-soft rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <Bot size={15} className="text-accent" />
                     </div>
                     {streamingContent ? (
-                      <div className="flex-1 min-w-0">
+                      <div className="flex-1 min-w-0" aria-live="polite">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-semibold text-[#2D2D2D]">AI</span>
+                          <span className="text-xs font-semibold text-primary">AI</span>
                           {streamingDepartment && (
                             <span
-                              className="text-[10px] px-2 py-0.5 rounded-full font-medium"
-                              style={{
-                                backgroundColor: `${DEPT_ACCENT[streamingDepartment] ?? '#8A8A8A'}15`,
-                                color: DEPT_ACCENT[streamingDepartment] ?? '#8A8A8A',
-                              }}
+                              className={`text-micro px-2 py-0.5 rounded-full font-medium ${DEPT_ACCENT[streamingDepartment] ? '' : 'bg-sunken text-secondary'}`}
+                              style={DEPT_ACCENT[streamingDepartment] ? {
+                                backgroundColor: `${DEPT_ACCENT[streamingDepartment]}15`,
+                                color: DEPT_ACCENT[streamingDepartment],
+                              } : undefined}
                             >
                               {DEPT_LABEL[streamingDepartment] ?? streamingDepartment}
                             </span>
                           )}
                         </div>
-                        <div className="text-sm leading-relaxed text-[#2D2D2D]">
+                        <div className="text-sm leading-relaxed text-primary">
                           <MarkdownLite text={stripJsonBlocks(streamingContent ?? '')} />
-                          <span className="inline-block w-0.5 h-4 bg-[#8b85ff] ml-0.5 animate-pulse align-middle" />
+                          <span className="inline-block w-0.5 h-4 bg-accent ml-0.5 animate-pulse align-middle" />
                         </div>
                       </div>
                     ) : (
                       <div className="flex items-center gap-1.5 pt-2">
-                        <div className="w-2 h-2 bg-[#8b85ff] rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                        <div className="w-2 h-2 bg-[#8b85ff] rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                        <div className="w-2 h-2 bg-[#8b85ff] rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                        <div className="w-2 h-2 bg-accent rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <div className="w-2 h-2 bg-accent rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <div className="w-2 h-2 bg-accent rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                       </div>
                     )}
                   </motion.div>
@@ -879,15 +854,15 @@ export default function ChatPage() {
                 />
 
                 {/* Input container */}
-                <div className="bg-white rounded-3xl border border-[#eae8e3] shadow-sm px-4 py-3 focus-within:ring-2 focus-within:ring-[#8b85ff]/20 focus-within:border-[#8b85ff]/30 transition-all">
+                <div className="rounded-xl border border-border bg-elevated px-4 py-3 shadow-elev-2 transition-all">
                   {/* Attached files chips */}
                   {attachedFiles.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mb-2">
                       {attachedFiles.map((f) => (
-                        <span key={f.id} className="flex items-center gap-1 text-[10px] bg-[#f5f5f0] text-[#2D2D2D] px-2.5 py-1 rounded-full">
-                          <FileIcon size={10} className="text-[#8A8A8A]" />
+                        <span key={f.id} className="flex items-center gap-1 text-micro bg-sunken text-primary px-2.5 py-1 rounded-full">
+                          <FileIcon size={10} className="text-text-muted" />
                           {f.name}
-                          <button onClick={() => removeAttachedFile(f.id)} className="text-[#BCBCBC] hover:text-red-400 ml-0.5">
+                          <button onClick={() => removeAttachedFile(f.id)} aria-label={`添付 ${f.name} を外す`} className="text-text-muted hover:text-danger ml-0.5">
                             <X size={10} />
                           </button>
                         </span>
@@ -910,7 +885,8 @@ export default function ChatPage() {
                       }
                     }}
                     placeholder={selectedDept ? `${DEPT_LABEL[selectedDept]}AIに指示を入力...` : 'AIに何でも聞いてください...'}
-                    className="w-full bg-transparent border-0 text-sm text-[#2D2D2D] placeholder-[#BCBCBC] resize-none focus:outline-none"
+                    aria-label="AIへのメッセージ"
+                    className="w-full bg-transparent border-0 text-sm text-primary placeholder:text-muted resize-none focus:outline-none"
                     rows={1}
                     style={{ maxHeight: '160px' }}
                   />
@@ -927,7 +903,7 @@ export default function ChatPage() {
                     <div className="flex items-center gap-1">
                       {selectedDept && (
                         <span
-                          className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                          className="text-micro px-2 py-0.5 rounded-full font-medium"
                           style={{
                             backgroundColor: `${DEPT_ACCENT[selectedDept]}15`,
                             color: DEPT_ACCENT[selectedDept],
@@ -942,7 +918,8 @@ export default function ChatPage() {
                       <motion.button
                         onClick={() => fileInputRef.current?.click()}
                         disabled={uploading}
-                        className="w-8 h-8 rounded-xl bg-[#f5f5f0] text-[#8A8A8A] hover:text-[#2D2D2D] flex items-center justify-center transition-all disabled:opacity-50"
+                        aria-label="ファイルを添付"
+                        className="w-8 h-8 rounded-xl bg-sunken text-secondary hover:text-primary flex items-center justify-center transition-all disabled:opacity-50"
                         whileTap={{ scale: 0.9 }}
                       >
                         {uploading ? <Loader2 size={14} className="animate-spin" /> : <Paperclip size={14} />}
@@ -950,10 +927,12 @@ export default function ChatPage() {
                       {/* Voice input button */}
                       <motion.button
                         onClick={toggleVoice}
+                        aria-label={isListening ? '音声入力を停止' : '音声入力を開始'}
+                        aria-pressed={isListening}
                         className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${
                           isListening
-                            ? 'bg-red-500 text-white'
-                            : 'bg-[#f5f5f0] text-[#8A8A8A] hover:text-[#2D2D2D]'
+                            ? 'bg-danger text-white'
+                            : 'bg-sunken text-secondary hover:text-primary'
                         }`}
                         whileTap={{ scale: 0.9 }}
                       >
@@ -973,7 +952,8 @@ export default function ChatPage() {
                       <motion.button
                         onClick={sendMessage}
                         disabled={sending || !input.trim()}
-                        className="w-8 h-8 rounded-xl bg-[#8b85ff] hover:bg-[#7c76f2] disabled:opacity-30 text-white flex items-center justify-center transition-all"
+                        aria-label="送信"
+                        className="w-8 h-8 rounded-xl bg-action hover:bg-action-hover disabled:opacity-30 text-inverse flex items-center justify-center transition-all"
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                       >
@@ -987,7 +967,7 @@ export default function ChatPage() {
                   </div>
                 </div>
 
-                <p className="text-[10px] text-[#BCBCBC] mt-2 text-center">
+                <p className="text-micro text-text-muted mt-2 text-center">
                   Enter または ⌘/Ctrl+Enter で送信 ・ Shift+Enter で改行 ・ タスク実行は承認後に進みます
                 </p>
               </div>

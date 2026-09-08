@@ -15,14 +15,16 @@ import { useAuthStore } from '../store/authStore';
 import type { User, UploadedFile, Plan, OrganizationUsage, PlanTier } from '@org-ai/shared-types';
 import { PLAN_LIMITS } from '@org-ai/shared-types';
 import {
-  GlassCard,
-  GlassBadge,
-  GlassButton,
+  Card,
+  Surface,
+  Button,
   PageHeader,
   EmptyState,
   SkeletonList,
 } from '../components/ui';
 import UsageCard from '../components/Settings/UsageCard';
+import IntegrationsSection from '../components/Settings/IntegrationsSection';
+import { LiquidTabs } from '../components/motion/LiquidTabs';
 
 interface OrganizationView {
   id: string;
@@ -33,10 +35,11 @@ interface OrganizationView {
   memberCount: number;
 }
 
-const PLAN_TONE: Record<Plan, { label: string; tone: string }> = {
-  STARTER: { label: 'Starter', tone: 'muted' },
-  PRO: { label: 'Pro', tone: 'accent' },
-  MAX: { label: 'Max', tone: 'warning' },
+/* プランのピル。意味色トークンで塗る（hex 直書き禁止） */
+const PLAN_BADGE: Record<Plan, { label: string; className: string }> = {
+  STARTER: { label: 'Starter', className: 'bg-sunken border border-border text-secondary' },
+  PRO: { label: 'Pro', className: 'bg-accent-soft border border-accent-soft-border text-accent' },
+  MAX: { label: 'Max', className: 'bg-warning/10 border border-warning/30 text-warning' },
 };
 
 export default function SettingsPage() {
@@ -44,6 +47,7 @@ export default function SettingsPage() {
   const qc = useQueryClient();
   const logout = useAuthStore((s) => s.logout);
   const storedUser = useAuthStore((s) => s.user);
+  const [view, setView] = useState<'general' | 'integrations'>('general');
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<{ fileName: string; content: string } | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
@@ -114,7 +118,7 @@ export default function SettingsPage() {
 
   const user = me ?? storedUser;
   const planKey: Plan = organization?.plan ?? 'STARTER';
-  const plan = PLAN_TONE[planKey];
+  const plan = PLAN_BADGE[planKey];
   const modelLabel = PLAN_LIMITS[planKey].modelLabel;
 
   return (
@@ -124,13 +128,32 @@ export default function SettingsPage() {
         title="設定"
         description="プロフィール・組織情報・ファイル管理をここで確認します。"
         actions={
-          <div className="w-10 h-10 rounded-2xl flex items-center justify-center bg-accent/15 text-accent">
+          <div className="w-10 h-10 rounded-2xl flex items-center justify-center bg-accent-soft text-accent">
             <SettingsIcon size={18} />
           </div>
         }
       />
 
-      <GlassCard variant="thin" padding="lg" radius="2xl" className="mb-5">
+      <div className="mb-5">
+        <LiquidTabs<'general' | 'integrations'>
+          id="settings-tab"
+          size="sm"
+          label="設定の切り替え"
+          items={[
+            { value: 'general', label: '基本' },
+            { value: 'integrations', label: '連携' },
+          ]}
+          value={view}
+          onChange={setView}
+        />
+      </div>
+
+      {view === 'integrations' ? (
+        <IntegrationsSection />
+      ) : (
+        <>
+
+      <Card variant="regular" padding="lg" radius="2xl" className="mb-5">
         <div className="flex items-center gap-2 mb-4">
           <UserIcon size={16} className="text-accent" />
           <h3 className="text-sm font-semibold text-primary">プロフィール</h3>
@@ -141,9 +164,9 @@ export default function SettingsPage() {
           <Field label="ロール" value={user?.role ?? '—'} />
           <Field label="ユーザーID" value={user?.id ?? '—'} mono />
         </dl>
-      </GlassCard>
+      </Card>
 
-      <GlassCard variant="thin" padding="lg" radius="2xl" className="mb-5">
+      <Card variant="regular" padding="lg" radius="2xl" className="mb-5">
         <div className="flex items-center gap-2 mb-4">
           <Building2 size={16} className="text-accent" />
           <h3 className="text-sm font-semibold text-primary">組織</h3>
@@ -156,22 +179,22 @@ export default function SettingsPage() {
           <div>
             <dt className="text-xs text-muted mb-1">プラン</dt>
             <dd className="flex items-center gap-2">
-              <GlassBadge tone={plan.tone} variant="soft" size="sm">
+              <span className={`inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-full ${plan.className}`}>
                 {plan.label}
-              </GlassBadge>
+              </span>
               <span className="text-xs text-muted">{modelLabel}</span>
             </dd>
           </div>
         </dl>
-      </GlassCard>
+      </Card>
 
       {usage && <UsageCard usage={usage} modelLabel={modelLabel} />}
 
-      <GlassCard variant="thin" padding="lg" radius="2xl" className="mb-5">
+      <Card variant="regular" padding="lg" radius="2xl" className="mb-5">
         <div className="flex items-center gap-2 mb-4">
           <FileText size={16} className="text-accent" />
           <h3 className="text-sm font-semibold text-primary">アップロード済みファイル</h3>
-          <span className="ml-auto text-xs text-muted">{files?.length ?? 0} 件</span>
+          <span className="ml-auto text-xs text-muted tabular">{files?.length ?? 0} 件</span>
         </div>
 
         {filesLoading ? (
@@ -184,17 +207,17 @@ export default function SettingsPage() {
             action={{ label: 'チャットへ', onClick: () => navigate('/chat') }}
           />
         ) : (
-          <ul className="divide-y divide-white/20">
+          <ul className="divide-y divide-hairline">
             {(files ?? []).map((f) => (
               <li key={f.id} className="flex items-center gap-3 py-3">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-primary truncate">{f.originalName}</p>
-                  <p className="text-xs text-muted">
+                  <p className="text-xs text-muted tabular">
                     {f.mimeType} · {(f.sizeBytes / 1024).toFixed(1)} KB ·{' '}
                     {new Date(f.createdAt).toLocaleDateString('ja-JP')}
                   </p>
                 </div>
-                <GlassButton
+                <Button
                   size="xs"
                   variant="ghost"
                   onClick={() => handleAnalyze(f)}
@@ -203,7 +226,7 @@ export default function SettingsPage() {
                   icon={<Sparkles size={12} />}
                 >
                   {analyzingId === f.id ? '分析中...' : 'AIで分析'}
-                </GlassButton>
+                </Button>
               </li>
             ))}
           </ul>
@@ -216,24 +239,26 @@ export default function SettingsPage() {
           </div>
         )}
         {analysisResult && (
-          <GlassCard variant="thin" padding="md" radius="xl" className="mt-4">
+          <Surface variant="thin" padding="md" radius="xl" className="mt-4">
             <p className="text-xs font-semibold text-primary mb-2">{analysisResult.fileName} の要約</p>
-            <p className="text-xs text-muted whitespace-pre-wrap leading-relaxed">{analysisResult.content}</p>
-          </GlassCard>
+            <p className="text-xs text-secondary whitespace-pre-wrap leading-relaxed">{analysisResult.content}</p>
+          </Surface>
         )}
-      </GlassCard>
+      </Card>
 
-      <GlassCard variant="thin" padding="lg" radius="2xl">
+      <Card variant="regular" padding="lg" radius="2xl">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-sm font-semibold text-primary">ログアウト</h3>
             <p className="text-xs text-muted">このブラウザからサインアウトします</p>
           </div>
-          <GlassButton size="sm" variant="danger" onClick={handleLogout} icon={<LogOut size={13} />}>
+          <Button size="sm" variant="danger" onClick={handleLogout} icon={<LogOut size={13} />}>
             ログアウト
-          </GlassButton>
+          </Button>
         </div>
-      </GlassCard>
+      </Card>
+        </>
+      )}
     </div>
   );
 }

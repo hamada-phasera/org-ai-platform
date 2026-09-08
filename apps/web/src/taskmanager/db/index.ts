@@ -1,9 +1,10 @@
-import Dexie, { type EntityTable } from 'dexie';
+// dexie 3.x に EntityTable は無い（v4 の型）。3.x では Table<T, キー型> を使う
+import Dexie, { type Table } from 'dexie';
 import type { Task, ProjectMemory } from '../types/index';
 
 class AppDatabase extends Dexie {
-  tasks!: EntityTable<Task, 'id'>;
-  projectMemories!: EntityTable<ProjectMemory, 'projectId'>;
+  tasks!: Table<Task, string>;
+  projectMemories!: Table<ProjectMemory, string>;
 
   constructor() {
     super('ai-executive-db');

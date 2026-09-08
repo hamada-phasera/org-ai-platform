@@ -1,6 +1,6 @@
 import { Activity } from 'lucide-react';
 import type { OrganizationUsage } from '@org-ai/shared-types';
-import { GlassCard } from '../ui';
+import { Card } from '../ui';
 
 interface UsageCardProps {
   usage: OrganizationUsage;
@@ -15,7 +15,7 @@ export default function UsageCard({ usage, modelLabel }: UsageCardProps) {
   const resetLabel = new Date(resetAt).toLocaleDateString('ja-JP', { month: 'long', day: 'numeric' });
 
   return (
-    <GlassCard variant="thin" padding="lg" radius="2xl" className="mb-5">
+    <Card variant="regular" padding="lg" radius="2xl" className="mb-5">
       <div className="flex items-center gap-2 mb-4">
         <Activity size={16} className="text-accent" />
         <h3 className="text-sm font-semibold text-primary">今月の利用量</h3>
@@ -23,13 +23,13 @@ export default function UsageCard({ usage, modelLabel }: UsageCardProps) {
       </div>
       <div className="space-y-2">
         <div className="flex items-baseline justify-between">
-          <span className="text-sm text-primary">
+          <span className="text-sm text-primary tabular">
             <span className="font-semibold">{aiCallsThisMonth.toLocaleString()}</span>
             <span className="text-muted"> / {planLimit.toLocaleString()} コール</span>
           </span>
-          <span className={`text-xs ${overLimit ? 'text-danger' : 'text-muted'}`}>{percent}%</span>
+          <span className={`text-xs tabular ${overLimit ? 'text-danger' : 'text-muted'}`}>{percent}%</span>
         </div>
-        <div className="w-full h-2 rounded-full bg-muted/30 overflow-hidden">
+        <div className="w-full h-2 rounded-full bg-sunken overflow-hidden">
           <div
             className={`h-full rounded-full transition-all duration-base ${overLimit ? 'bg-danger' : 'bg-accent'}`}
             style={{ width: `${percent}%` }}
@@ -37,6 +37,6 @@ export default function UsageCard({ usage, modelLabel }: UsageCardProps) {
         </div>
         <p className="text-xs text-muted">{resetLabel} にリセットされます</p>
       </div>
-    </GlassCard>
+    </Card>
   );
 }

@@ -1,0 +1,184 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; font-family: 'Manrope','Noto Sans JP',system-ui,sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #3D4EFF; text-decoration: none; }
+    a:hover { color: #2A38D6; }
+    .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+    .lbl { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #6A7280; }
+    .card { background:#fff; border:1px solid #E7E9ED; border-radius:12px; }
+    /* 液体ガラスのタブバー。適用してよい場所は §4 を参照。 */
+    .tabbar {
+      display: inline-flex; align-items: center; gap: 2px; padding: 4px;
+      border-radius: 12px; position: relative;
+      background: rgba(255,255,255,0.62);
+      backdrop-filter: blur(14px) saturate(1.6);
+      -webkit-backdrop-filter: blur(14px) saturate(1.6);
+      border: 1px solid rgba(255,255,255,0.9);
+      box-shadow: 0 1px 2px rgba(16,21,33,0.05), 0 8px 24px rgba(16,21,33,0.06);
+    }
+    @supports not (backdrop-filter: blur(1px)) {
+      .tabbar { background: #FFFFFF; border-color: #E7E9ED; }
+    }
+    .tab { position: relative; z-index: 1; height: 32px; padding: 0 14px; display: inline-flex; align-items: center; gap: 6px;
+           font-size: 12.5px; font-weight: 600; color: #59616F; border-radius: 9px; white-space: nowrap; }
+    .tab-on { color: #FFFFFF; font-weight: 700; }
+    .ind { position: absolute; top: 4px; height: 32px; border-radius: 9px; background: #101521; z-index: 0; }
+  </style>
+</helmet>
+
+<div style="width:1440px;min-height:1600px;background:#FBFBFC;color:#101521;padding:44px 52px 56px;box-sizing:border-box;position:relative;overflow:hidden;">
+
+  <div style="position:absolute;inset:0;pointer-events:none;">
+    <div style="position:absolute;top:120px;left:60px;width:640px;height:520px;border-radius:50%;background:radial-gradient(circle at 50% 50%, rgba(61,78,255,0.09), rgba(61,78,255,0) 68%);"></div>
+    <div style="position:absolute;top:380px;right:-60px;width:560px;height:520px;border-radius:50%;background:radial-gradient(circle at 50% 50%, rgba(13,148,136,0.08), rgba(13,148,136,0) 68%);"></div>
+  </div>
+
+  <div style="position:relative;z-index:1;">
+
+    <div style="padding-bottom:18px;border-bottom:1px solid #E7E9ED;">
+      <div style="font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#6A7280;">FLOW Design System v2</div>
+      <div style="font-size:26px;font-weight:800;letter-spacing:-0.02em;margin-top:7px;">リキッド・タブ — 動きの仕様</div>
+      <div style="font-size:12.5px;color:#59616F;margin-top:6px;max-width:840px;line-height:1.75;">面はフラットな白のまま、<b>動きとタブ周りだけ</b>を液体的にする。ガラスは「上に浮いているもの」にしか使わない。密度の高い数字が読めなくなるため。</div>
+    </div>
+
+    <!-- 01 インジケータの追従 -->
+    <div style="margin-top:32px;">
+      <div class="lbl">01 — インジケータは位置だけでなく<span style="color:#101521;">幅も</span>追従する</div>
+      <div style="font-size:12.5px;color:#59616F;margin-top:8px;line-height:1.75;max-width:840px;">ここが「液体的」の本体。四角が瞬間移動するのではなく、<b>伸びながら移動して縮む</b>。framer-motion の <span class="mono" style="font-size:11.5px;">layoutId</span> を当てるだけで得られる（幅が違う要素間で自動的に補間される）。</div>
+
+      <div style="display:flex;align-items:center;gap:26px;margin-top:22px;flex-wrap:wrap;">
+
+        <div>
+          <div class="tabbar">
+            <span class="ind" style="left:4px;width:88px;"></span>
+            <span class="tab tab-on">AIログ</span>
+            <span class="tab">リスクイベント<span style="display:inline-flex;align-items:center;height:17px;padding:0 5px;border-radius:5px;background:#FEF2F2;border:1px solid #FECACA;color:#B91C1C;font-size:9.5px;font-weight:800;">1</span></span>
+          </div>
+          <div style="font-size:11px;color:#6A7280;margin-top:9px;font-weight:600;text-align:center;">① 開始</div>
+        </div>
+
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#A9B0BB" stroke-width="2.2" stroke-linecap="round" style="margin-top:-18px;"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+
+        <div>
+          <div class="tabbar">
+            <span class="ind" style="left:22px;width:150px;opacity:0.92;"></span>
+            <span class="tab" style="color:#59616F;">AIログ</span>
+            <span class="tab" style="color:#FFFFFF;">リスクイベント<span style="display:inline-flex;align-items:center;height:17px;padding:0 5px;border-radius:5px;background:rgba(255,255,255,0.2);color:#fff;font-size:9.5px;font-weight:800;">1</span></span>
+          </div>
+          <div style="font-size:11px;color:#101521;margin-top:9px;font-weight:700;text-align:center;">② 移動中 — 伸びる</div>
+        </div>
+
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#A9B0BB" stroke-width="2.2" stroke-linecap="round" style="margin-top:-18px;"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+
+        <div>
+          <div class="tabbar">
+            <span class="ind" style="left:96px;width:140px;"></span>
+            <span class="tab">AIログ</span>
+            <span class="tab tab-on">リスクイベント<span style="display:inline-flex;align-items:center;height:17px;padding:0 5px;border-radius:5px;background:rgba(255,255,255,0.2);color:#fff;font-size:9.5px;font-weight:800;">1</span></span>
+          </div>
+          <div style="font-size:11px;color:#6A7280;margin-top:9px;font-weight:600;text-align:center;">③ 着地</div>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:flex-start;gap:9px;margin-top:20px;padding:11px 14px;border-radius:9px;background:#FEF2F2;border:1px solid #FECACA;max-width:840px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B91C1C" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
+        <div style="font-size:11.5px;color:#7F1D1D;line-height:1.75;"><b>既存の落とし穴:</b> 現行 <span class="mono">TabSwitch.tsx:21</span> は <span class="mono">layoutId="activeTab"</span> という<b>グローバルな固定文字列</b>を使っている。2つ同時にマウントすると互いのインジケータを奪い合う。新しい <span class="mono">LiquidTabs</span> は<b>インスタンスごとのIDを必須引数</b>にする。</div>
+      </div>
+    </div>
+
+    <!-- 02 スプリング -->
+    <div style="margin-top:34px;">
+      <div class="lbl">02 — スプリングは3つだけ。<span style="color:#101521;">springs.ts に固定する</span></div>
+      <div style="font-size:12.5px;color:#59616F;margin-top:8px;line-height:1.75;max-width:840px;">現行はスプリング値が8箇所にバラバラに直書きされている（300/30・400/28・400/30・400/22・300/28・60/18/1.2…）。用途ごとに3つへ集約し、各所ではマジックナンバーを書かない。</div>
+
+      <div class="card" style="margin-top:16px;overflow:hidden;max-width:1000px;">
+        <div style="display:grid;grid-template-columns:130px 1fr 210px 1fr;gap:16px;padding:10px 18px;background:#FBFBFC;border-bottom:1px solid #F0F1F4;font-size:10px;font-weight:700;color:#6A7280;letter-spacing:0.04em;">
+          <span>名前</span><span>使う場所</span><span>値</span><span>ねらい</span>
+        </div>
+        <div style="display:grid;grid-template-columns:130px 1fr 210px 1fr;gap:16px;padding:12px 18px;align-items:center;border-bottom:1px solid #F5F6F8;">
+          <span class="mono" style="font-size:12px;font-weight:600;">indicator</span>
+          <span style="font-size:12px;color:#59616F;">タブ／セグメントの選択表示</span>
+          <span class="mono" style="font-size:11px;color:#101521;">stiffness 380 / damping 32</span>
+          <span style="font-size:11.5px;color:#59616F;line-height:1.65;">跳ねずに素早く。追従が遅いと「重い」と感じる</span>
+        </div>
+        <div style="display:grid;grid-template-columns:130px 1fr 210px 1fr;gap:16px;padding:12px 18px;align-items:center;border-bottom:1px solid #F5F6F8;">
+          <span class="mono" style="font-size:12px;font-weight:600;">morph</span>
+          <span style="font-size:12px;color:#59616F;">TOPの入口 → 詳細パネルの展開</span>
+          <span class="mono" style="font-size:11px;color:#101521;">stiffness 260 / damping 30</span>
+          <span style="font-size:11.5px;color:#59616F;line-height:1.65;">面が大きいので少しゆっくり。速いと形が追えない</span>
+        </div>
+        <div style="display:grid;grid-template-columns:130px 1fr 210px 1fr;gap:16px;padding:12px 18px;align-items:center;">
+          <span class="mono" style="font-size:12px;font-weight:600;">enter</span>
+          <span style="font-size:12px;color:#59616F;">一覧・カードの出現</span>
+          <span class="mono" style="font-size:11px;color:#101521;">180ms / cubic-bezier(.2,0,0,1)</span>
+          <span style="font-size:11.5px;color:#59616F;line-height:1.65;">出現はスプリングにしない。件数が多いと画面が騒がしくなる</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 03/04 ルール -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:34px;max-width:1000px;">
+
+      <div>
+        <div class="lbl">03 — ガラスを使ってよい場所</div>
+        <div class="card" style="margin-top:14px;padding:16px 18px;">
+          <div style="display:flex;flex-direction:column;gap:9px;">
+            <div style="display:flex;align-items:center;gap:9px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#047857" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg><span style="font-size:12.5px;font-weight:600;">TOP の入口カードと指示入力</span></div>
+            <div style="display:flex;align-items:center;gap:9px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#047857" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg><span style="font-size:12.5px;font-weight:600;">ガバナンスのタブ</span></div>
+            <div style="display:flex;align-items:center;gap:9px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#047857" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg><span style="font-size:12.5px;font-weight:600;">成果物のフォルダタブ</span></div>
+            <div style="display:flex;align-items:center;gap:9px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#047857" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg><span style="font-size:12.5px;font-weight:600;">チャットの部署チップ</span></div>
+            <div style="display:flex;align-items:center;gap:9px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#047857" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg><span style="font-size:12.5px;font-weight:600;">スマホのボトムナビ</span></div>
+          </div>
+          <div style="height:1px;background:#F0F1F4;margin:14px 0;"></div>
+          <div style="display:flex;flex-direction:column;gap:9px;">
+            <div style="display:flex;align-items:center;gap:9px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B91C1C" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span style="font-size:12.5px;font-weight:600;color:#59616F;">カード・表・サイドバー・モーダル本体</span></div>
+            <div style="font-size:11.5px;color:#6A7280;line-height:1.7;padding-left:23px;">ガバナンスのログ表のように数字が密なところで透過させると、背景の帯が数字に重なって読めなくなる。前回この理由でガラスを全廃した。</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="lbl">04 — 動きを止める条件（両方とも必須）</div>
+        <div class="card" style="margin-top:14px;padding:16px 18px;">
+          <div style="font-size:12.5px;font-weight:800;">視差効果を減らす設定が ON のとき</div>
+          <div style="font-size:11.5px;color:#59616F;line-height:1.75;margin-top:7px;"><span class="mono">useReducedMotion()</span> が true ならスプリングを切って<b>即時切替</b>にする。現状これを尊重しているのは <span class="mono">BottomNav</span> と <span class="mono">FooterSearch</span> の2ファイルだけ。<span class="mono">index.css</span> の <span class="mono">prefers-reduced-motion</span> は CSS アニメーションしか止めず、<b>framer-motion の transform は止まらない</b>。</div>
+          <div style="height:1px;background:#F0F1F4;margin:14px 0;"></div>
+          <div style="font-size:12.5px;font-weight:800;">backdrop-filter が効かない環境</div>
+          <div style="font-size:11.5px;color:#59616F;line-height:1.75;margin-top:7px;"><span class="mono">@supports not (backdrop-filter: blur(1px))</span> で<b>不透明な白</b>に落とす。フォールバックを書かないと、透けない環境で半透明の白がそのまま出て文字が背景に溶ける。</div>
+          <div style="display:flex;gap:12px;margin-top:14px;">
+            <div style="flex:1;"><div class="tabbar" style="width:100%;box-sizing:border-box;"><span class="ind" style="left:4px;width:calc(50% - 4px);"></span><span class="tab tab-on" style="flex:1;justify-content:center;">対応</span><span class="tab" style="flex:1;justify-content:center;">環境</span></div><div style="font-size:10px;color:#6A7280;margin-top:6px;text-align:center;font-weight:600;">半透明＋ぼかし</div></div>
+            <div style="flex:1;"><div class="tabbar" style="width:100%;box-sizing:border-box;background:#FFFFFF;border-color:#E7E9ED;backdrop-filter:none;-webkit-backdrop-filter:none;"><span class="ind" style="left:4px;width:calc(50% - 4px);"></span><span class="tab tab-on" style="flex:1;justify-content:center;">非対応</span><span class="tab" style="flex:1;justify-content:center;">環境</span></div><div style="font-size:10px;color:#6A7280;margin-top:6px;text-align:center;font-weight:600;">不透明な白に退避</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 05 -->
+    <div style="margin-top:34px;max-width:1000px;">
+      <div class="lbl">05 — 統合する対象</div>
+      <div class="card" style="margin-top:14px;padding:16px 18px;">
+        <div style="font-size:12.5px;color:#59616F;line-height:1.8;">実地調査の結果、<b>排他選択のUIはアプリ内に約14箇所</b>あるが、<b>動いているのは2つだけ</b>（<span class="mono">TabSwitch</span> と <span class="mono">BottomNav</span>）。残り12箇所はプレーンな <span class="mono">&lt;button&gt;</span> のクラス差し替えで、ガバナンスのタブ・成果物のフォルダタブ・チャットの部署ピッカー・タスクの絞り込み・エージェント作成モーダルの3つの選択群などが該当する。</div>
+        <div style="font-size:12.5px;color:#59616F;line-height:1.8;margin-top:10px;">これらを <span class="mono">LiquidTabs</span> 1本に寄せる。副産物として、<span class="mono">TabSwitch.tsx</span> が <span class="mono">bg-gray-100</span> / <span class="mono">#2D2D2D</span> 直書きで<b>今もダークモードで壊れている</b>問題も消える。</div>
+        <div style="display:flex;align-items:flex-start;gap:9px;margin-top:14px;padding:11px 14px;border-radius:9px;background:#ECFDF5;border:1px solid #A7F3D0;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#047857" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0;"><path d="M5 12l5 5L20 7"/></svg>
+          <div style="font-size:11.5px;color:#065F46;line-height:1.75;"><b>壊すものが無い:</b> Tailwind の独自キーフレーム6本（aurora×3・shimmer・float・pulse-glow）、<span class="mono">backdropBlur</span> の4キー、<span class="mono">duration-slow/dramatic</span>・<span class="mono">ease-emphasized/smooth</span> は<b>いずれも参照ゼロ</b>。さらに <span class="mono">.liquid-*-shell</span> は中身が空のスタブなのに JSX からは参照され続けている＝<b>CSSだけで液体表現を戻せる</b>。</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="font-size:11.5px;color:#6A7280;margin-top:26px;line-height:1.75;max-width:1000px;">キーボード操作は <span class="mono">role="tablist"</span> ／ <span class="mono">aria-selected</span> ／ 左右矢印キーでの移動を実装する。インジケータの移動はあくまで見た目で、フォーカスの所在は独立して分かるようにする（<span class="mono">focus-visible</span> の2pxリング）。</div>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -37,6 +37,19 @@ export type TaskStatus =
   | 'PENDING_APPROVAL'
   | 'APPROVED'
   | 'REJECTED';
+// LINE 受信箱（ChannelConnection / InboundMessage）。DB は String カラムで運用し、値域はこの型で縛る。
+export type ChannelProvider = 'line';
+// - RECEIVED → DRAFTED / DRAFT_FAILED（AI 下書き生成）
+// - DRAFTED / DRAFT_FAILED → SENT（承認 push 成功）/ SEND_FAILED（push 失敗、再承認可）/ REJECTED
+// - SKIPPED: 1:1 の非テキストメッセージ等、下書き対象外として記録だけしたもの
+export type InboundMessageStatus =
+  | 'RECEIVED'
+  | 'DRAFTED'
+  | 'DRAFT_FAILED'
+  | 'SENT'
+  | 'REJECTED'
+  | 'SEND_FAILED'
+  | 'SKIPPED';
 export type RiskSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type RiskType = 'PII_DETECTED' | 'HARMFUL_CONTENT' | 'ANOMALY' | 'COST_ANOMALY';
 export type MessageRole = 'user' | 'assistant' | 'system';

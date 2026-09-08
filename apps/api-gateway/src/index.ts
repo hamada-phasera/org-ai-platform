@@ -20,6 +20,9 @@ import { salesPipelineRoutes } from './routes/sales/pipeline';
 import { salesProposalsRoutes } from './routes/sales/proposals';
 import { snsPostsRoutes } from './routes/sns/posts';
 import { analyticsRoutes } from './routes/analytics';
+import { lineWebhookRoutes } from './routes/inbox/line-webhook';
+import { inboxMessagesRoutes } from './routes/inbox/messages';
+import { inboxConnectionsRoutes } from './routes/inbox/connections';
 import { prisma } from './utils/prisma';
 
 const app = Fastify({ logger: true });
@@ -97,6 +100,9 @@ async function start(): Promise<void> {
   await app.register(salesProposalsRoutes, { prefix: '/api/sales/proposals' });
   await app.register(snsPostsRoutes, { prefix: '/api/sns/posts' });
   await app.register(analyticsRoutes, { prefix: '/api/analytics' });
+  await app.register(lineWebhookRoutes, { prefix: '/api/webhooks/line' });
+  await app.register(inboxMessagesRoutes, { prefix: '/api/inbox/messages' });
+  await app.register(inboxConnectionsRoutes, { prefix: '/api/inbox/connections' });
 
   const port = parseInt(process.env.PORT ?? '4000');
   await app.listen({ port, host: '0.0.0.0' });

@@ -3,8 +3,8 @@ import { motion } from 'framer-motion';
 import { X, Loader2, CheckCircle2, AlertCircle, Clock } from 'lucide-react';
 import { api } from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
-import { GlassButton } from '../ui/GlassButton';
-import { GlassInput } from '../ui/GlassInput';
+import { Button } from '../ui/Button';
+import { Input } from '../ui/Input';
 import type { SavedAgent } from '../../types/agent';
 
 interface TaskLogEntry {
@@ -30,6 +30,7 @@ export function AgentRunModal({ agent, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const logEndRef = useRef<HTMLDivElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -37,6 +38,24 @@ export function AgentRunModal({ agent, onClose }: Props) {
 
   useEffect(() => {
     return () => wsRef.current?.close();
+  }, []);
+
+  /* a11y: Escape で閉じる */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  /* a11y: マウント時に最初のフォーカス可能要素へフォーカス */
+  useEffect(() => {
+    dialogRef.current
+      ?.querySelector<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      )
+      ?.focus();
   }, []);
 
   const connectStream = useCallback((taskId: string) => {
@@ -93,22 +112,29 @@ export function AgentRunModal({ agent, onClose }: Props) {
 
   return (
     <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-overlay"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       onClick={onClose}
     >
       <motion.div
-        className="glass-regular rounded-lg w-full max-w-lg max-h-[85vh] overflow-y-auto p-6 shadow-elev-3"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="agent-run-title"
+        className="bg-elevated border border-border rounded-panel overflow-hidden w-full max-w-lg max-h-[85vh] overflow-y-auto p-6 shadow-elev-3"
         initial={{ scale: 0.95, y: 12 }}
         animate={{ scale: 1, y: 0 }}
         onClick={(e) => e.stopPropagation()}
       >
+        <div className="brand-strip -mx-6 -mt-6 mb-5 rounded-none" aria-hidden="true" />
         <div className="flex items-start justify-between mb-1">
           <div className="flex items-center gap-2">
             <span className="text-xl">{agent.icon ?? '🤖'}</span>
-            <h2 className="text-body font-semibold text-primary">{agent.name} を実行</h2>
+            <h2 id="agent-run-title" className="text-body font-semibold text-primary">
+              {agent.name} を実行
+            </h2>
           </div>
           <button onClick={onClose} aria-label="閉じる" className="text-muted hover:text-primary">
             <X size={18} />
@@ -116,8 +142,11 @@ export function AgentRunModal({ agent, onClose }: Props) {
         </div>
         {agent.description && <p className="text-xs text-secondary mb-4">{agent.description}</p>}
 
-        <label className="block text-xs text-secondary mb-1">追加の指示（任意）</label>
-        <GlassInput
+        <label htmlFor="agent-run-input" className="block text-xs text-secondary mb-1">
+          追加の指示（任意）
+        </label>
+        <Input
+          id="agent-run-input"
           multiline
           rows={3}
           placeholder="例: 今週分のデータでお願い"
@@ -127,19 +156,19 @@ export function AgentRunModal({ agent, onClose }: Props) {
         />
 
         <div className="mt-4 flex gap-2">
-          <GlassButton variant="primary" onClick={handleRun} loading={busy} disabled={busy}>
+          <Button variant="primary" onClick={handleRun} loading={busy} disabled={busy}>
             {busy ? '実行中…' : 'エージェントを実行'}
-          </GlassButton>
-          <GlassButton variant="ghost" onClick={onClose} disabled={busy}>
+          </Button>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
             閉じる
-          </GlassButton>
+          </Button>
         </div>
 
         {(logs.length > 0 || busy) && (
-          <div className="mt-5">
+          <div className="mt-5" aria-live="polite">
             <div className="text-xs text-secondary mb-2 flex items-center gap-1.5">
               {status === 'done' ? (
-                <CheckCircle2 size={14} className="text-green-500" />
+                <CheckCircle2 size={14} className="text-success" />
               ) : status === 'failed' ? (
                 <AlertCircle size={14} className="text-danger" />
               ) : (
@@ -147,18 +176,18 @@ export function AgentRunModal({ agent, onClose }: Props) {
               )}
               実行ログ
             </div>
-            <div className="glass-thin rounded-sm p-3 space-y-1 max-h-40 overflow-y-auto">
+            <div className="bg-sunken border border-border rounded-sm p-3 space-y-1 max-h-40 overflow-y-auto">
               {logs.map((log) => (
                 <div key={log.id} className="text-xs flex items-start gap-1.5">
                   {log.message.includes('n8n起動中') && (
-                    <Clock size={12} className="mt-0.5 text-amber-500 flex-shrink-0" />
+                    <Clock size={12} className="mt-0.5 text-warning flex-shrink-0" />
                   )}
                   <span
                     className={
                       log.level === 'ERROR'
                         ? 'text-danger'
                         : log.level === 'WARN'
-                          ? 'text-amber-600'
+                          ? 'text-warning'
                           : 'text-secondary'
                     }
                   >
@@ -175,15 +204,17 @@ export function AgentRunModal({ agent, onClose }: Props) {
         )}
 
         {output && (
-          <div className="mt-4">
+          <div className="mt-4" aria-live="polite">
             <div className="text-xs text-secondary mb-1">結果</div>
-            <div className="glass-thin rounded-sm p-3 text-sm text-primary whitespace-pre-wrap">
+            <div className="bg-sunken border border-border rounded-sm p-3 text-sm text-primary whitespace-pre-wrap">
               {output}
             </div>
           </div>
         )}
         {error && status === 'failed' && (
-          <p className="mt-3 text-xs text-danger">{error}</p>
+          <p aria-live="polite" className="mt-3 text-xs text-danger">
+            {error}
+          </p>
         )}
       </motion.div>
     </motion.div>

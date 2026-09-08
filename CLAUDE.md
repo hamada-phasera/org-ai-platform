@@ -63,6 +63,7 @@ AI_ENGINE_URL=http://localhost:8000
 N8N_CLOUD_URL=        # or N8N_URL。エージェント実行・ワークフロー生成の宛先
 N8N_API_KEY=          # n8n Public API キー。エージェント専用ワークフローの動的生成にも使用
 N8N_WEBHOOK_AUTH_TOKEN=org-ai-n8n-secret-token   # Webhook Header Auth
+CHANNEL_CREDENTIAL_ENC_KEY=   # LINE受信箱: チャネル資格情報の暗号化鍵(32byteをhex/base64)。未設定時はJWT_SECRETから導出
 ```
 
 ## エージェント機能 (業務効率化エージェント)

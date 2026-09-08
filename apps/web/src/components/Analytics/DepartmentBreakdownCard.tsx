@@ -1,4 +1,4 @@
-import { GlassCard, GlassBadge } from '../ui';
+import { Card, Badge } from '../ui';
 import type { DepartmentRow } from './types';
 
 function fmtMin(min: number): string {
@@ -14,10 +14,10 @@ export function DepartmentBreakdownCard({ rows }: { rows: DepartmentRow[] }) {
   const maxExec = Math.max(1, ...sorted.map((r) => r.executions));
 
   return (
-    <GlassCard variant="regular" padding="none" className="p-5">
+    <Card variant="regular" padding="none" className="p-5">
       <div className="flex items-center justify-between mb-4">
         <span className="text-sm font-semibold text-primary">部署別 実行数</span>
-        <GlassBadge>完了(DONE)タスク基準</GlassBadge>
+        <Badge>完了(DONE)タスク基準</Badge>
       </div>
 
       <div className="space-y-3">
@@ -27,7 +27,7 @@ export function DepartmentBreakdownCard({ rows }: { rows: DepartmentRow[] }) {
               <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: r.accent }} />
               <span className="truncate">{r.label}</span>
             </span>
-            <div className="flex-1 h-2.5 rounded-full bg-muted overflow-hidden">
+            <div className="flex-1 h-2.5 rounded-full bg-sunken overflow-hidden">
               <div
                 className="h-full rounded-full"
                 style={{ width: `${(r.executions / maxExec) * 100}%`, background: r.accent }}
@@ -50,6 +50,6 @@ export function DepartmentBreakdownCard({ rows }: { rows: DepartmentRow[] }) {
         実行数＝完了(DONE)タスク数、時間＝各タスクの推定削減時間の合計（/dashboard/efficiency 由来）。
         LLM 呼び出し数・コストは下の「部署別 推定コスト」カード（usage-metrics-svc 由来）を参照。
       </p>
-    </GlassCard>
+    </Card>
   );
 }

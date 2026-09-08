@@ -1,7 +1,7 @@
 import { type ReactNode } from 'react';
 import { motion } from 'framer-motion';
-import { GlassCard } from './GlassCard';
-import { GlassButton } from './GlassButton';
+import { Card } from './Card';
+import { Button } from './Button';
 
 interface EmptyStateProps {
   icon?: ReactNode;
@@ -20,9 +20,9 @@ export function EmptyState({ icon, title, description, action, className = '', t
       transition={{ duration: 0.3 }}
       className={`flex items-center justify-center py-12 ${className}`}
     >
-      <GlassCard variant="thin" padding="lg" radius="2xl" tone={tone} className="max-w-md w-full text-center">
+      <Card variant="thin" padding="lg" radius="2xl" tone={tone} className="max-w-md w-full text-center">
         {icon && (
-          <div className="mx-auto mb-4 w-14 h-14 rounded-2xl flex items-center justify-center bg-white/30 text-primary">
+          <div className="mx-auto mb-4 w-14 h-14 rounded-2xl flex items-center justify-center bg-elevated border border-border text-primary">
             {icon}
           </div>
         )}
@@ -30,12 +30,12 @@ export function EmptyState({ icon, title, description, action, className = '', t
         {description && <p className="text-sm text-muted leading-relaxed">{description}</p>}
         {action && (
           <div className="mt-5 flex justify-center">
-            <GlassButton variant="primary" size="sm" onClick={action.onClick} icon={action.icon}>
+            <Button variant="primary" size="sm" onClick={action.onClick} icon={action.icon}>
               {action.label}
-            </GlassButton>
+            </Button>
           </div>
         )}
-      </GlassCard>
+      </Card>
     </motion.div>
   );
 }

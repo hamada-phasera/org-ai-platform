@@ -1,8 +1,8 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { FileText, GripVertical } from 'lucide-react';
-import { GlassCard } from '../ui/GlassCard';
-import { GlassBadge } from '../ui/GlassBadge';
+import { Card } from '../ui/Card';
+import { Badge } from '../ui/Badge';
 import { DEPT_LABEL, DEPT_ACCENT } from '../../constants/departments';
 import { TYPE_ICON, TYPE_LABEL, DeliverablePreview } from './deliverableConstants';
 import { parseOutputJson } from '../../utils/parseTaskOutput';
@@ -17,10 +17,11 @@ export interface DeliverableData {
 
 export type Importance = 'high' | 'mid' | 'low';
 
+/* 重要度は意味色に正規化（高=danger / 中=warning / 低=text-muted）。 */
 const IMPORTANCE_META: Record<Importance, { label: string; color: string }> = {
-  high: { label: '高', color: '#E11D48' },
-  mid: { label: '中', color: '#F59E0B' },
-  low: { label: '低', color: '#94A3B8' },
+  high: { label: '高', color: 'var(--danger)' },
+  mid: { label: '中', color: 'var(--warning)' },
+  low: { label: '低', color: 'var(--text-muted)' },
 };
 
 interface DeliverableCardProps {
@@ -31,8 +32,8 @@ interface DeliverableCardProps {
 }
 
 /**
- * DeliverableCard — sortable glass card for the Deliverables board.
- * Uses DESIGN.md GlassCard primitive.
+ * DeliverableCard — sortable card for the Deliverables board.
+ * Uses the v2 Card primitive (flat surface).
  */
 export function DeliverableCard({ item, onClick, importance, onCycleImportance }: DeliverableCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -41,7 +42,7 @@ export function DeliverableCard({ item, onClick, importance, onCycleImportance }
   const parsed = parseOutputJson(item.output ?? undefined);
   const taskType = parsed?.taskType;
   const Icon = TYPE_ICON[taskType] ?? FileText;
-  const accent = DEPT_ACCENT[item.department] ?? '#8A8A8A';
+  const accent = DEPT_ACCENT[item.department] ?? DEPT_ACCENT.GENERAL;
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -51,7 +52,7 @@ export function DeliverableCard({ item, onClick, importance, onCycleImportance }
 
   return (
     <div ref={setNodeRef} style={style}>
-      <GlassCard
+      <Card
         variant="regular"
         tone={item.department}
         interactive
@@ -95,7 +96,10 @@ export function DeliverableCard({ item, onClick, importance, onCycleImportance }
                     }}
                     title="クリックで重要度を変更（高→中→低）"
                     className="flex items-center gap-1 rounded-full px-1.5 py-0.5 text-micro font-bold transition-transform hover:scale-105"
-                    style={{ backgroundColor: `${meta.color}1A`, color: meta.color }}
+                    style={{
+                      backgroundColor: `color-mix(in srgb, ${meta.color} 10%, transparent)`,
+                      color: meta.color,
+                    }}
                   >
                     <span
                       className="inline-block h-1.5 w-1.5 rounded-full"
@@ -105,9 +109,9 @@ export function DeliverableCard({ item, onClick, importance, onCycleImportance }
                   </button>
                 );
               })()}
-              <GlassBadge tone={item.department} size="xs">
+              <Badge tone={item.department} size="xs">
                 {DEPT_LABEL[item.department] ?? item.department}
-              </GlassBadge>
+              </Badge>
               {taskType && (
                 <span className="text-micro text-muted">
                   {TYPE_LABEL[taskType] ?? taskType}
@@ -132,7 +136,7 @@ export function DeliverableCard({ item, onClick, importance, onCycleImportance }
             {item.output.slice(0, 150)}
           </p>
         ) : null}
-      </GlassCard>
+      </Card>
     </div>
   );
 }

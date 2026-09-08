@@ -1,0 +1,241 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; font-family: 'Manrope','Noto Sans JP',system-ui,sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #3D4EFF; text-decoration: none; }
+    a:hover { color: #2A38D6; }
+    .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; min-height: 1900px; background: #FBFBFC; padding: 48px 56px 64px; box-sizing: border-box; color: #101521;">
+
+  <!-- header -->
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding-bottom: 20px; border-bottom: 1px solid #E7E9ED;">
+    <div>
+      <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #6A7280;">FLOW Design System v2</div>
+      <div style="font-size: 30px; font-weight: 800; letter-spacing: -0.02em; margin-top: 8px;">スタイルタイル — 白基調 / 法人向けSaaS</div>
+      <div style="font-size: 13px; color: #59616F; margin-top: 6px; max-width: 720px; line-height: 1.7;">デスクトップ主・情報密度を上げる方向。既存の部署カラーとキャラクターは資産として残し、シェルとサーフェスを刷新する。</div>
+    </div>
+    <div style="display: flex; gap: 8px;">
+      <span style="display:inline-flex;align-items:center;height:26px;padding:0 10px;border:1px solid #E7E9ED;border-radius:6px;background:#fff;font-size:11px;font-weight:600;color:#59616F;">Manrope</span>
+      <span style="display:inline-flex;align-items:center;height:26px;padding:0 10px;border:1px solid #E7E9ED;border-radius:6px;background:#fff;font-size:11px;font-weight:600;color:#59616F;">Noto Sans JP</span>
+      <span style="display:inline-flex;align-items:center;height:26px;padding:0 10px;border:1px solid #E7E9ED;border-radius:6px;background:#fff;font-size:11px;font-weight:600;color:#59616F;" class="mono">IBM Plex Mono</span>
+    </div>
+  </div>
+
+  <!-- ACCENT DIRECTIONS -->
+  <div style="margin-top: 36px;">
+    <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #6A7280; margin-bottom: 4px;">01 — アクセント 3案（ここを選んでください）</div>
+    <div style="font-size: 13px; color: #59616F; margin-bottom: 18px;">ニュートラル（白・グレー・墨）は3案とも共通。<b>主ボタンと能動状態の色だけ</b>が変わる。</div>
+
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px;">
+
+      <!-- A: INK (leading) -->
+      <div style="background:#fff;border:1.5px solid #101521;border-radius:12px;padding:20px;box-shadow:0 4px 14px rgba(16,21,33,0.07);">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="font-size:15px;font-weight:800;">A. インク</div>
+          <span style="display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:5px;background:#101521;color:#fff;font-size:10px;font-weight:700;letter-spacing:0.04em;">推奨</span>
+        </div>
+        <div style="font-size:12px;color:#59616F;line-height:1.75;margin-top:8px;min-height:60px;">主役は<b>墨（ほぼ黒）</b>。青は focus / リンク / 選択中ナビだけに絞る。部署カラー5色と喧嘩しないので、データの色を最も強く見せられる。</div>
+        <div style="display:flex;gap:6px;margin-top:14px;">
+          <div style="flex:1;height:40px;border-radius:7px;background:#101521;"></div>
+          <div style="flex:1;height:40px;border-radius:7px;background:#3D4EFF;"></div>
+          <div style="flex:1;height:40px;border-radius:7px;background:#EEF0FF;border:1px solid #DDE1FF;"></div>
+        </div>
+        <div style="display:flex;gap:10px;font-size:10px;color:#6A7280;margin-top:6px;" class="mono"><span style="flex:1;">#101521</span><span style="flex:1;">#3D4EFF</span><span style="flex:1;">#EEF0FF</span></div>
+        <div style="display:flex;gap:6px;margin-top:8px;">
+          <div style="flex:1;height:26px;border-radius:6px;background:#2A38D6;"></div>
+          <div style="flex:1;height:26px;border-radius:6px;background:#fff;border:1px solid #DDE1FF;"></div>
+          <div style="flex:1;height:26px;border-radius:6px;background:#101521;display:flex;align-items:center;justify-content:center;color:#A5B4FC;font-size:10px;font-weight:700;">リンク</div>
+        </div>
+        <div style="display:flex;gap:10px;font-size:10px;color:#6A7280;margin-top:6px;" class="mono"><span style="flex:1;">#2A38D6</span><span style="flex:1;">#DDE1FF</span><span style="flex:1;">#A5B4FC</span></div>
+        <div style="display:flex;gap:10px;font-size:9.5px;color:#6A7280;margin-top:3px;line-height:1.5;"><span style="flex:1;">濃・リンクhoverと強調文字</span><span style="flex:1;">薄い罫</span><span style="flex:1;">暗い面の上のリンク</span></div>
+        <div style="display:flex;gap:8px;margin-top:16px;align-items:center;">
+          <button style="height:32px;padding:0 14px;border-radius:7px;border:none;background:#101521;color:#fff;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer;">タスクを実行</button>
+          <button style="height:32px;padding:0 14px;border-radius:7px;border:1px solid #D8DCE3;background:#fff;color:#101521;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;">下書き</button>
+        </div>
+        <div style="font-size:11px;color:#6A7280;margin-top:12px;line-height:1.6;"><b style="color:#59616F;">難点：</b> 華やかさは最も低い。ブランド色としての記憶に残りにくい。</div>
+      </div>
+
+      <!-- B: INDIGO -->
+      <div style="background:#fff;border:1px solid #E7E9ED;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(16,21,33,0.05);">
+        <div style="font-size:15px;font-weight:800;">B. インディゴ</div>
+        <div style="font-size:12px;color:#59616F;line-height:1.75;margin-top:8px;min-height:60px;">現行 <span class="mono">#4F46E5</span> をそのまま主役に。移行コストが最も低く、既存画面と混在しても違和感が出ない。</div>
+        <div style="display:flex;gap:6px;margin-top:14px;">
+          <div style="flex:1;height:40px;border-radius:7px;background:#4F46E5;"></div>
+          <div style="flex:1;height:40px;border-radius:7px;background:#4338CA;"></div>
+          <div style="flex:1;height:40px;border-radius:7px;background:#EEF2FF;border:1px solid #DDE2FE;"></div>
+        </div>
+        <div style="display:flex;gap:10px;font-size:10px;color:#6A7280;margin-top:6px;" class="mono"><span style="flex:1;">#4F46E5</span><span style="flex:1;">#4338CA</span><span style="flex:1;">#EEF2FF</span></div>
+        <div style="display:flex;gap:8px;margin-top:16px;align-items:center;">
+          <button style="height:32px;padding:0 14px;border-radius:7px;border:none;background:#4F46E5;color:#fff;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer;">タスクを実行</button>
+          <button style="height:32px;padding:0 14px;border-radius:7px;border:1px solid #D8DCE3;background:#fff;color:#101521;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;">下書き</button>
+        </div>
+        <div style="font-size:11px;color:#6A7280;margin-top:12px;line-height:1.6;"><b style="color:#59616F;">難点：</b> 営業部の色（同じインディゴ）と衝突する。部署カラーの振り直しが要る。</div>
+      </div>
+
+      <!-- C: COBALT -->
+      <div style="background:#fff;border:1px solid #E7E9ED;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(16,21,33,0.05);">
+        <div style="font-size:15px;font-weight:800;">C. コバルト</div>
+        <div style="font-size:12px;color:#59616F;line-height:1.75;margin-top:8px;min-height:60px;">彩度の高い青を主役に。3案で最も「先進的」に振れる。法人向けの信頼感と両立しやすい色域。</div>
+        <div style="display:flex;gap:6px;margin-top:14px;">
+          <div style="flex:1;height:40px;border-radius:7px;background:#1E4FFF;"></div>
+          <div style="flex:1;height:40px;border-radius:7px;background:#1740D6;"></div>
+          <div style="flex:1;height:40px;border-radius:7px;background:#E9EFFF;border:1px solid #D3E0FF;"></div>
+        </div>
+        <div style="display:flex;gap:10px;font-size:10px;color:#6A7280;margin-top:6px;" class="mono"><span style="flex:1;">#1E4FFF</span><span style="flex:1;">#1740D6</span><span style="flex:1;">#E9EFFF</span></div>
+        <div style="display:flex;gap:8px;margin-top:16px;align-items:center;">
+          <button style="height:32px;padding:0 14px;border-radius:7px;border:none;background:#1E4FFF;color:#fff;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer;">タスクを実行</button>
+          <button style="height:32px;padding:0 14px;border-radius:7px;border:1px solid #D8DCE3;background:#fff;color:#101521;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;">下書き</button>
+        </div>
+        <div style="font-size:11px;color:#6A7280;margin-top:12px;line-height:1.6;"><b style="color:#59616F;">難点：</b> 面積を取ると画面が青くなりすぎる。使用面積の規律が要る。</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NEUTRALS + DEPT -->
+  <div style="margin-top: 40px; display: grid; grid-template-columns: 1.35fr 1fr; gap: 28px;">
+
+    <div>
+      <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #6A7280; margin-bottom: 14px;">02 — ニュートラル（3案共通）</div>
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px;">
+        <div><div style="height:56px;border-radius:8px;background:#FBFBFC;border:1px solid #E7E9ED;"></div><div style="font-size:11px;font-weight:700;margin-top:7px;">キャンバス</div><div style="font-size:10px;color:#6A7280;" class="mono">#FBFBFC</div></div>
+        <div><div style="height:56px;border-radius:8px;background:#FFFFFF;border:1px solid #E7E9ED;"></div><div style="font-size:11px;font-weight:700;margin-top:7px;">サーフェス</div><div style="font-size:10px;color:#6A7280;" class="mono">#FFFFFF</div></div>
+        <div><div style="height:56px;border-radius:8px;background:#F5F6F8;border:1px solid #E7E9ED;"></div><div style="font-size:11px;font-weight:700;margin-top:7px;">沈んだ面</div><div style="font-size:10px;color:#6A7280;" class="mono">#F5F6F8</div></div>
+        <div><div style="height:56px;border-radius:8px;background:#fff;border:1px solid #D8DCE3;"></div><div style="font-size:11px;font-weight:700;margin-top:7px;">境界（強）</div><div style="font-size:10px;color:#6A7280;" class="mono">#D8DCE3</div></div>
+        <div><div style="height:56px;border-radius:8px;background:#101521;"></div><div style="font-size:11px;font-weight:700;margin-top:7px;">本文</div><div style="font-size:10px;color:#6A7280;" class="mono">#101521</div></div>
+        <div><div style="height:56px;border-radius:8px;background:#59616F;"></div><div style="font-size:11px;font-weight:700;margin-top:7px;">副次 <span style="color:#16A34A;">6.04:1</span></div><div style="font-size:10px;color:#6A7280;" class="mono">#59616F</div></div>
+        <div><div style="height:56px;border-radius:8px;background:#6A7280;"></div><div style="font-size:11px;font-weight:700;margin-top:7px;">弱（下限） <span style="color:#16A34A;">4.69:1</span></div><div style="font-size:10px;color:#6A7280;" class="mono">#6A7280</div></div>
+        <div><div style="height:56px;border-radius:8px;background:#E7E9ED;"></div><div style="font-size:11px;font-weight:700;margin-top:7px;">境界</div><div style="font-size:10px;color:#6A7280;" class="mono">#E7E9ED</div></div>
+      </div>
+      <div style="margin-top:14px;padding:12px 14px;border-radius:8px;background:#F5F6F8;border:1px solid #E7E9ED;font-size:11.5px;color:#59616F;line-height:1.7;">
+        現行のハードコード <span class="mono" style="color:#101521;">#BCBCBC</span>（1.9:1）・<span class="mono" style="color:#101521;">#8A929F</span>（3.1:1）・<span class="mono" style="color:#101521;">#9BA3AF</span>（2.6:1）は本文コントラスト不足のため廃止。比率はキャンバス地 #FBFBFC 上の実測（白地より厳しい方）。<b>文字に使ってよい最も薄い色は <span class="mono">#6A7280</span>（4.69:1）</b> とし、これより薄い灰色は罫線と装飾にのみ使う。
+      </div>
+    </div>
+
+    <div>
+      <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #6A7280; margin-bottom: 14px;">03 — 部署カラー（データの色・維持）</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 12px;border:1px solid #E7E9ED;border-radius:9px;background:#fff;"><span style="width:10px;height:10px;border-radius:3px;background:#4F46E5;"></span><span style="font-size:12.5px;font-weight:700;flex:1;">営業部</span><span class="mono" style="font-size:10.5px;color:#6A7280;">#4F46E5</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 12px;border:1px solid #E7E9ED;border-radius:9px;background:#fff;"><span style="width:10px;height:10px;border-radius:3px;background:#9333EA;"></span><span style="font-size:12.5px;font-weight:700;flex:1;">マーケ部</span><span class="mono" style="font-size:10.5px;color:#6A7280;">#9333EA</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 12px;border:1px solid #E7E9ED;border-radius:9px;background:#fff;"><span style="width:10px;height:10px;border-radius:3px;background:#0284C7;"></span><span style="font-size:12.5px;font-weight:700;flex:1;">経理部</span><span class="mono" style="font-size:10.5px;color:#6A7280;">#0284C7</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 12px;border:1px solid #E7E9ED;border-radius:9px;background:#fff;"><span style="width:10px;height:10px;border-radius:3px;background:#0D9488;"></span><span style="font-size:12.5px;font-weight:700;flex:1;">データ分析</span><span class="mono" style="font-size:10.5px;color:#6A7280;">#0D9488</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 12px;border:1px solid #E7E9ED;border-radius:9px;background:#fff;"><span style="width:10px;height:10px;border-radius:3px;background:#475569;"></span><span style="font-size:12.5px;font-weight:700;flex:1;">総合</span><span class="mono" style="font-size:10.5px;color:#6A7280;">#475569</span></div>
+      </div>
+      <div style="font-size:11px;color:#6A7280;margin-top:10px;line-height:1.65;">既存 <span class="mono">DEPT_ACCENT</span> の5色をそのまま採用（マーケ部のみ #7C3AED→#9333EA で白地の視認性を上げる）。</div>
+    </div>
+  </div>
+
+  <!-- TYPE + CHARACTERS -->
+  <div style="margin-top: 40px; display: grid; grid-template-columns: 1.35fr 1fr; gap: 28px;">
+    <div>
+      <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #6A7280; margin-bottom: 16px;">04 — タイポグラフィ</div>
+      <div style="background:#fff;border:1px solid #E7E9ED;border-radius:12px;padding:22px 24px;">
+        <div style="display:flex;align-items:baseline;gap:16px;padding-bottom:12px;border-bottom:1px solid #F0F1F4;"><span style="font-size:28px;font-weight:800;letter-spacing:-0.02em;">今週は 8時間20分 を削減</span><span class="mono" style="font-size:10px;color:#6A7280;margin-left:auto;white-space:nowrap;">28 / 800 / -0.02em</span></div>
+        <div style="display:flex;align-items:baseline;gap:16px;padding:12px 0;border-bottom:1px solid #F0F1F4;"><span style="font-size:19px;font-weight:700;letter-spacing:-0.01em;">部署別の貢献</span><span class="mono" style="font-size:10px;color:#6A7280;margin-left:auto;white-space:nowrap;">19 / 700</span></div>
+        <div style="display:flex;align-items:baseline;gap:16px;padding:12px 0;border-bottom:1px solid #F0F1F4;"><span style="font-size:13.5px;font-weight:400;color:#101521;line-height:1.75;">提案書のドラフトを作成しました。金額は単価表が未導入のため空欄です。</span><span class="mono" style="font-size:10px;color:#6A7280;margin-left:auto;white-space:nowrap;">13.5 / 400 / 1.75</span></div>
+        <div style="display:flex;align-items:baseline;gap:16px;padding:12px 0;border-bottom:1px solid #F0F1F4;"><span style="font-size:11.5px;font-weight:600;color:#59616F;">最終実行 2026-08-24 10:42</span><span class="mono" style="font-size:10px;color:#6A7280;margin-left:auto;white-space:nowrap;">11.5 / 600</span></div>
+        <div style="display:flex;align-items:baseline;gap:16px;padding-top:12px;"><span class="mono" style="font-size:15px;font-weight:600;">¥4,200,000 · 342ms · 1,284 tok</span><span class="mono" style="font-size:10px;color:#6A7280;margin-left:auto;white-space:nowrap;">数値は等幅 / tabular</span></div>
+      </div>
+      <div style="font-size:11px;color:#6A7280;margin-top:10px;line-height:1.65;">日本語は Noto Sans JP、ラテン・数字は Manrope、ID/ログ/金額は IBM Plex Mono。現行の Playfair Display（未使用）は削除し、CSS が宣言するだけで実際には読み込まれていなかった Inter も、ここでは採用しない。</div>
+    </div>
+
+    <div>
+      <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #6A7280; margin-bottom: 16px;">05 — キャラクターの新しい扱い</div>
+      <div style="background:#fff;border:1px solid #E7E9ED;border-radius:12px;padding:20px;">
+        <div style="font-size:11.5px;color:#59616F;line-height:1.7;margin-bottom:16px;"><b style="color:#101521;">主役 → 身元表示へ。</b>256pxのヒーローをやめ、<b style="color:#101521;">20（表の行）/ 28（発言者）/ 36（一覧）</b>の3段を基本にする。ホームの一覧カードのみ 56、空状態のみ 64 を許可。</div>
+        <div style="display:flex;align-items:flex-end;gap:18px;padding:16px;background:#F5F6F8;border-radius:9px;">
+          <div style="text-align:center;"><img src="char-general.png" alt="総合エージェント" style="width:64px;height:64px;object-fit:contain;display:block;"><div style="font-size:9.5px;color:#6A7280;margin-top:4px;" class="mono">64</div></div>
+          <div style="text-align:center;"><img src="char-sales.png" alt="セールスくん" style="width:56px;height:56px;object-fit:contain;display:block;"><div style="font-size:9.5px;color:#6A7280;margin-top:4px;" class="mono">56</div></div>
+          <div style="text-align:center;"><img src="char-marketing.png" alt="バズちゃん" style="width:36px;height:36px;object-fit:contain;display:block;"><div style="font-size:9.5px;color:#6A7280;margin-top:4px;" class="mono">36</div></div>
+          <div style="text-align:center;"><img src="char-analytics.png" alt="アナリーゼ" style="width:28px;height:28px;object-fit:contain;display:block;"><div style="font-size:9.5px;color:#6A7280;margin-top:4px;" class="mono">28</div></div>
+          <div style="text-align:center;"><img src="char-accounting.png" alt="カルクさん" style="width:20px;height:20px;object-fit:contain;display:block;"><div style="font-size:9.5px;color:#6A7280;margin-top:4px;" class="mono">20</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:14px;padding:10px 12px;border:1px solid #E7E9ED;border-radius:9px;">
+          <img src="char-sales.png" alt="セールスくん" style="width:28px;height:28px;object-fit:contain;">
+          <div style="flex:1;"><div style="font-size:12px;font-weight:700;">セールスくん<span style="color:#6A7280;font-weight:600;margin-left:6px;">営業部</span></div><div style="font-size:11px;color:#59616F;margin-top:1px;" aria-live="polite">提案書を作成しています…</div></div>
+          <span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;color:#047857;white-space:nowrap;"><span style="width:6px;height:6px;border-radius:50%;background:#16A34A;"></span>稼働中</span>
+        </div>
+        <div style="font-size:11px;color:#6A7280;margin-top:12px;line-height:1.65;">背景の色ハロー（現行 <span class="mono">CharacterAvatar</span> のぼかし）は白地でにじむため廃止。素の PNG を置く。</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- COMPONENTS -->
+  <div style="margin-top: 40px;">
+    <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #6A7280; margin-bottom: 16px;">06 — 部品（高さ・角丸・フォーカス）</div>
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px;">
+
+      <div style="background:#fff;border:1px solid #E7E9ED;border-radius:12px;padding:18px;">
+        <div style="font-size:11px;font-weight:700;color:#6A7280;margin-bottom:12px;">ボタン <span class="mono" style="font-weight:500;">h32 / r7</span></div>
+        <div style="display:flex;flex-direction:column;gap:9px;align-items:flex-start;">
+          <button style="height:32px;padding:0 14px;border-radius:7px;border:none;background:#101521;color:#fff;font-size:12px;font-weight:700;font-family:inherit;">主要</button>
+          <button style="height:32px;padding:0 14px;border-radius:7px;border:1px solid #D8DCE3;background:#fff;color:#101521;font-size:12px;font-weight:600;font-family:inherit;">副次</button>
+          <button style="height:32px;padding:0 14px;border-radius:7px;border:none;background:transparent;color:#59616F;font-size:12px;font-weight:600;font-family:inherit;">ゴースト</button>
+          <button style="height:32px;padding:0 14px;border-radius:7px;border:1px solid #FECACA;background:#FEF2F2;color:#B91C1C;font-size:12px;font-weight:600;font-family:inherit;">破壊的</button>
+          <button style="height:32px;padding:0 14px;border-radius:7px;border:none;background:#101521;color:#fff;font-size:12px;font-weight:700;font-family:inherit;outline:2px solid #3D4EFF;outline-offset:2px;">フォーカス</button>
+        </div>
+        <div style="font-size:10.5px;color:#6A7280;margin-top:12px;line-height:1.6;">現行は <span class="mono">focus-visible</span> が全12,750行で0件。<b>2px / offset 2px</b> を全対話要素に必須化。</div>
+      </div>
+
+      <div style="background:#fff;border:1px solid #E7E9ED;border-radius:12px;padding:18px;">
+        <div style="font-size:11px;font-weight:700;color:#6A7280;margin-bottom:12px;">入力 <span class="mono" style="font-weight:500;">h34 / r7</span></div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <div><label for="st-in-name" style="display:block;font-size:10.5px;font-weight:700;color:#59616F;margin-bottom:5px;">エージェント名</label><input id="st-in-name" readonly value="週次の営業レポート" style="display:block;width:100%;box-sizing:border-box;height:34px;border:1px solid #D8DCE3;border-radius:7px;background:#fff;padding:0 11px;font-size:12.5px;color:#101521;font-family:inherit;"></div>
+          <div><label for="st-in-dept" style="display:block;font-size:10.5px;font-weight:700;color:#59616F;margin-bottom:5px;">担当部署</label><input id="st-in-dept" readonly value="営業部" style="display:block;width:100%;box-sizing:border-box;height:34px;border:1px solid #101521;border-radius:7px;background:#fff;padding:0 11px;font-size:12.5px;color:#101521;font-family:inherit;outline:2px solid #3D4EFF;outline-offset:2px;"></div>
+          <div><label for="st-in-prompt" style="display:block;font-size:10.5px;font-weight:700;color:#59616F;margin-bottom:5px;">指示文</label><input id="st-in-prompt" readonly aria-invalid="true" aria-describedby="st-in-prompt-err" value="未入力" style="display:block;width:100%;box-sizing:border-box;height:34px;border:1px solid #FECACA;border-radius:7px;background:#fff;padding:0 11px;font-size:12.5px;color:#6A7280;font-family:inherit;"><div id="st-in-prompt-err" style="font-size:10.5px;color:#B91C1C;margin-top:5px;font-weight:600;">指示文を入力してください</div></div>
+        </div>
+      </div>
+
+      <div style="background:#fff;border:1px solid #E7E9ED;border-radius:12px;padding:18px;">
+        <div style="font-size:11px;font-weight:700;color:#6A7280;margin-bottom:12px;">状態バッジ</div>
+        <div style="display:flex;flex-wrap:wrap;gap:7px;">
+          <span style="display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:6px;background:#ECFDF5;border:1px solid #A7F3D0;font-size:10.5px;font-weight:700;color:#047857;"><span style="width:5px;height:5px;border-radius:50%;background:#059669;"></span>ACTIVE</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:6px;background:#FFFBEB;border:1px solid #FDE68A;font-size:10.5px;font-weight:700;color:#B45309;"><span style="width:5px;height:5px;border-radius:50%;background:#D97706;"></span>PENDING</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:6px;background:#FEF2F2;border:1px solid #FECACA;font-size:10.5px;font-weight:700;color:#B91C1C;"><span style="width:5px;height:5px;border-radius:50%;background:#DC2626;"></span>FAILED</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:6px;background:#F5F6F8;border:1px solid #E7E9ED;font-size:10.5px;font-weight:700;color:#59616F;">QUEUED</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:6px;background:#EEF0FF;border:1px solid #DDE1FF;font-size:10.5px;font-weight:700;color:#2A38D6;">RUNNING</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:6px;background:#FFF7ED;border:1px solid #FED7AA;font-size:10.5px;font-weight:700;color:#C2410C;">要接続</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:6px;background:#101521;font-size:10.5px;font-weight:700;color:#fff;">高</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:6px;background:#F5F6F8;border:1px solid #E7E9ED;font-size:10.5px;font-weight:700;color:#59616F;">中</span>
+        </div>
+        <div style="font-size:10.5px;color:#6A7280;margin-top:12px;line-height:1.6;">色だけに意味を載せない。必ず文字列を併記する（色覚多様性・グレースケール印刷）。</div>
+      </div>
+
+      <div style="background:#fff;border:1px solid #E7E9ED;border-radius:12px;padding:18px;">
+        <div style="font-size:11px;font-weight:700;color:#6A7280;margin-bottom:12px;">面と影</div>
+        <div style="display:flex;flex-direction:column;gap:11px;">
+          <div style="height:38px;border-radius:9px;background:#fff;border:1px solid #E7E9ED;display:flex;align-items:center;padding:0 12px;font-size:11px;font-weight:600;">カード <span class="mono" style="color:#6A7280;margin-left:auto;font-weight:500;">border のみ</span></div>
+          <div style="height:38px;border-radius:9px;background:#fff;border:1px solid #E7E9ED;box-shadow:0 1px 3px rgba(16,21,33,0.06);display:flex;align-items:center;padding:0 12px;font-size:11px;font-weight:600;">浮いたカード <span class="mono" style="color:#6A7280;margin-left:auto;font-weight:500;">shadow-1</span></div>
+          <div style="height:38px;border-radius:9px;background:#fff;border:1px solid #E7E9ED;box-shadow:0 8px 24px rgba(16,21,33,0.10);display:flex;align-items:center;padding:0 12px;font-size:11px;font-weight:600;">モーダル <span class="mono" style="color:#6A7280;margin-left:auto;font-weight:500;">shadow-3</span></div>
+          <div style="height:38px;border-radius:9px;background:#F5F6F8;border:1px solid #E7E9ED;display:flex;align-items:center;padding:0 12px;font-size:11px;font-weight:600;">沈んだ面 <span class="mono" style="color:#6A7280;margin-left:auto;font-weight:500;">surface-2</span></div>
+        </div>
+        <div style="font-size:10.5px;color:#6A7280;margin-top:12px;line-height:1.6;">角丸は 7（部品）/ 9（カード）/ 12（パネル）の3段のみ。現行の22pxは使わない。</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:32px;padding:16px 18px;border-radius:10px;border:1px solid #E7E9ED;background:#fff;display:flex;gap:28px;align-items:flex-start;">
+    <div style="flex:1;">
+      <div style="font-size:12px;font-weight:800;margin-bottom:6px;">この刷新で捨てるもの</div>
+      <div style="font-size:11.5px;color:#59616F;line-height:1.75;">虹グラデ / ガラス（<span class="mono">DESIGN.md</span> の Liquid Glass Prism）・アイコンのみの浮遊ボトムナビ・キャラの全画面ヒーロー・<span class="mono">#8b85ff</span> 系のハードコード660箇所・22px の大角丸。</div>
+    </div>
+    <div style="flex:1;">
+      <div style="font-size:12px;font-weight:800;margin-bottom:6px;">残すもの</div>
+      <div style="font-size:11.5px;color:#59616F;line-height:1.75;">部署キャラクター5体（縮小して身元表示に）・部署カラー5色・<span class="mono">prefers-reduced-motion</span> 対応・ダーク用トークンの二重定義。</div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

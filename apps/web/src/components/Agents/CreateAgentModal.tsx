@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { X, Sparkles } from 'lucide-react';
 import { api } from '../../services/api';
-import { GlassButton } from '../ui/GlassButton';
-import { GlassInput } from '../ui/GlassInput';
+import { Button } from '../ui/Button';
+import { Input } from '../ui/Input';
 import { DEPARTMENTS } from '../../constants/departments';
 import type { SavedAgent } from '../../types/agent';
 
@@ -38,6 +38,25 @@ export function CreateAgentModal({
   const [useInfer, setUseInfer] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+
+  /* a11y: Escape で閉じる */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  /* a11y: マウント時に最初のフォーカス可能要素へフォーカス */
+  useEffect(() => {
+    dialogRef.current
+      ?.querySelector<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      )
+      ?.focus();
+  }, []);
 
   const canSubmit = useInfer
     ? description.trim().length > 0
@@ -77,20 +96,27 @@ export function CreateAgentModal({
 
   return (
     <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-overlay"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       onClick={onClose}
     >
       <motion.div
-        className="glass-regular rounded-lg w-full max-w-lg max-h-[88vh] overflow-y-auto p-6 shadow-elev-3"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-agent-title"
+        className="bg-elevated border border-border rounded-panel overflow-hidden w-full max-w-lg max-h-[88vh] overflow-y-auto p-6 shadow-elev-3"
         initial={{ scale: 0.95, y: 12 }}
         animate={{ scale: 1, y: 0 }}
         onClick={(e) => e.stopPropagation()}
       >
+        <div className="brand-strip -mx-6 -mt-6 mb-5 rounded-none" aria-hidden="true" />
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-body font-semibold text-primary">エージェントを作成</h2>
+          <h2 id="create-agent-title" className="text-body font-semibold text-primary">
+            エージェントを作成
+          </h2>
           <button onClick={onClose} aria-label="閉じる" className="text-muted hover:text-primary">
             <X size={18} />
           </button>
@@ -103,15 +129,18 @@ export function CreateAgentModal({
             onChange={(e) => setUseInfer(e.target.checked)}
             className="accent-current"
           />
-          <Sparkles size={13} className="text-amber-500" />
+          <Sparkles size={13} className="text-warning" />
           説明文からAIに内容を提案させる（名前・指示・部署を自動設定）
         </label>
 
         <div className="space-y-3">
           {!useInfer && (
             <div>
-              <label className="block text-xs text-secondary mb-1">エージェント名</label>
-              <GlassInput
+              <label htmlFor="create-agent-name" className="block text-xs text-secondary mb-1">
+                エージェント名
+              </label>
+              <Input
+                id="create-agent-name"
                 placeholder="例: 週次売上レポート"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -121,10 +150,11 @@ export function CreateAgentModal({
           )}
 
           <div>
-            <label className="block text-xs text-secondary mb-1">
+            <label htmlFor="create-agent-description" className="block text-xs text-secondary mb-1">
               {useInfer ? '作りたいエージェントの説明（必須）' : '説明（任意）'}
             </label>
-            <GlassInput
+            <Input
+              id="create-agent-description"
               multiline
               rows={useInfer ? 4 : 2}
               placeholder="例: 毎週月曜に見込み客へフォローメールの下書きを作る"
@@ -135,18 +165,25 @@ export function CreateAgentModal({
           </div>
 
           <div>
-            <label className="block text-xs text-secondary mb-1">部署</label>
-            <div className="flex flex-wrap gap-1.5">
+            <span id="create-agent-department-label" className="block text-xs text-secondary mb-1">
+              部署
+            </span>
+            <div
+              role="group"
+              aria-labelledby="create-agent-department-label"
+              className="flex flex-wrap gap-1.5"
+            >
               {DEPARTMENTS.map((d) => (
                 <button
                   key={d.key}
                   type="button"
                   onClick={() => setDepartment(d.key)}
                   disabled={submitting}
-                  className={`text-xs px-2.5 py-1.5 rounded-sm transition-all ${
+                  aria-pressed={department === d.key}
+                  className={`text-xs px-2.5 py-1.5 rounded-sm border transition-all ${
                     department === d.key
-                      ? 'glass-regular text-primary font-semibold shadow-elev-1'
-                      : 'glass-thin text-secondary hover:text-primary'
+                      ? 'bg-accent-soft border-accent-soft-border text-accent font-semibold shadow-elev-1'
+                      : 'bg-sunken border-border text-secondary hover:text-primary'
                   }`}
                 >
                   {d.icon} {d.label}
@@ -157,8 +194,11 @@ export function CreateAgentModal({
 
           {!useInfer && (
             <div>
-              <label className="block text-xs text-secondary mb-1">指示（システムプロンプト）</label>
-              <GlassInput
+              <label htmlFor="create-agent-instructions" className="block text-xs text-secondary mb-1">
+                指示（システムプロンプト）
+              </label>
+              <Input
+                id="create-agent-instructions"
                 multiline
                 rows={4}
                 placeholder="このエージェントが毎回従う役割・指示を具体的に記述"
@@ -171,16 +211,21 @@ export function CreateAgentModal({
 
           <div className="flex items-center justify-between gap-4">
             <div>
-              <label className="block text-xs text-secondary mb-1">アイコン</label>
-              <div className="flex flex-wrap gap-1">
+              <span id="create-agent-icon-label" className="block text-xs text-secondary mb-1">
+                アイコン
+              </span>
+              <div role="group" aria-labelledby="create-agent-icon-label" className="flex flex-wrap gap-1">
                 {ICONS.map((ic) => (
                   <button
                     key={ic}
                     type="button"
                     onClick={() => setIcon(ic)}
                     disabled={submitting}
-                    className={`text-base w-7 h-7 rounded-sm transition-all ${
-                      icon === ic ? 'glass-regular shadow-elev-1' : 'hover:glass-thin'
+                    aria-pressed={icon === ic}
+                    className={`text-base w-7 h-7 rounded-sm border transition-all ${
+                      icon === ic
+                        ? 'bg-accent-soft border-accent-soft-border shadow-elev-1'
+                        : 'border-transparent hover:bg-sunken'
                     }`}
                   >
                     {ic}
@@ -189,18 +234,21 @@ export function CreateAgentModal({
               </div>
             </div>
             <div>
-              <label className="block text-xs text-secondary mb-1">実行</label>
-              <div className="flex gap-1">
+              <span id="create-agent-trigger-label" className="block text-xs text-secondary mb-1">
+                実行
+              </span>
+              <div role="group" aria-labelledby="create-agent-trigger-label" className="flex gap-1">
                 {(['MANUAL', 'SCHEDULED'] as const).map((t) => (
                   <button
                     key={t}
                     type="button"
                     onClick={() => setTrigger(t)}
                     disabled={submitting}
-                    className={`text-xs px-2.5 py-1.5 rounded-sm transition-all ${
+                    aria-pressed={trigger === t}
+                    className={`text-xs px-2.5 py-1.5 rounded-sm border transition-all ${
                       trigger === t
-                        ? 'glass-regular text-primary font-semibold shadow-elev-1'
-                        : 'glass-thin text-secondary hover:text-primary'
+                        ? 'bg-accent-soft border-accent-soft-border text-accent font-semibold shadow-elev-1'
+                        : 'bg-sunken border-border text-secondary hover:text-primary'
                     }`}
                   >
                     {t === 'MANUAL' ? '手動' : '定期'}
@@ -211,20 +259,24 @@ export function CreateAgentModal({
           </div>
         </div>
 
-        {error && <p className="mt-3 text-xs text-danger">{error}</p>}
+        {error && (
+          <p aria-live="polite" className="mt-3 text-xs text-danger">
+            {error}
+          </p>
+        )}
 
         <div className="mt-5 flex gap-2">
-          <GlassButton
+          <Button
             variant="primary"
             onClick={handleSubmit}
             loading={submitting}
             disabled={!canSubmit || submitting}
           >
             {useInfer ? 'AIに提案させて作成' : '作成する'}
-          </GlassButton>
-          <GlassButton variant="ghost" onClick={onClose} disabled={submitting}>
+          </Button>
+          <Button variant="ghost" onClick={onClose} disabled={submitting}>
             キャンセル
-          </GlassButton>
+          </Button>
         </div>
       </motion.div>
     </motion.div>

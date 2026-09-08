@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { useDroppable } from '@dnd-kit/core';
 import { Plus, Folder as FolderIcon } from 'lucide-react';
+import { LiquidTabs } from '../motion/LiquidTabs';
 import type { Folder } from '../../store/deliverablesStore';
 
 interface FolderTabsProps {
@@ -11,24 +12,32 @@ interface FolderTabsProps {
 }
 
 /**
- * FolderTabs — horizontal scrollable droppable folders.
- * Uses glass-regular pill tabs with dept color accents.
+ * FolderTabs — フォルダ切り替えタブ。
+ * 排他選択の見た目は LiquidTabs（タブの正本）へ委譲し、
+ * DnD のドロップ先（folder-drop-<id>）はラベル側で維持する。
  */
 export function FolderTabs({ folders, activeId, onSelect, onCreate }: FolderTabsProps) {
   return (
     <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide py-2 px-1">
-      {folders.map((folder) => (
-        <FolderTab
-          key={folder.id}
-          folder={folder}
-          active={folder.id === activeId}
-          onSelect={() => onSelect(folder.id)}
-        />
-      ))}
+      <LiquidTabs
+        id="deliverables-folders"
+        label="成果物のフォルダを切り替え"
+        size="sm"
+        items={folders.map((folder) => ({
+          value: folder.id,
+          label: <DroppableFolderLabel folder={folder} />,
+          badge:
+            folder.itemIds.length > 0 ? (
+              <span className="tabular">{folder.itemIds.length}</span>
+            ) : undefined,
+        }))}
+        value={activeId}
+        onChange={onSelect}
+      />
       {onCreate && (
         <motion.button
           onClick={onCreate}
-          className="flex items-center gap-1 glass-thin rounded-full px-3 py-1.5 text-xs text-secondary hover:text-primary flex-shrink-0"
+          className="flex items-center gap-1 bg-sunken border border-border rounded-full px-3 py-1.5 text-xs text-secondary hover:text-primary flex-shrink-0 transition-colors duration-fast"
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
         >
@@ -39,47 +48,18 @@ export function FolderTabs({ folders, activeId, onSelect, onCreate }: FolderTabs
   );
 }
 
-interface FolderTabProps {
-  folder: Folder;
-  active: boolean;
-  onSelect: () => void;
-}
-
-function FolderTab({ folder, active, onSelect }: FolderTabProps) {
+/** ドラッグ中の成果物を受け取るドロップ先。isOver で受け入れ可能を示す。 */
+function DroppableFolderLabel({ folder }: { folder: Folder }) {
   const { setNodeRef, isOver } = useDroppable({ id: `folder-drop-${folder.id}` });
-
-  const tone = folder.color ?? '#8b85ff';
-
   return (
-    <motion.button
+    <span
       ref={setNodeRef}
-      onClick={onSelect}
-      className={`relative flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium flex-shrink-0 transition-all duration-base ${
-        active ? 'text-inverse shadow-elev-2' : 'glass-thin text-secondary hover:text-primary'
-      } ${isOver ? 'ring-2 ring-offset-2 ring-offset-canvas' : ''}`}
-      style={{
-        background: active
-          ? `linear-gradient(135deg, ${tone}E0, ${tone})`
-          : undefined,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ['--tw-ring-color' as any]: tone,
-      }}
-      whileHover={{ scale: 1.05 }}
-      whileTap={{ scale: 0.95 }}
+      className={`inline-flex items-center gap-1.5 rounded-full transition-all duration-fast ${
+        isOver ? 'outline outline-2 outline-offset-2 outline-accent' : ''
+      }`}
     >
       <FolderIcon size={12} />
-      <span>{folder.name}</span>
-      {folder.itemIds.length > 0 && (
-        <span
-          className="text-micro ml-0.5 px-1 rounded-full"
-          style={{
-            background: active ? 'rgba(255, 255, 255, 0.25)' : `${tone}20`,
-            color: active ? '#FFFDF9' : tone,
-          }}
-        >
-          {folder.itemIds.length}
-        </span>
-      )}
-    </motion.button>
+      {folder.name}
+    </span>
   );
 }

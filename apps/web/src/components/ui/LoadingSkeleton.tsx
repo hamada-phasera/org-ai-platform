@@ -15,7 +15,7 @@ const roundedClass = {
 export function Skeleton({ className = '', rounded = 'md' }: SkeletonProps) {
   return (
     <div
-      className={`animate-pulse bg-white/40 dark:bg-white/10 ${roundedClass[rounded]} ${className}`}
+      className={`animate-pulse bg-border ${roundedClass[rounded]} ${className}`}
       aria-hidden="true"
     />
   );
@@ -23,7 +23,7 @@ export function Skeleton({ className = '', rounded = 'md' }: SkeletonProps) {
 
 export function SkeletonCard({ className = '' }: { className?: string }) {
   return (
-    <div className={`glass-thin rounded-xl p-5 space-y-3 ${className}`}>
+    <div className={`bg-elevated border border-border rounded-xl p-5 space-y-3 ${className}`}>
       <Skeleton className="h-4 w-1/3" />
       <Skeleton className="h-3 w-full" />
       <Skeleton className="h-3 w-2/3" />

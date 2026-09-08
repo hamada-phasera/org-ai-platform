@@ -116,26 +116,25 @@ export function TaskProgressSidebar({ open, onClose, inlineTasks }: TaskProgress
       <AnimatePresence>
         {open && (
           <motion.aside
-            className="absolute lg:relative right-0 z-30 lg:z-0 w-80 h-full flex-shrink-0 flex flex-col border-l border-[#eae8e3]"
-            style={{ background: 'linear-gradient(180deg, #faf9f7 0%, #f5f4f0 100%)' }}
+            className="absolute lg:relative right-0 z-30 lg:z-0 w-80 h-full flex-shrink-0 flex flex-col border-l border-border bg-elevated"
             initial={{ x: 320 }}
             animate={{ x: 0 }}
             exit={{ x: 320 }}
             transition={{ type: 'spring', stiffness: 300, damping: 30 }}
           >
             {/* Header */}
-            <div className="p-4 flex items-center gap-2 border-b border-[#eae8e3]">
+            <div className="p-4 flex items-center gap-2 border-b border-border">
               <div className="flex-1 flex items-center gap-2">
-                <span className="text-sm font-bold text-[#2D2D2D]">タスク進捗</span>
+                <span className="text-sm font-bold text-primary">タスク進捗</span>
                 {executingCount > 0 && (
-                  <span className="text-[10px] bg-[#8b85ff] text-white px-1.5 py-0.5 rounded-full font-bold min-w-[18px] text-center">
+                  <span className="text-micro bg-accent text-white px-1.5 py-0.5 rounded-full font-bold min-w-[18px] text-center">
                     {executingCount}
                   </span>
                 )}
               </div>
               <button
                 onClick={onClose}
-                className="w-8 h-8 rounded-xl bg-white/60 flex items-center justify-center text-[#8A8A8A] hover:text-[#2D2D2D] transition-colors"
+                className="w-8 h-8 rounded-xl bg-elevated/60 flex items-center justify-center text-text-muted hover:text-primary transition-colors"
               >
                 <PanelRightClose size={15} />
               </button>
@@ -146,20 +145,20 @@ export function TaskProgressSidebar({ open, onClose, inlineTasks }: TaskProgress
               <div className="flex gap-1">
                 <button
                   onClick={() => setTab('session')}
-                  className={`text-[10px] px-3 py-1.5 rounded-full transition-all font-medium ${
+                  className={`text-micro px-3 py-1.5 rounded-full transition-all font-medium ${
                     tab === 'session'
-                      ? 'bg-[#8b85ff] text-white'
-                      : 'bg-white/60 text-[#8A8A8A] hover:bg-white'
+                      ? 'bg-accent text-white'
+                      : 'bg-elevated/60 text-text-muted hover:bg-elevated'
                   }`}
                 >
                   セッション ({sessionItems.length})
                 </button>
                 <button
                   onClick={() => setTab('all')}
-                  className={`text-[10px] px-3 py-1.5 rounded-full transition-all font-medium ${
+                  className={`text-micro px-3 py-1.5 rounded-full transition-all font-medium ${
                     tab === 'all'
-                      ? 'bg-[#8b85ff] text-white'
-                      : 'bg-white/60 text-[#8A8A8A] hover:bg-white'
+                      ? 'bg-accent text-white'
+                      : 'bg-elevated/60 text-text-muted hover:bg-elevated'
                   }`}
                 >
                   全タスク ({allItems.length})
@@ -171,7 +170,7 @@ export function TaskProgressSidebar({ open, onClose, inlineTasks }: TaskProgress
             <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-2 scrollbar-hide">
               {displayItems.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <p className="text-xs text-[#BCBCBC]">
+                  <p className="text-xs text-text-muted">
                     {tab === 'session' ? 'このセッションにタスクはありません' : 'タスクはありません'}
                   </p>
                 </div>
@@ -183,10 +182,10 @@ export function TaskProgressSidebar({ open, onClose, inlineTasks }: TaskProgress
             </div>
 
             {/* Footer */}
-            <div className="p-3 border-t border-[#eae8e3]">
+            <div className="p-3 border-t border-border">
               <Link
                 to="/tasks"
-                className="flex items-center justify-center gap-1.5 text-xs text-[#8A8A8A] hover:text-[#8b85ff] transition-colors font-medium py-2"
+                className="flex items-center justify-center gap-1.5 text-xs text-text-muted hover:text-accent transition-colors font-medium py-2"
               >
                 全タスク管理 <ExternalLink size={11} />
               </Link>
