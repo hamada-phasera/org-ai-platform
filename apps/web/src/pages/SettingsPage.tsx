@@ -23,6 +23,8 @@ import {
   SkeletonList,
 } from '../components/ui';
 import UsageCard from '../components/Settings/UsageCard';
+import IntegrationsSection from '../components/Settings/IntegrationsSection';
+import { LiquidTabs } from '../components/motion/LiquidTabs';
 
 interface OrganizationView {
   id: string;
@@ -45,6 +47,7 @@ export default function SettingsPage() {
   const qc = useQueryClient();
   const logout = useAuthStore((s) => s.logout);
   const storedUser = useAuthStore((s) => s.user);
+  const [view, setView] = useState<'general' | 'integrations'>('general');
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<{ fileName: string; content: string } | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
@@ -130,6 +133,25 @@ export default function SettingsPage() {
           </div>
         }
       />
+
+      <div className="mb-5">
+        <LiquidTabs<'general' | 'integrations'>
+          id="settings-tab"
+          size="sm"
+          label="設定の切り替え"
+          items={[
+            { value: 'general', label: '基本' },
+            { value: 'integrations', label: '連携' },
+          ]}
+          value={view}
+          onChange={setView}
+        />
+      </div>
+
+      {view === 'integrations' ? (
+        <IntegrationsSection />
+      ) : (
+        <>
 
       <Card variant="regular" padding="lg" radius="2xl" className="mb-5">
         <div className="flex items-center gap-2 mb-4">
@@ -235,6 +257,8 @@ export default function SettingsPage() {
           </Button>
         </div>
       </Card>
+        </>
+      )}
     </div>
   );
 }

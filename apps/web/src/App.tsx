@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
+import InboxPage from './pages/InboxPage';
 import ChatPage from './pages/ChatPage';
 import HomePage from './pages/HomePage';
 import AgentsPage from './pages/AgentsPage';
@@ -37,6 +38,7 @@ export default function App() {
         <Route path="dashboard" element={<HomePage />} />
         <Route path="chat" element={<ChatPage />} />
         <Route path="chat/:id" element={<ChatPage />} />
+        <Route path="inbox" element={<InboxPage />} />
         <Route path="agents" element={<AgentsPage />} />
         <Route path="governance" element={<GovernancePage />} />
         <Route path="tasks" element={<TaskManagerPage />} />

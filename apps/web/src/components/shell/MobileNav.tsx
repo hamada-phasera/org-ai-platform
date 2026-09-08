@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { FileText, Home, Menu, MessageCircle, Monitor, X } from 'lucide-react';
+import { FileText, Home, Inbox, Menu, MessageCircle, Monitor, X } from 'lucide-react';
 import { ADMIN_NAV, MAIN_NAV, WORK_PAGES } from './navConfig';
 import type { NavEntry } from './navConfig';
 import { useMotion } from '../motion/springs';
@@ -9,11 +9,12 @@ import { useMotion } from '../motion/springs';
 const TABS: NavEntry[] = [
   { to: '/', label: 'ホーム', icon: Home, end: true },
   { to: '/chat', label: 'チャット', icon: MessageCircle },
+  { to: '/inbox', label: '受信', icon: Inbox },
   { to: '/deliverables', label: '成果物', icon: FileText },
 ];
 
 /** スマホで開ける画面。ここに無いものはパソコン向けとして畳んで見せる。 */
-const MOBILE_OK = new Set<string>(['/', '/chat', '/deliverables']);
+const MOBILE_OK = new Set<string>(['/', '/chat', '/inbox', '/deliverables']);
 
 const tabClass =
   'flex flex-1 flex-col items-center justify-center gap-0.5 h-14 min-w-[44px] text-micro font-semibold transition-colors duration-fast';

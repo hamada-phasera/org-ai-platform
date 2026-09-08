@@ -21,18 +21,20 @@ model User {
 }
 
 model Organization {
-  id             String          @id @default(cuid())
-  name           String
-  plan           String          @default("STARTER")
-  billingEmail   String?
-  users          User[]
-  sessions       ChatSession[]
-  tasks          Task[]
-  files          UploadedFile[]
-  scheduledTasks ScheduledTask[]
-  agents         Agent[]
-  deals          Deal[]
-  createdAt      DateTime        @default(now())
+  id                 String              @id @default(cuid())
+  name               String
+  plan               String              @default("STARTER")
+  billingEmail       String?
+  users              User[]
+  sessions           ChatSession[]
+  tasks              Task[]
+  files              UploadedFile[]
+  scheduledTasks     ScheduledTask[]
+  agents             Agent[]
+  deals              Deal[]
+  channelConnections ChannelConnection[]
+  inboundMessages    InboundMessage[]
+  createdAt          DateTime            @default(now())
 }
 
 model ChatSession {
@@ -134,14 +136,14 @@ model UploadedFile {
 /// RAG: アップロードファイルをチャンク分割し埋め込みベクトルを保持する。
 /// embedding は pgvector の vector 型（Prisma 未対応のため Unsupported）。読み書きは $queryRaw / $executeRaw。
 model FileChunk {
-  id         String                  @id @default(cuid())
+  id         String                       @id @default(cuid())
   orgId      String
   fileId     String
-  file       UploadedFile            @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  file       UploadedFile                 @relation(fields: [fileId], references: [id], onDelete: Cascade)
   chunkIndex Int
   content    String
   embedding  Unsupported("vector(1024)")?
-  createdAt  DateTime                @default(now())
+  createdAt  DateTime                     @default(now())
 
   @@index([orgId])
   @@index([fileId])
@@ -311,4 +313,66 @@ model Deal {
   updatedAt DateTime     @updatedAt
 
   @@index([orgId, stage])
+}
+
+/// LINE 受信箱: テナント（org）と LINE 公式アカウントの接続情報。
+/// channelSecret / accessToken は secret-box.ts の AES-256-GCM 暗号文のみ保存し、平文は保存しない。
+/// channelId は LINE の destination（bot userId、GET /v2/bot/info の userId）。
+/// webhook は全テナント共通 1 本で、destination から provider+channelId で逆引きする。
+model ChannelConnection {
+  id               String       @id @default(cuid())
+  orgId            String
+  org              Organization @relation(fields: [orgId], references: [id])
+  provider         String       @default("line")
+  channelId        String // LINE: destination (bot userId, GET /v2/bot/info の userId)
+  displayName      String?
+  channelSecretEnc String // secret-box.ts の AES-256-GCM 暗号文。平文は保存しない
+  accessTokenEnc   String
+  status           String       @default("ACTIVE") // 'ACTIVE' | 'DISABLED'
+  monthlyPushCount Int          @default(0)
+  pushCountMonth   String? // 'YYYY-MM'。月替りで lazy リセット
+  lastEventAt      DateTime?
+  lastCheckedAt    DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  inboundMessages InboundMessage[]
+
+  @@unique([provider, channelId])
+  @@index([orgId, provider])
+}
+
+/// LINE 受信箱: 受信メッセージと AI 下書き・承認送信の状態。
+/// webhookEventId の unique が LINE 再送の dedupe 本体（P2002 を静かに握る）。
+/// replyToken は使わない・保存しない（承認 API が push で送信するため期限切れの概念を持ち込まない）。
+model InboundMessage {
+  id             String             @id @default(cuid())
+  orgId          String
+  org            Organization       @relation(fields: [orgId], references: [id])
+  connectionId   String?
+  connection     ChannelConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  provider       String             @default("line")
+  webhookEventId String
+  sourceType     String // 'group' | 'room' | 'user'
+  groupId        String? // group の groupId / room の roomId（返信先。user の場合は null）
+  lineUserId     String?
+  senderName     String?
+  messageType    String             @default("text")
+  text           String?
+  status         String             @default("RECEIVED") // RECEIVED|DRAFTED|DRAFT_FAILED|SENT|REJECTED|SEND_FAILED|SKIPPED
+  draft          String?
+  draftModel     String?
+  draftError     String?
+  replyText      String?
+  repliedAt      DateTime?
+  repliedBy      String?
+  rejectedReason String?
+  lastError      String?
+  receivedAt     DateTime
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@unique([provider, webhookEventId])
+  @@index([orgId, status, createdAt])
+  @@index([connectionId, groupId, createdAt])
 }

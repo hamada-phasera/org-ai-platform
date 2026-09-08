@@ -66,6 +66,11 @@ services:
         sync: false
       - key: N8N_WEBHOOK_AUTH_TOKEN
         sync: false
+      # LINE 受信箱: チャネル資格情報 (channel secret / access token) の暗号化鍵。
+      # 32 バイトを 64 桁 hex または base64 で指定。未設定時は JWT_SECRET から導出
+      # （JWT_SECRET をローテすると既存の接続が復号不能になるため独立設定を推奨）。
+      - key: CHANNEL_CREDENTIAL_ENC_KEY
+        sync: false
 
   - type: web
     name: org-ai-ai-engine

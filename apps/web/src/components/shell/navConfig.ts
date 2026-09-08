@@ -3,6 +3,7 @@ import {
   BarChart3,
   FileText,
   Home,
+  Inbox,
   ListChecks,
   MessageCircle,
   Settings,
@@ -23,6 +24,7 @@ export const MAIN_NAV: NavEntry[] = [
   { to: '/', label: 'ホーム', icon: Home, end: true },
   { to: '/dashboard', label: 'ダッシュボード', icon: BarChart3 },
   { to: '/chat', label: 'チャット', icon: MessageCircle },
+  { to: '/inbox', label: '受信', icon: Inbox },
   { to: '/agents', label: 'エージェント', icon: Bot },
   { to: '/deliverables', label: '成果物', icon: FileText },
   { to: '/tasks', label: 'タスク', icon: ListChecks },
@@ -57,7 +59,7 @@ export const ADMIN_NAV: NavEntry[] = [
  * 閲覧・承認・チャットはスマホ、エージェント設定と監査ログはパソコン、という分担。
  * 表が横に長い画面をスマホに載せても正確に扱えないので、隠さず誘導する。
  */
-export const MOBILE_ROUTES = ['/', '/chat', '/deliverables'] as const;
+export const MOBILE_ROUTES = ['/', '/chat', '/inbox', '/deliverables'] as const;
 
 export function isMobileRoute(pathname: string): boolean {
   if (pathname === '/') return true;
