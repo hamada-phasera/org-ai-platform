@@ -50,6 +50,48 @@ export type InboundMessageStatus =
   | 'REJECTED'
   | 'SEND_FAILED'
   | 'SKIPPED';
+// セルフサーブ連携（ProviderConnection）。DB は String カラムで運用し、値域はこの型で縛る。
+export type ProviderConnectionProvider = 'slack' | 'google';
+export type ProviderConnectionStatus = 'CONNECTED' | 'NEEDS_RECONNECT' | 'DISABLED';
+
+// ── エージェントのステップ実行（step-runner） ──────────────────────
+/** Agent.steps の 1 要素。argTemplate の値は {{input}} / {{prev}} プレースホルダを使える。 */
+export interface AgentStepDef {
+  capabilityName: string;
+  argTemplate?: Record<string, string>;
+}
+export type StepStatus = 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED' | 'AWAITING_APPROVAL' | 'REJECTED';
+export interface StepState {
+  index: number;
+  capabilityName: string;
+  status: StepStatus;
+  args?: Record<string, unknown>;
+  output?: string;
+  error?: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+/** Task.executionResult に JSON 文字列で保存する run 全体の状態。 */
+export interface AgentRunState {
+  version: 1;
+  input: string;
+  currentIndex: number;
+  steps: StepState[];
+}
+/** 外部送信 = 実行前に必ず承認待ちへ積む capability（全自動化しない）。
+ *  post_to_x / send_line_push は現状未登録だが、登録された瞬間からゲートが効くよう先置き。 */
+export const APPROVAL_REQUIRED_CAPS = ['send_email', 'notify_slack', 'post_to_x', 'send_line_push'] as const;
+/** capability レジストリを引かずに AI Engine /llm/chat で変換する予約ステップ名。 */
+export const LLM_TRANSFORM_STEP = 'llm_transform';
+/** Task.approvalData に入れる、ステップ承認待ちの内容（承認 UI が RunPreviewRow で表示）。 */
+export interface AgentStepApprovalData {
+  kind: 'agent_step';
+  stepIndex: number;
+  capabilityName: string;
+  capabilityLabel: string;
+  args: Record<string, unknown>;
+}
+
 export type RiskSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type RiskType = 'PII_DETECTED' | 'HARMFUL_CONTENT' | 'ANOMALY' | 'COST_ANOMALY';
 export type MessageRole = 'user' | 'assistant' | 'system';
@@ -154,6 +196,8 @@ export interface ScheduledTask {
   dayOfMonth: number | null;
   enabled: boolean;
   lastRunAt: string | null;
+  /** 紐づくエージェント。null は従来の部署ワークフロー実行。 */
+  agentId: string | null;
   createdAt: string;
   updatedAt: string;
 }

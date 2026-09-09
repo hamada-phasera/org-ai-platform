@@ -18,29 +18,41 @@ const DEPT_WEBHOOK_PATHS: Record<string, string> = {
   GENERAL: 'dept-general',
 };
 
-const cachedActiveWebhooks = new Map<string, boolean>();
+// TTL 付きキャッシュ。以前は無期限 Map で、一度 false を掴むと gateway 再起動まで
+// 永久に AI Engine フォールバックになるバグがあった（定期実行では致命的）。
+const WEBHOOK_CACHE_TTL_MS = 60_000;
+const cachedActiveWebhooks = new Map<string, { ok: boolean; at: number }>();
+
+function getCachedWebhook(key: string): boolean | null {
+  const c = cachedActiveWebhooks.get(key);
+  if (c && Date.now() - c.at < WEBHOOK_CACHE_TTL_MS) return c.ok;
+  return null;
+}
+
+function setCachedWebhook(key: string, ok: boolean): boolean {
+  cachedActiveWebhooks.set(key, { ok, at: Date.now() });
+  return ok;
+}
 
 /** n8n の Public API を使い、対応するワークフローが「アクティブ」かを判定。
  *  API キー無しなら確認スキップして true 扱い（呼び出し側で 404 をフォールバック処理する）。
  */
 async function isWebhookAvailable(department: string): Promise<boolean> {
-  if (cachedActiveWebhooks.has(department)) return cachedActiveWebhooks.get(department)!;
+  const cached = getCachedWebhook(department);
+  if (cached !== null) return cached;
   if (!N8N_API_KEY) {
-    cachedActiveWebhooks.set(department, true);
-    return true;
+    return setCachedWebhook(department, true);
   }
   const path = DEPT_WEBHOOK_PATHS[department];
   if (!path) {
-    cachedActiveWebhooks.set(department, false);
-    return false;
+    return setCachedWebhook(department, false);
   }
   try {
     const res = await fetch(`${N8N_URL}/api/v1/workflows?active=true`, {
       headers: { 'X-N8N-API-KEY': N8N_API_KEY },
     });
     if (!res.ok) {
-      cachedActiveWebhooks.set(department, false);
-      return false;
+      return setCachedWebhook(department, false);
     }
     const json = (await res.json()) as { data: { id: string; name: string; active: boolean }[] };
     const targetName = `org-ai ${department.charAt(0)}${department.slice(1).toLowerCase()}`;
@@ -51,13 +63,10 @@ async function isWebhookAvailable(department: string): Promise<boolean> {
           w.name.toLowerCase().includes(`dept ${department.toLowerCase()}`) ||
           w.name === targetName),
     );
-    const ok = !!hit;
-    cachedActiveWebhooks.set(department, ok);
-    return ok;
+    return setCachedWebhook(department, !!hit);
   } catch (e) {
     console.error(`[n8n] isWebhookAvailable(${department}) failed:`, e);
-    cachedActiveWebhooks.set(department, false);
-    return false;
+    return setCachedWebhook(department, false);
   }
 }
 
@@ -221,27 +230,23 @@ export async function dispatchQueuedTask(task: {
  *  保存エージェントの専用 webhook 用。API キー無しなら true 扱い（404 は呼び出し側でフォールバック）。
  */
 async function isWebhookAvailableByName(workflowName: string): Promise<boolean> {
-  if (cachedActiveWebhooks.has(workflowName)) return cachedActiveWebhooks.get(workflowName)!;
+  const cached = getCachedWebhook(workflowName);
+  if (cached !== null) return cached;
   if (!N8N_API_KEY) {
-    cachedActiveWebhooks.set(workflowName, true);
-    return true;
+    return setCachedWebhook(workflowName, true);
   }
   try {
     const res = await fetch(`${N8N_URL}/api/v1/workflows?active=true`, {
       headers: { 'X-N8N-API-KEY': N8N_API_KEY },
     });
     if (!res.ok) {
-      cachedActiveWebhooks.set(workflowName, false);
-      return false;
+      return setCachedWebhook(workflowName, false);
     }
     const json = (await res.json()) as { data: { name: string; active: boolean }[] };
-    const ok = json.data.some((w) => w.active && w.name === workflowName);
-    cachedActiveWebhooks.set(workflowName, ok);
-    return ok;
+    return setCachedWebhook(workflowName, json.data.some((w) => w.active && w.name === workflowName));
   } catch (e) {
     console.error(`[n8n] isWebhookAvailableByName(${workflowName}) failed:`, e);
-    cachedActiveWebhooks.set(workflowName, false);
-    return false;
+    return setCachedWebhook(workflowName, false);
   }
 }
 
