@@ -8,6 +8,7 @@ import { requireAuth } from '../middleware/auth';
 import { extractText } from '../utils/fileExtractor';
 import { indexFile } from '../services/rag';
 import { aiEngineHeaders } from '../services/ai-engine-auth';
+import { tracked } from '../services/lifecycle-core';
 
 const ALLOWED_DEPARTMENTS = new Set(['SALES', 'MARKETING', 'ACCOUNTING', 'ANALYTICS', 'GENERAL']);
 
@@ -65,8 +66,9 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     });
 
     // RAG: アップロード応答はブロックせず、バックグラウンドで抽出→チャンク→埋め込み→索引
-    void indexFile(file.id, file.orgId, file.storagePath, file.mimeType).catch((e) =>
-      request.log.error({ err: e, fileId: file.id }, '[files] RAG indexing failed'),
+    // 応答後に走る索引づくり。失っても再アップロードで直るので、終了時は待つだけ
+    tracked('file-index', file.id, () =>
+      indexFile(file.id, file.orgId, file.storagePath, file.mimeType),
     );
 
     return reply.code(201).send({ success: true, data: { id: file.id, originalName: file.originalName, mimeType: file.mimeType, sizeBytes: file.sizeBytes } });

@@ -9,6 +9,7 @@ import { getSenderProfile } from './line-client';
 import { generateInboxDraft } from './draft-generator';
 import type { LineMentionee, LineWebhookEvent } from './line-types';
 import { captureReceiptFromLine } from './receipt-capture';
+import { tracked } from '../lifecycle-core';
 
 /** processLineEvents が必要とする最小形（Prisma の ChannelConnection 互換）。 */
 export interface InboxConnection {
@@ -181,7 +182,10 @@ export async function processLineEvents(
           if (created) {
             // 読み取りは完全非同期（webhook 応答にも取り込みループにも影響させない）。
             // LINE は 1 分以内に 200 を返さないと再送してくるので、ここで待たない。
-            void captureReceipt(connection, event.message.id, created.id);
+            const messageId = event.message.id;
+            tracked('receipt', created.id, () =>
+              captureReceipt(connection, messageId, created.id),
+            );
           }
           continue;
         }
@@ -232,7 +236,7 @@ export async function processLineEvents(
       });
       if (created) {
         // 下書き生成は完全非同期（webhook 応答にも取り込みループにも影響させない）
-        void generateInboxDraft(created.id);
+        tracked('inbox-draft', created.id, () => generateInboxDraft(created.id));
       }
     } catch (e) {
       console.error(

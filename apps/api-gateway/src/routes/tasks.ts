@@ -4,6 +4,7 @@ import { prisma } from '../utils/prisma';
 import { requireAuth } from '../middleware/auth';
 import { dispatchQueuedTask } from '../services/task-executor';
 import { resumeAgentTask, parseRunState } from '../services/step-runner';
+import { tracked } from '../services/lifecycle-core';
 
 const createTaskSchema = z.object({
   title: z.string().min(1).max(200),
@@ -171,9 +172,11 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
         data: { taskId, message: 'ステップを承認しました。実行を再開します', level: 'INFO' },
       });
       // claim 済み（既に RUNNING）でも resumeAgentTask は続行する
-      void resumeAgentTask(taskId, {
-        editedArgs: body.success ? body.data.editedArgs : undefined,
-      });
+      tracked('agent-resume', taskId, () =>
+        resumeAgentTask(taskId, {
+          editedArgs: body.success ? body.data.editedArgs : undefined,
+        }),
+      );
       const current = await prisma.task.findUnique({ where: { id: taskId } });
       return reply.send({ success: true, data: current });
     }

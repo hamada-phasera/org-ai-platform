@@ -11,6 +11,7 @@ import {
 } from '../services/n8n-workflow-builder';
 import { scrubSecrets } from '../services/secret-scrubber';
 import { aiEngineHeaders } from '../services/ai-engine-auth';
+import { tracked } from '../services/lifecycle-core';
 
 const DEPARTMENTS = ['SALES', 'MARKETING', 'ACCOUNTING', 'ANALYTICS', 'GENERAL', 'ASSISTANT'];
 
@@ -444,26 +445,31 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
     const steps =
       (agent.steps as unknown as { capabilityName: string; argTemplate?: Record<string, string> }[] | null) ?? [];
     if (steps.length > 0) {
-      void runAgentTask(
-        { id: task.id, orgId: task.orgId, input: task.input },
-        {
-          id: agent.id,
-          instructions: agent.instructions,
-          department: agent.department,
-          createdBy: agent.createdBy,
-          steps,
-        },
+      // 応答後も裏で走る。台帳に載せておかないと、デプロイで切られたことに気づけない
+      tracked('agent-run', task.id, () =>
+        runAgentTask(
+          { id: task.id, orgId: task.orgId, input: task.input },
+          {
+            id: agent.id,
+            instructions: agent.instructions,
+            department: agent.department,
+            createdBy: agent.createdBy,
+            steps,
+          },
+        ),
       );
     } else {
-      void dispatchAgentTask(
-        { id: task.id, orgId: task.orgId, title: task.title, input: task.input, taskType: 'agent' },
-        {
-          id: agent.id,
-          instructions: agent.instructions,
-          department: agent.department,
-          webhookPath: agent.webhookPath,
-          n8nStatus: agent.n8nStatus,
-        },
+      tracked('agent-run', task.id, () =>
+        dispatchAgentTask(
+          { id: task.id, orgId: task.orgId, title: task.title, input: task.input, taskType: 'agent' },
+          {
+            id: agent.id,
+            instructions: agent.instructions,
+            department: agent.department,
+            webhookPath: agent.webhookPath,
+            n8nStatus: agent.n8nStatus,
+          },
+        ),
       );
     }
 

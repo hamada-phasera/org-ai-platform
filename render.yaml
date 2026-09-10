@@ -32,9 +32,17 @@ services:
       exec node apps/api-gateway/dist/index.js
     plan: starter
     healthCheckPath: /health
+    # ⚠️ SIGTERM から強制終了までの猶予。応答後も裏で走る処理（エージェント実行・
+    #    RAG索引・領収書読み取り・返信下書き）を片付ける時間が要る。
+    #    既定の 30 秒だと drain 予算 20 秒 + DB 切断で際どいので伸ばしてある。
+    #    SHUTDOWN_DRAIN_MS を上げるときは、必ずこちらも上げること。
+    maxShutdownDelaySeconds: 90
     envVars:
       - key: NODE_ENV
         value: production
+      # 終了時に走行中の処理を待つ上限(ms)。maxShutdownDelaySeconds より短くすること
+      - key: SHUTDOWN_DRAIN_MS
+        value: "20000"
       - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET
