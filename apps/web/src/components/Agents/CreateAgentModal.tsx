@@ -6,6 +6,8 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { DEPARTMENTS } from '../../constants/departments';
 import type { SavedAgent } from '../../types/agent';
+import type { ScheduleFrequency } from '@org-ai/shared-types';
+import { jstScheduleToUtc } from '../../utils/schedule';
 
 interface Props {
   onClose: () => void;
@@ -19,6 +21,10 @@ interface Props {
 }
 
 const ICONS = ['🤖', '📣', '📊', '📈', '🧮', '🛡️', '✨', '📝', '📧', '🔍'];
+
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+/* monthly は JST 9-23 時のみ（0-8 時は UTC 換算で前日に落ち、月末跨ぎの扱いが煩雑になるため） */
+const MONTHLY_MIN_HOUR_JST = 9;
 
 /** 業務効率化エージェントの作成フォーム。手入力 or 説明文からの AI 提案（inferFromDescription）に対応。 */
 export function CreateAgentModal({
@@ -38,7 +44,15 @@ export function CreateAgentModal({
   const [useInfer, setUseInfer] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /* 定期実行の設定（日本時間で入力し、送信時に UTC へ変換する） */
+  const [frequency, setFrequency] = useState<ScheduleFrequency>('daily');
+  const [hourJst, setHourJst] = useState(9);
+  const [dayOfWeekJst, setDayOfWeekJst] = useState(1); // 月曜
+  const [dayOfMonthJst, setDayOfMonthJst] = useState(1);
   const dialogRef = useRef<HTMLDivElement | null>(null);
+
+  const effectiveHourJst =
+    frequency === 'monthly' && hourJst < MONTHLY_MIN_HOUR_JST ? MONTHLY_MIN_HOUR_JST : hourJst;
 
   /* a11y: Escape で閉じる */
   useEffect(() => {
@@ -83,7 +97,38 @@ export function CreateAgentModal({
         return;
       }
       const res = await api.post<{ success: boolean; data: SavedAgent }>('/agents', body);
-      onCreated(res.data.data);
+      const created = res.data.data;
+
+      // 定期実行を選んでいたらスケジュールも登録する。
+      // ここが失敗してもエージェント作成自体は成功なので、作成は通したうえで案内する。
+      if (trigger === 'SCHEDULED') {
+        const utc = jstScheduleToUtc({
+          frequency,
+          hourJst: effectiveHourJst,
+          dayOfWeekJst,
+          dayOfMonthJst,
+        });
+        try {
+          await api.post('/scheduled-tasks', {
+            title: created.name,
+            department: created.department,
+            taskType: 'agent',
+            input: created.instructions,
+            agentId: created.id,
+            frequency: utc.frequency,
+            hourUtc: utc.hourUtc,
+            dayOfWeek: utc.dayOfWeek,
+            dayOfMonth: utc.dayOfMonth,
+          });
+        } catch {
+          setError('エージェントは作成しましたが、定期実行の設定に失敗しました。一覧から再設定してください。');
+          onCreated(created);
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      onCreated(created);
       onClose();
     } catch (e) {
       const msg =
@@ -257,6 +302,101 @@ export function CreateAgentModal({
               </div>
             </div>
           </div>
+
+          {trigger === 'SCHEDULED' && (
+            <div className="rounded-md bg-sunken p-3.5">
+              <p className="mb-2.5 text-xs font-semibold text-secondary">実行スケジュール（日本時間）</p>
+
+              <div role="group" aria-label="頻度" className="mb-3 flex gap-1">
+                {(['daily', 'weekly', 'monthly'] as const).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setFrequency(f)}
+                    disabled={submitting}
+                    aria-pressed={frequency === f}
+                    className={`text-xs px-2.5 py-1.5 rounded-sm border transition-all ${
+                      frequency === f
+                        ? 'bg-elevated border-border-strong text-primary font-semibold shadow-elev-1'
+                        : 'bg-elevated/50 border-border text-secondary hover:text-primary'
+                    }`}
+                  >
+                    {f === 'daily' ? '毎日' : f === 'weekly' ? '毎週' : '毎月'}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap items-end gap-3">
+                {frequency === 'weekly' && (
+                  <div>
+                    <label htmlFor="schedule-dow" className="mb-1 block text-micro text-text-muted">
+                      曜日
+                    </label>
+                    <select
+                      id="schedule-dow"
+                      value={dayOfWeekJst}
+                      onChange={(e) => setDayOfWeekJst(Number(e.target.value))}
+                      disabled={submitting}
+                      className="rounded-sm border border-border bg-elevated px-2.5 py-1.5 text-xs text-primary"
+                    >
+                      {WEEKDAYS.map((label, i) => (
+                        <option key={label} value={i}>
+                          {label}曜日
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {frequency === 'monthly' && (
+                  <div>
+                    <label htmlFor="schedule-dom" className="mb-1 block text-micro text-text-muted">
+                      日付
+                    </label>
+                    <select
+                      id="schedule-dom"
+                      value={dayOfMonthJst}
+                      onChange={(e) => setDayOfMonthJst(Number(e.target.value))}
+                      disabled={submitting}
+                      className="rounded-sm border border-border bg-elevated px-2.5 py-1.5 text-xs text-primary"
+                    >
+                      {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+                        <option key={d} value={d}>
+                          {d}日
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label htmlFor="schedule-hour" className="mb-1 block text-micro text-text-muted">
+                    時刻
+                  </label>
+                  <select
+                    id="schedule-hour"
+                    value={effectiveHourJst}
+                    onChange={(e) => setHourJst(Number(e.target.value))}
+                    disabled={submitting}
+                    className="rounded-sm border border-border bg-elevated px-2.5 py-1.5 text-xs text-primary tabular"
+                  >
+                    {Array.from({ length: 24 }, (_, h) => h)
+                      .filter((h) => frequency !== 'monthly' || h >= MONTHLY_MIN_HOUR_JST)
+                      .map((h) => (
+                        <option key={h} value={h}>
+                          {String(h).padStart(2, '0')}:00
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+
+              <p className="mt-2.5 text-micro text-text-muted">
+                実行は 1 時間単位です。外部に送信するステップ（メール送信・Slack投稿など）は、
+                自動実行でも送信前に「受信」ページの承認待ちに入ります。
+              </p>
+            </div>
+          )}
         </div>
 
         {error && (

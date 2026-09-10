@@ -15,6 +15,7 @@ import { InlineChatResult } from '../components/Chat/InlineChatResult';
 import { TaskProgressSidebar } from '../components/Chat/TaskProgressSidebar';
 import { AgentCtaCard, type AgentDraft } from '../components/Chat/AgentCtaCard';
 import { DeliverableBar, type DeliverableKind } from '../components/Chat/DeliverableBar';
+import { RunPreviewRow } from '../components/exec-kernel/RunPreviewRow';
 import { MarkdownLite } from '../components/Chat/MarkdownLite';
 import { CreateAgentModal } from '../components/Agents/CreateAgentModal';
 import type { ChatSession, Message } from '@org-ai/shared-types';
@@ -40,7 +41,23 @@ type ResolveOutcome =
   | { outcome: 'EXECUTED'; capability: string; envelope: { status: string; error_type: string | null; message: string; data: unknown }; executionLogId: string }
   | { outcome: 'NEEDS_AUTH'; capability: string; missing: string[] }
   | { outcome: 'UNSUPPORTED'; inferredName: string | null; reasoning: string; gapId: string }
-  | { outcome: 'VALIDATION_ERROR'; capability: string; errors: string[] };
+  | { outcome: 'VALIDATION_ERROR'; capability: string; errors: string[] }
+  | {
+      outcome: 'NEEDS_CONFIRMATION';
+      capability: string;
+      displayName: string;
+      args: Record<string, unknown>;
+      confidence: number;
+      reasoning: string;
+    };
+
+/** 実行前に人が確認する内容（NEEDS_CONFIRMATION を受けて RunPreviewRow に出す） */
+interface PendingDeliverable {
+  kind: DeliverableKind;
+  capability: string;
+  displayName: string;
+  args: Record<string, unknown>;
+}
 
 export default function ChatPage() {
   const { id } = useParams<{ id?: string }>();
@@ -71,6 +88,9 @@ export default function ChatPage() {
   const [suggestDismissed, setSuggestDismissed] = useState(false);
   // チャット内容からの成果物生成（Google Doc/Sheet/Slides/Slack）
   const [creatingDeliverable, setCreatingDeliverable] = useState<DeliverableKind | null>(null);
+  /* 実行前の確認待ち（RunPreviewRow で承認するまで作成しない） */
+  const [pendingDeliverable, setPendingDeliverable] = useState<PendingDeliverable | null>(null);
+  const [confirmingDeliverable, setConfirmingDeliverable] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastInputRef = useRef('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -429,6 +449,41 @@ export default function ChatPage() {
     slides: '次の内容を Google スライドとして作成してください。',
     slack: '次の内容を Slack に投稿してください。',
   };
+  /** resolver の結果をチャット欄のメッセージ文言にする（実行済み・失敗系のみ）。 */
+  const describeOutcome = (o: ResolveOutcome, kind: DeliverableKind): string => {
+    if (o.outcome === 'EXECUTED') {
+      const url = (o.envelope?.data as { url?: string } | undefined)?.url;
+      return o.envelope?.status === 'success'
+        ? `✅ ${o.envelope.message}${url ? `\n${url}` : ''}`
+        : `⚠️ 作成に失敗しました：${o.envelope?.message ?? '不明なエラー'}`;
+    }
+    if (o.outcome === 'NEEDS_AUTH') {
+      const label = kind === 'slack' ? 'Slack' : 'Google';
+      return `🔌 「${label}」が未接続です（${o.missing.join(', ')}）。設定 > 連携 から接続すると使えるようになります。`;
+    }
+    if (o.outcome === 'VALIDATION_ERROR') {
+      return `⚠️ 成果物に必要な情報が不足しています：${o.errors.join(', ')}。もう少し具体的に内容を決めてから再度お試しください。`;
+    }
+    if (o.outcome === 'UNSUPPORTED') {
+      return `この内容はまだ自動作成に対応していません。${o.reasoning ? `（${o.reasoning}）` : ''}`;
+    }
+    return '確認が必要です。';
+  };
+
+  const pushAssistantMessage = (content: string) => {
+    if (!id) return;
+    addMessage({
+      id: `deliverable-${Date.now()}`,
+      sessionId: id,
+      role: 'assistant',
+      content,
+      department: null,
+      createdAt: new Date().toISOString(),
+    });
+  };
+
+  // 成果物の作成は 2 段階。まず preview で「何を・どんな内容で作るか」を出し、
+  // 人が確認してから name + args 指定で確定実行する（確定実行は確認ゲートを通らない）。
   const createDeliverable = async (kind: DeliverableKind) => {
     if (creatingDeliverable || !id) return;
     const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
@@ -436,36 +491,47 @@ export default function ChatPage() {
     if (!source.trim()) return;
     setCreatingDeliverable(kind);
     const rawInput = `${KIND_PROMPT[kind]}\n\n${source.slice(0, 6000)}`;
-    let resultText: string;
     try {
-      const res = await api.post<{ success: boolean; data: ResolveOutcome }>('/capabilities/resolve', { rawInput });
+      const res = await api.post<{ success: boolean; data: ResolveOutcome }>('/capabilities/resolve', {
+        rawInput,
+        mode: 'preview',
+      });
       const o = res.data.data;
-      if (o.outcome === 'EXECUTED') {
-        const url = (o.envelope?.data as { url?: string } | undefined)?.url;
-        resultText =
-          o.envelope?.status === 'success'
-            ? `✅ ${o.envelope.message}${url ? `\n${url}` : ''}`
-            : `⚠️ 作成に失敗しました：${o.envelope?.message ?? '不明なエラー'}`;
-      } else if (o.outcome === 'NEEDS_AUTH') {
-        resultText = `🔌 「${kind === 'slack' ? 'Slack' : 'Google'}」連携が未接続です（${o.missing.join(', ')}）。管理者が docs/oauth-setup.md の手順で n8n に OAuth を接続すると利用できます。`;
-      } else if (o.outcome === 'VALIDATION_ERROR') {
-        resultText = `⚠️ 成果物に必要な情報が不足しています：${o.errors.join(', ')}。もう少し具体的に内容を決めてから再度お試しください。`;
+      if (o.outcome === 'NEEDS_CONFIRMATION') {
+        setPendingDeliverable({
+          kind,
+          capability: o.capability,
+          displayName: o.displayName,
+          args: o.args,
+        });
       } else {
-        resultText = `この内容はまだ自動作成に対応していません。${'reasoning' in o && o.reasoning ? `（${o.reasoning}）` : ''}`;
+        pushAssistantMessage(describeOutcome(o, kind));
       }
     } catch (e) {
-      resultText = humanizeTaskManagerError(e);
+      pushAssistantMessage(humanizeTaskManagerError(e));
     } finally {
       setCreatingDeliverable(null);
     }
-    addMessage({
-      id: `deliverable-${Date.now()}`,
-      sessionId: id,
-      role: 'assistant',
-      content: resultText,
-      department: null,
-      createdAt: new Date().toISOString(),
-    });
+  };
+
+  /** 確認済みの内容で確定実行する。 */
+  const confirmDeliverable = async () => {
+    if (!pendingDeliverable || confirmingDeliverable) return;
+    setConfirmingDeliverable(true);
+    const { kind, capability, args } = pendingDeliverable;
+    try {
+      const res = await api.post<{ success: boolean; data: ResolveOutcome }>('/capabilities/resolve', {
+        name: capability,
+        args,
+      });
+      pushAssistantMessage(describeOutcome(res.data.data, kind));
+      setPendingDeliverable(null);
+    } catch (e) {
+      pushAssistantMessage(humanizeTaskManagerError(e));
+      setPendingDeliverable(null);
+    } finally {
+      setConfirmingDeliverable(false);
+    }
   };
 
   return (
@@ -842,8 +908,26 @@ export default function ChatPage() {
             {/* Input area - Claude style pill */}
             <div className="p-4 bg-transparent">
               <div className="max-w-3xl mx-auto">
+                {/* 実行前の確認。ここで承認するまで成果物は作られない */}
+                {pendingDeliverable && (
+                  <div className="mb-3">
+                    <RunPreviewRow
+                      preview={{
+                        capabilityLabel: pendingDeliverable.displayName,
+                        args: Object.entries(pendingDeliverable.args).map(([key, value]) => ({
+                          key,
+                          value: typeof value === 'string' ? value : JSON.stringify(value),
+                        })),
+                      }}
+                      busy={confirmingDeliverable}
+                      onApprove={confirmDeliverable}
+                      onCancel={() => setPendingDeliverable(null)}
+                    />
+                  </div>
+                )}
+
                 {/* 成果物バー（AIが何か出力した後に表示） */}
-                {messages.some((m) => m.role === 'assistant') && (
+                {messages.some((m) => m.role === 'assistant') && !pendingDeliverable && (
                   <DeliverableBar onCreate={createDeliverable} busy={creatingDeliverable} disabled={sending} />
                 )}
 

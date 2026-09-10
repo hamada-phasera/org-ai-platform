@@ -1,18 +1,22 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Inbox, RefreshCw, Users, X } from 'lucide-react';
+import { Bot, Inbox, RefreshCw, Users, X } from 'lucide-react';
+import type { AgentStepApprovalData } from '@org-ai/shared-types';
 import { api } from '../services/api';
 import { Button, EmptyState, ErrorState, Input, PageHeader, SkeletonList } from '../components/ui';
 import { LiquidTabs } from '../components/motion/LiquidTabs';
 import { RunPreviewRow } from '../components/exec-kernel/RunPreviewRow';
 
 /**
- * 受信（LINE受信箱）。
+ * 受信（LINE受信箱 + エージェント承認）。
  *
  * LINEグループで @メンションされた依頼がここに届き、AIの返信下書きを
  * 人が確認・編集してから送信する（全件承認制。自動返信はしない）。
  * 送信は LINE push API 経由 — 承認を待つ設計のため replyToken は使わない。
+ *
+ * エージェントのステップ実行も、外部に送信するステップ（メール送信・Slack投稿など）は
+ * 実行前にここへ積まれる。定期実行で誰も見ていない時間に走っても、送信だけは人が通す。
  */
 
 type InboxStatus =
@@ -41,7 +45,16 @@ interface InboxMessage {
   createdAt: string;
 }
 
-type ViewFilter = 'PENDING' | 'SENT' | 'REJECTED' | 'ALL';
+type ViewFilter = 'PENDING' | 'AGENT' | 'SENT' | 'REJECTED' | 'ALL';
+
+/** エージェントのステップ承認待ち（Task） */
+interface AgentApprovalTask {
+  id: string;
+  title: string;
+  status: string;
+  approvalData: string | null;
+  createdAt: string;
+}
 
 const PENDING_STATUSES: InboxStatus[] = ['RECEIVED', 'DRAFTED', 'DRAFT_FAILED', 'SEND_FAILED'];
 
@@ -61,6 +74,32 @@ async function fetchMessages(): Promise<InboxMessage[]> {
   return res.data.data;
 }
 
+async function fetchAgentApprovals(): Promise<AgentApprovalTask[]> {
+  const res = await api.get<{ success: boolean; data: AgentApprovalTask[] }>(
+    '/tasks?status=PENDING_APPROVAL&taskType=agent',
+  );
+  return res.data.data;
+}
+
+/** approvalData をエージェントのステップ承認として読む（他形式の承認は無視）。 */
+function parseStepApproval(raw: string | null): AgentStepApprovalData | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as AgentStepApprovalData;
+    return parsed?.kind === 'agent_step' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 承認画面で編集させる本文フィールド（capability ごとに主役の引数が違う）。 */
+function primaryTextKey(args: Record<string, unknown>): string | null {
+  for (const key of ['text', 'body', 'content', 'message']) {
+    if (typeof args[key] === 'string') return key;
+  }
+  return null;
+}
+
 export default function InboxPage() {
   const qc = useQueryClient();
   const [view, setView] = useState<ViewFilter>('PENDING');
@@ -75,6 +114,26 @@ export default function InboxPage() {
     refetchInterval: 15_000,
   });
   const invalidate = () => qc.invalidateQueries({ queryKey: ['inbox-messages'] });
+
+  /* エージェントのステップ承認待ち（LINE 受信箱と同じ 15 秒ポーリングに相乗り） */
+  const approvalsQ = useQuery({
+    queryKey: ['agent-approvals'],
+    queryFn: fetchAgentApprovals,
+    refetchInterval: 15_000,
+  });
+  const invalidateApprovals = () => qc.invalidateQueries({ queryKey: ['agent-approvals'] });
+  /* 承認カードで編集中の本文 */
+  const [stepEdits, setStepEdits] = useState<Record<string, string>>({});
+
+  const stepApproveMut = useMutation({
+    mutationFn: ({ id, editedArgs }: { id: string; editedArgs?: Record<string, unknown> }) =>
+      api.post(`/tasks/${id}/approve`, editedArgs ? { editedArgs } : {}),
+    onSuccess: invalidateApprovals,
+  });
+  const stepRejectMut = useMutation({
+    mutationFn: (id: string) => api.post(`/tasks/${id}/reject`, {}),
+    onSuccess: invalidateApprovals,
+  });
 
   const approveMut = useMutation({
     mutationFn: ({ id, replyText }: { id: string; replyText: string }) =>
@@ -108,13 +167,15 @@ export default function InboxPage() {
     return m.status === view;
   });
   const pendingCount = all.filter((m) => PENDING_STATUSES.includes(m.status)).length;
+  const approvals = (approvalsQ.data ?? []).filter((t) => parseStepApproval(t.approvalData));
+  const approvalCount = approvals.length;
 
   return (
     <div className="mx-auto max-w-4xl p-6">
       <PageHeader
         eyebrow="Inbox"
         title="受信"
-        description="LINEで @メンションされた依頼。AIの下書きを確認・編集してから返信します（承認するまで送信されません）。"
+        description="LINEの依頼とエージェントの送信内容を、人が確認してから通します（承認するまで送信されません）。"
         actions={
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-accent-soft text-accent">
             <Inbox size={18} />
@@ -136,6 +197,14 @@ export default function InboxPage() {
                   <span className="tabular text-micro font-bold text-warning">{pendingCount}</span>
                 ) : undefined,
             },
+            {
+              value: 'AGENT',
+              label: 'エージェント承認',
+              badge:
+                approvalCount > 0 ? (
+                  <span className="tabular text-micro font-bold text-warning">{approvalCount}</span>
+                ) : undefined,
+            },
             { value: 'SENT', label: '送信済み' },
             { value: 'REJECTED', label: '却下' },
             { value: 'ALL', label: 'すべて' },
@@ -146,7 +215,99 @@ export default function InboxPage() {
         <p className="text-micro text-text-muted">15秒ごとに自動更新</p>
       </div>
 
-      {messagesQ.isLoading ? (
+      {view === 'AGENT' ? (
+        approvalsQ.isLoading ? (
+          <SkeletonList count={2} />
+        ) : approvalsQ.isError ? (
+          <ErrorState onRetry={() => approvalsQ.refetch()} />
+        ) : approvals.length === 0 ? (
+          <EmptyState
+            icon={<Bot size={22} />}
+            title="承認待ちはありません"
+            description="エージェントが外部に送信するステップ（メール送信・Slack投稿など）に来ると、送信前にここへ届きます。"
+          />
+        ) : (
+          <div className="space-y-4">
+            {approvals.map((task) => {
+              const approval = parseStepApproval(task.approvalData)!;
+              const textKey = primaryTextKey(approval.args);
+              const editedText =
+                textKey !== null ? (stepEdits[task.id] ?? String(approval.args[textKey] ?? '')) : null;
+              const args = Object.entries(approval.args).map(([key, value]) => ({
+                key,
+                value:
+                  textKey === key && editedText !== null
+                    ? editedText
+                    : typeof value === 'string'
+                      ? value
+                      : JSON.stringify(value),
+              }));
+              return (
+                <motion.article
+                  key={task.id}
+                  layout
+                  className="rounded-lg border border-border bg-elevated p-5 shadow-elev-1"
+                >
+                  <div className="mb-2.5 flex items-center gap-2.5">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-sunken text-secondary">
+                      <Bot size={14} aria-hidden="true" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-primary">{task.title}</p>
+                      <p className="tabular text-micro text-text-muted">
+                        {new Date(task.createdAt).toLocaleString('ja-JP')}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-warning/10 px-2.5 py-1 text-micro font-bold text-warning">
+                      送信前の承認待ち
+                    </span>
+                  </div>
+
+                  {textKey !== null && (
+                    <div className="mb-3">
+                      <label
+                        htmlFor={`step-text-${task.id}`}
+                        className="mb-1 block text-micro font-bold uppercase tracking-[0.07em] text-text-muted"
+                      >
+                        送信内容（編集できます）
+                      </label>
+                      <Input
+                        multiline
+                        id={`step-text-${task.id}`}
+                        rows={3}
+                        value={editedText ?? ''}
+                        onChange={(e) =>
+                          setStepEdits((prev) => ({ ...prev, [task.id]: e.target.value }))
+                        }
+                      />
+                    </div>
+                  )}
+
+                  <RunPreviewRow
+                    preview={{ capabilityLabel: approval.capabilityLabel, args }}
+                    busy={stepApproveMut.isPending && stepApproveMut.variables?.id === task.id}
+                    onApprove={() =>
+                      stepApproveMut.mutate({
+                        id: task.id,
+                        editedArgs:
+                          textKey !== null && editedText !== null
+                            ? { ...approval.args, [textKey]: editedText }
+                            : undefined,
+                      })
+                    }
+                    onCancel={() => stepRejectMut.mutate(task.id)}
+                  />
+                  {stepApproveMut.isError && stepApproveMut.variables?.id === task.id && (
+                    <p className="mt-2 text-xs text-danger" aria-live="polite">
+                      実行に失敗しました。時間をおいて再度お試しください。
+                    </p>
+                  )}
+                </motion.article>
+              );
+            })}
+          </div>
+        )
+      ) : messagesQ.isLoading ? (
         <SkeletonList count={3} />
       ) : messagesQ.isError ? (
         <ErrorState onRetry={() => messagesQ.refetch()} />

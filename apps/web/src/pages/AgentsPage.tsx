@@ -13,9 +13,16 @@ import { CreateAgentModal } from '../components/Agents/CreateAgentModal';
 import { AgentRunModal } from '../components/Agents/AgentRunModal';
 import { DEPT_LABEL } from '../constants/departments';
 import { AGENT_N8N_STATUS_LABEL, type SavedAgent } from '../types/agent';
+import type { ScheduledTask } from '@org-ai/shared-types';
+import { describeSchedule, formatNextRun, nextRunAt } from '../utils/schedule';
 
 async function fetchAgents(): Promise<SavedAgent[]> {
   const res = await api.get<{ success: boolean; data: SavedAgent[] }>('/agents');
+  return res.data.data;
+}
+
+async function fetchScheduledTasks(): Promise<ScheduledTask[]> {
+  const res = await api.get<{ success: boolean; data: ScheduledTask[] }>('/scheduled-tasks');
   return res.data.data;
 }
 
@@ -30,12 +37,28 @@ export default function AgentsPage() {
     queryFn: fetchAgents,
   });
 
+  /* 定期実行の設定はエージェントとは別テーブル。agentId で引き当てて次回実行を表示する */
+  const { data: schedules } = useQuery({
+    queryKey: ['scheduled-tasks'],
+    queryFn: fetchScheduledTasks,
+  });
+  const scheduleByAgent = new Map<string, ScheduledTask>();
+  for (const s of schedules ?? []) {
+    if (s.agentId) scheduleByAgent.set(s.agentId, s);
+  }
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/agents/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['saved-agents'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['saved-agents'] });
+      qc.invalidateQueries({ queryKey: ['scheduled-tasks'] });
+    },
   });
 
-  const handleCreated = () => qc.invalidateQueries({ queryKey: ['saved-agents'] });
+  const handleCreated = () => {
+    qc.invalidateQueries({ queryKey: ['saved-agents'] });
+    qc.invalidateQueries({ queryKey: ['scheduled-tasks'] });
+  };
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-28">
@@ -92,6 +115,9 @@ export default function AgentsPage() {
                     {agent.trigger === 'SCHEDULED' ? '定期実行' : '手動実行'}
                   </span>
                 </div>
+                {agent.trigger === 'SCHEDULED' && (
+                  <ScheduleLine schedule={scheduleByAgent.get(agent.id)} />
+                )}
                 <div className="flex gap-2 mt-auto">
                   <Button
                     variant="primary"
@@ -126,5 +152,26 @@ export default function AgentsPage() {
         {runAgent && <AgentRunModal agent={runAgent} onClose={() => setRunAgent(null)} />}
       </AnimatePresence>
     </div>
+  );
+}
+
+/** 定期実行エージェントの「いつ動くか」を 1 行で示す。未設定なら警告する。 */
+function ScheduleLine({ schedule }: { schedule?: ScheduledTask }) {
+  if (!schedule) {
+    return (
+      <p className="mb-3 text-[10px] text-warning">
+        スケジュール未設定（このままでは自動実行されません）
+      </p>
+    );
+  }
+  if (!schedule.enabled) {
+    return <p className="mb-3 text-[10px] text-muted">{describeSchedule(schedule)}（停止中）</p>;
+  }
+  const next = nextRunAt(schedule);
+  return (
+    <p className="mb-3 text-[10px] text-muted tabular">
+      {describeSchedule(schedule)}
+      {next && ` · 次回 ${formatNextRun(next)}`}
+    </p>
   );
 }

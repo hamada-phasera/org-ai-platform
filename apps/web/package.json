@@ -5,6 +5,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "vitest run",
     "check:tokens": "node scripts/check-design-tokens.mjs"
   },
   "dependencies": {
