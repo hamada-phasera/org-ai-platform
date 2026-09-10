@@ -24,6 +24,7 @@ from app.llm.router import (
 from app.governance.audit_logger import log_llm_call
 from app.governance.pii_screener import screen
 from app.planner import plan_capability, plan_agent
+from app.planner.planner import plan_http_node
 
 
 class PlanCapability(BaseModel):
@@ -356,6 +357,53 @@ async def rank(request: RankRequest) -> RankResponse:
     # 欠けた id は mid で補完（全件返す）
     rankings = [by_id.get(it.id, Ranking(id=it.id, importance="mid", reason="")) for it in request.items]
     return RankResponse(rankings=rankings)
+
+
+class PlanHttpNodeRequest(BaseModel):
+    """貼られた curl / API ドキュメントからカスタムノード設定を起こす。"""
+
+    source: str
+    org_id: str
+    plan: str = "STARTER"
+
+
+class PlanHttpNodeResponse(BaseModel):
+    name: Optional[str] = None
+    displayName: Optional[str] = None
+    description: Optional[str] = None
+    department: str = "GENERAL"
+    params: list[dict[str, Any]] = []
+    http: Optional[dict[str, Any]] = None
+    confidence: float = 0.5
+    reasoning: str = ""
+
+
+@app.post("/plan/http-node", response_model=PlanHttpNodeResponse)
+async def plan_http_node_endpoint(request: PlanHttpNodeRequest) -> PlanHttpNodeResponse:
+    """curl / API ドキュメントの断片からカスタムノードの設定を提案する（保存はしない）。
+
+    ⚠️ source には API キーが混ざりうるが、gateway の secret-scrubber と
+    pii_screener の二重でマスクされてからここに届く。念のため screen() も通す。
+    """
+    pii_result = screen(request.source)
+    result = await plan_http_node(
+        source=pii_result.text,
+        org_id=request.org_id,
+        plan=request.plan,
+    )
+    asyncio.create_task(log_llm_call(
+        org_id=request.org_id,
+        department="GENERAL",
+        provider="anthropic",
+        model=AGENT_BUILD_MODEL,
+        input_text=pii_result.text,  # マスク後だけを記録する
+        output_text=json.dumps(result, ensure_ascii=False),
+        tokens=None,
+        latency_ms=None,
+        pii_detected=pii_result.detected,
+        pii_types=list(pii_result.types) if pii_result.detected else [],
+    ))
+    return PlanHttpNodeResponse(**result)
 
 
 @app.post("/plan/agent", response_model=PlanAgentResponse)

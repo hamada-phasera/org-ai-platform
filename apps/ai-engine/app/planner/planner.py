@@ -5,6 +5,8 @@ from typing import Any
 from app.models.llm import ChatMessage
 from app.llm.router import llm_router, AGENT_BUILD_MODEL
 from app.planner.prompts import (
+    build_http_node_system_prompt,
+    build_http_node_user_prompt,
     build_planner_system_prompt,
     build_planner_user_prompt,
     build_agent_planner_system_prompt,
@@ -181,3 +183,63 @@ def _safe_parse_json(raw: str) -> dict[str, Any] | None:
         except (json.JSONDecodeError, IndexError):
             return None
     return None
+
+
+async def plan_http_node(source: str, org_id: str, plan: str) -> dict[str, Any]:
+    """貼られた curl / API ドキュメントからカスタムノードの設定を起こす。
+
+    ⚠️ 返す設定に秘密の値は含めない。プロンプトで空を強制したうえで、
+    ここでも保険として secret ヘッダの value を必ず空に潰す
+    （モデルが指示を外しても鍵が gateway 経由で保存されないようにする）。
+    """
+    messages = [
+        ChatMessage(role="system", content=build_http_node_system_prompt()),
+        ChatMessage(role="user", content=build_http_node_user_prompt(source)),
+    ]
+    try:
+        response, _pii, _types = await llm_router.chat(
+            messages=messages,
+            department="GENERAL",
+            org_id=org_id,
+            plan=plan,
+            json_mode=True,
+            force_anthropic_model=AGENT_BUILD_MODEL,
+        )
+    except Exception as e:
+        logger.exception("http node planner LLM call failed")
+        return {"http": None, "confidence": 0.0, "reasoning": f"LLM 呼び出し失敗: {e}"}
+
+    parsed = _safe_parse_json(response.content.strip())
+    if parsed is None:
+        return {"http": None, "confidence": 0.0, "reasoning": "LLM 出力の JSON パース失敗"}
+
+    http = parsed.get("http") if isinstance(parsed.get("http"), dict) else None
+    if http is not None:
+        headers = http.get("headers")
+        cleaned: list[dict[str, Any]] = []
+        if isinstance(headers, list):
+            for h in headers:
+                if not isinstance(h, dict) or not isinstance(h.get("name"), str):
+                    continue
+                secret = bool(h.get("secret"))
+                # 保険: secret なら値を必ず捨てる。モデルが鍵を写してきても外へ出さない
+                cleaned.append(
+                    {"name": h["name"], "secret": secret, "value": "" if secret else str(h.get("value") or "")}
+                )
+        http["headers"] = cleaned
+
+    params = parsed.get("params") if isinstance(parsed.get("params"), list) else []
+    confidence = parsed.get("confidence")
+    if not isinstance(confidence, (int, float)):
+        confidence = 0.5
+
+    return {
+        "name": parsed.get("name") if isinstance(parsed.get("name"), str) else None,
+        "displayName": parsed.get("displayName") if isinstance(parsed.get("displayName"), str) else None,
+        "description": parsed.get("description") if isinstance(parsed.get("description"), str) else None,
+        "department": parsed.get("department") if isinstance(parsed.get("department"), str) else "GENERAL",
+        "params": params,
+        "http": http,
+        "confidence": confidence,
+        "reasoning": parsed.get("reasoning") if isinstance(parsed.get("reasoning"), str) else "",
+    }

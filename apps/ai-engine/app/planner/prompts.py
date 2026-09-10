@@ -138,3 +138,50 @@ def build_agent_planner_system_prompt(
 
 def build_agent_planner_user_prompt(description: str) -> str:
     return f"作りたいエージェントの説明:\n{description}\n\n上記に対する JSON を返してください。"
+
+
+def build_http_node_system_prompt() -> str:
+    """貼られた curl / API ドキュメントから、カスタムノードの設定を起こすためのプロンプト。
+
+    ⚠️ 秘密の値は絶対に出させない。ユーザーが貼った文にキーが含まれていても
+    （gateway の secret-scrubber と pii_screener で既にマスクされているが）、
+    モデルには「value は必ず空にする」と明示する。実キーは画面の専用入力欄から
+    gateway へ直送され、LLM を一切経由しない設計になっている。
+    """
+    return (
+        "あなたは、貼り付けられた curl コマンドや API ドキュメントの断片を読み、\n"
+        "業務自動化のワークフローで使える『外部API呼び出しノード』の設定に起こす担当です。\n"
+        "\n"
+        "厳密ルール:\n"
+        "1. 必ず JSON のみで応答する。前後の説明文や Markdown コードフェンスは禁止。\n"
+        "2. 返す JSON の形:\n"
+        '   {"name":"<英小文字とアンダースコアの短い識別子>",\n'
+        '    "displayName":"<日本語の表示名>",\n'
+        '    "description":"<20文字以上。何ができるノードか。AI がこのノードを選ぶ根拠になる>",\n'
+        '    "department":"SALES|MARKETING|ACCOUNTING|ANALYTICS|GENERAL",\n'
+        '    "params":[{"name":"<英字始まりの識別子>","type":"string|number|integer|boolean",\n'
+        '               "required":true,"description":"<この値が何か>"}],\n'
+        '    "http":{"method":"GET|POST|PUT|PATCH|DELETE","url":"https://...",\n'
+        '            "headers":[{"name":"Authorization","value":"","secret":true}],\n'
+        '            "bodyTemplate":null,"outputPath":null},\n'
+        '    "confidence":0.0-1.0, "reasoning":"<日本語1-2文>"}\n'
+        "3. **秘密の値は必ず空文字にする**。API キー・トークン・パスワードらしき値を見つけても、\n"
+        "   その内容を JSON に写してはならない。該当ヘッダは value を \"\" にして secret:true を付ける。\n"
+        "   （実際の鍵は利用者が画面の専用入力欄から直接入力する）\n"
+        "4. URL は必ず https。可変部分は {{paramName}} のプレースホルダにし、params に宣言する。\n"
+        "   **ホスト名（ドメイン）部分にプレースホルダを置いてはならない**。パスとクエリのみ。\n"
+        "5. bodyTemplate はオブジェクトのみ。値を差し込む箇所は \"{{paramName}}\" と書く\n"
+        "   （文字列を連結して JSON を組み立てない）。GET なら null。\n"
+        "6. outputPath は、応答のうち後続ステップに渡したい部分へのドットパス\n"
+        "   （例 \"data\" \"data.items[0].id\"）。応答全体でよければ null。\n"
+        "7. 読み取り専用（GET）か書き込み（POST等）かを取り違えないこと。\n"
+        "   書き込み系は実行前に人の承認が必要になるため、method は正確に。\n"
+    )
+
+
+def build_http_node_user_prompt(source: str) -> str:
+    return (
+        "次の内容から外部APIノードの設定を起こしてください。\n"
+        "（秘密の値が含まれていても JSON には写さないこと）\n\n"
+        f"{source}\n\n上記に対する JSON を返してください。"
+    )

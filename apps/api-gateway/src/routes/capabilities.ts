@@ -12,6 +12,8 @@ import {
   sanitizeHttpConfig,
 } from '../services/http-node/config-schema';
 import { buildInputSchema } from '../services/http-node/template';
+import { validateUrlTemplate } from '../services/http-node/url-guard';
+import { scrubSecrets } from '../services/secret-scrubber';
 import { executeHttpCapabilityDetailed } from '../services/http-node/executor';
 
 const resolveSchema = z.object({
@@ -46,6 +48,11 @@ const createSchema = z.object({
   department: z.string().default('GENERAL'),
   params: paramsSchema.default([]),
   http: httpNodeInputSchema,
+});
+
+const suggestSchema = z.object({
+  /** 貼り付けられた curl コマンドや API ドキュメントの断片 */
+  source: z.string().min(1).max(8000),
 });
 
 const testSchema = z.object({
@@ -123,6 +130,80 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
       mode: parsed.data.mode,
     });
     return reply.send({ success: true, data: result });
+  });
+
+  /**
+   * 貼られた curl / API ドキュメントからカスタムノードの設定を提案する（**保存しない**）。
+   *
+   * チャットが唯一の作成入口なので、フォームは作らずここを通す。
+   * ⚠️ source は secret-scrubber で既にマスクされている前提だが、ここでも一度通してから
+   *    ai-engine へ渡す（この経路が別ルートから叩かれても鍵が LLM に届かないように）。
+   * ⚠️ 返る設定の secret ヘッダは常に空。実キーは画面の専用入力欄から POST / で直送される。
+   */
+  app.post('/suggest', { preHandler: requireOwner }, async (request, reply) => {
+    const payload = request.user as { orgId: string };
+    const parsed = suggestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply
+        .code(400)
+        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+    }
+
+    const scrubbed = scrubSecrets(parsed.data.source);
+    const org = await prisma.organization.findUnique({
+      where: { id: payload.orgId },
+      select: { plan: true },
+    });
+
+    const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
+    try {
+      const res = await fetch(`${aiEngineUrl}/plan/http-node`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: scrubbed.text,
+          org_id: payload.orgId,
+          plan: org?.plan ?? 'STARTER',
+        }),
+        signal: AbortSignal.timeout(25_000),
+      });
+      if (!res.ok) {
+        return reply.code(502).send({
+          success: false,
+          error: { code: 'AI_ENGINE_UNAVAILABLE', message: '提案を作れませんでした。時間をおいて再度お試しください。' },
+        });
+      }
+      const draft = (await res.json()) as Record<string, unknown>;
+      const http = draft.http as { url?: string } | null | undefined;
+
+      /* 提案の時点で URL を検査しておく。保存時にも同じ検査が走るが、
+         人に見せる前に弾いた方が「入力して保存 → 拒否」の往復を避けられる */
+      let urlWarning: string | null = null;
+      if (http?.url) {
+        const verdict = validateUrlTemplate(http.url);
+        if (!verdict.ok) {
+          urlWarning =
+            verdict.reason === 'BLOCKED_DESTINATION'
+              ? 'この URL は接続先として許可されていません。'
+              : `この URL は使えません（${verdict.reason}）。`;
+        }
+      }
+
+      return reply.send({
+        success: true,
+        data: {
+          ...draft,
+          urlWarning,
+          /* 実キーが会話に含まれていたことを画面で知らせる材料 */
+          secretsScrubbed: scrubbed.found,
+        },
+      });
+    } catch {
+      return reply.code(502).send({
+        success: false,
+        error: { code: 'AI_ENGINE_UNAVAILABLE', message: '提案を作れませんでした。時間をおいて再度お試しください。' },
+      });
+    }
   });
 
   /**
