@@ -1,5 +1,7 @@
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass
@@ -27,9 +29,134 @@ def _luhn_check(number: str) -> bool:
     return total % 10 == 0
 
 
+# ---------------------------------------------------------------------------
+# 資格情報 (CREDENTIAL) 検知 — gateway 側 services/secret-scrubber.ts と同等のパターン
+#
+# llm/router.py の _screen_user_messages() が全 LLM 呼び出しの手前で screen() を通すので、
+# gateway でマスクし損ねた API キーがここで二重に止まる。
+# マスク文字列は gateway と同じ `[REDACTED_<KIND>]` 形式に揃えてあるため、
+# 既にマスク済みのテキストを再度通しても壊れない（角括弧はどの文字クラスにも入らない）。
+#
+# 誤検出で普通の日本語文や URL を壊さないため、汎用パターンは
+#   - base64: 40 文字以上 かつ 小文字/大文字/数字の 3 クラスすべてを含む
+#   - hex:    40 文字以上
+#   - key=value: 値は ASCII 8 文字以上（日本語の値は対象外）
+# と保守的な閾値を置き、URL のパス片を拾わないよう直前の文字を lookbehind で制限している。
+# ---------------------------------------------------------------------------
+
+_NON_SECRET_VALUES = {
+    'null', 'undefined', 'true', 'false', 'none', 'nil', 'empty', 'nan',
+    'string', 'number', 'boolean', 'object', 'value',
+}
+
+
+def _class_count(value: str) -> int:
+    """小文字・大文字・数字のうち何クラス含むか。"""
+    count = 0
+    if re.search(r'[a-z]', value):
+        count += 1
+    if re.search(r'[A-Z]', value):
+        count += 1
+    if re.search(r'[0-9]', value):
+        count += 1
+    return count
+
+
+def _fixed(kind: str) -> Callable[[re.Match[str]], Optional[str]]:
+    def _replace(_m: re.Match[str]) -> Optional[str]:
+        return f'[REDACTED_{kind}]'
+    return _replace
+
+
+def _bearer(m: re.Match[str]) -> Optional[str]:
+    token = m.group(3)
+    # 「Bearer authentication」のような普通の英文を壊さないための条件
+    looks_like_token = len(token) >= 8 and (
+        bool(re.search(r'[0-9]', token))
+        or bool(re.search(r'[-._~+/=]', token))
+        or len(token) >= 20
+    )
+    if not looks_like_token:
+        return None
+    return f'{m.group(1)}{m.group(2)}[REDACTED_BEARER]'
+
+
+def _generic(m: re.Match[str]) -> Optional[str]:
+    value = m.group(2)
+    if value.lower() in _NON_SECRET_VALUES:
+        return None
+    if re.match(r'^https?://', value, re.IGNORECASE):
+        return None
+    return f'{m.group(1)}[REDACTED_GENERIC_SECRET]'
+
+
+def _base64(m: re.Match[str]) -> Optional[str]:
+    if _class_count(m.group(0).rstrip('=')) != 3:
+        return None
+    return '[REDACTED_BASE64_TOKEN]'
+
+
+# (種別, 正規表現, 置換関数) — 具体的なプロバイダのパターンから順に適用する
+CREDENTIAL_RULES: list[tuple[str, re.Pattern[str], Callable[[re.Match[str]], Optional[str]]]] = [
+    ('ANTHROPIC_KEY', re.compile(r'\bsk-ant-[A-Za-z0-9_-]{12,}'), _fixed('ANTHROPIC_KEY')),
+    ('OPENAI_KEY', re.compile(r'\bsk-[A-Za-z0-9_-]{16,}'), _fixed('OPENAI_KEY')),
+    ('SLACK_TOKEN', re.compile(r'\b(?:xox[abeprs]-[A-Za-z0-9-]{10,}|xapp-[A-Za-z0-9-]{10,})'), _fixed('SLACK_TOKEN')),
+    ('GITHUB_TOKEN', re.compile(r'\b(?:gh[oprsu]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,})'), _fixed('GITHUB_TOKEN')),
+    ('AWS_ACCESS_KEY_ID', re.compile(r'\b(?:AKIA|ASIA)[0-9A-Z]{16}\b'), _fixed('AWS_ACCESS_KEY_ID')),
+    ('GOOGLE_API_KEY', re.compile(r'\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])'), _fixed('GOOGLE_API_KEY')),
+    # LINE 長期チャネルアクセストークン（実物は 170 文字前後の base64）
+    ('LINE_CHANNEL_TOKEN', re.compile(r'(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{140,}={0,2}(?![A-Za-z0-9+/=])'), _fixed('LINE_CHANNEL_TOKEN')),
+    # Authorization: Bearer xxx — "Bearer " は残してトークンだけ伏せる
+    ('BEARER', re.compile(r'\b([Bb]earer)([ \t]+)([A-Za-z0-9\-._~+/]+=*)'), _bearer),
+    ('GENERIC_SECRET', re.compile(
+        r'(\b(?:api[-_ ]?key|apikey|access[-_ ]?token|auth[-_ ]?token|refresh[-_ ]?token'
+        r'|bearer[-_ ]?token|client[-_ ]?secret|secret[-_ ]?key|private[-_ ]?key'
+        r'|token|secret|password|passwd|pwd|credential)\s*["\'`]?\s*[:=]\s*["\'`]?)'
+        r'([A-Za-z0-9\-._~+/]{8,}=*)',
+        re.IGNORECASE,
+    ), _generic),
+    ('BASE64_TOKEN', re.compile(r'(?<!base64,)(?<![A-Za-z0-9+/\-_.])[A-Za-z0-9+/]{40,}={0,2}(?![A-Za-z0-9+/=])'), _base64),
+    ('HEX_TOKEN', re.compile(r'(?<![A-Za-z0-9\-._/])[0-9a-fA-F]{40,}(?![0-9a-fA-F])'), _fixed('HEX_TOKEN')),
+]
+
+
+def scrub_credentials(text: str) -> tuple[str, list[str]]:
+    """資格情報らしき文字列を [REDACTED_<KIND>] に置換する。副作用なし。
+
+    Returns: (マスク後テキスト, 検出した種別のリスト)
+    """
+    current = text
+    kinds: list[str] = []
+    for kind, pattern, handler in CREDENTIAL_RULES:
+        out: list[str] = []
+        last = 0
+        hit = False
+        for m in pattern.finditer(current):
+            replacement = handler(m)
+            if replacement is None:  # 誤検出とみなして素通し
+                continue
+            out.append(current[last:m.start()])
+            out.append(replacement)
+            last = m.end()
+            hit = True
+        if hit:
+            out.append(current[last:])
+            current = ''.join(out)
+            if kind not in kinds:
+                kinds.append(kind)
+    return current, kinds
+
+
 def screen(text: str) -> PIIResult:
     masked = text
     detected_types: list[str] = []
+
+    # 資格情報を最初に処理する。後段の PHONE / CREDIT_CARD 正規表現は数字列を
+    # 単語境界なしで拾うため、後回しにするとトークンの内側だけが先に置換され、
+    # 残りの断片が平文で残ってしまう (例: AWS のアクセスキー ID の数字部分だけが先に消える)。
+    # 既存 4 種の検知対象 (メール / 電話 / カード / マイナンバー) は
+    # どの資格情報パターンにも一致しないので、既存の挙動は変わらない。
+    masked, credential_kinds = scrub_credentials(masked)
 
     if EMAIL_RE.search(masked):
         detected_types.append('EMAIL')
@@ -49,5 +176,8 @@ def screen(text: str) -> PIIResult:
     if MY_NUMBER_RE.search(masked):
         detected_types.append('MY_NUMBER')
         masked = MY_NUMBER_RE.sub('[PII_MYNUMBER]', masked)
+
+    if credential_kinds:
+        detected_types.append('CREDENTIAL')
 
     return PIIResult(text=masked, detected=len(detected_types) > 0, types=detected_types)
