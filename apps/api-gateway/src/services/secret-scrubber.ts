@@ -235,3 +235,27 @@ export function scrubSecrets(text: string): ScrubResult {
 
   return { text: current, found: kinds.length > 0, kinds };
 }
+
+/**
+ * JSON 値の中の文字列リーフだけをマスクする。構造は保つ。
+ *
+ * 用途: カスタム HTTP ノードの応答を ExecutionLog に永続化する前。
+ * 外部APIは平気で `{"access_token": "..."}` を返してくるし、
+ * ExecutionLog は org のメンバーなら誰でも読める。
+ *
+ * ⚠️ 深さと要素数に上限を置く。応答は 256KB で打ち切られているとはいえ、
+ *    深くネストした JSON で再帰が跳ねるのを防ぐ。
+ */
+export function scrubJson(value: unknown, depth = 0): unknown {
+  if (depth > 12) return value;
+  if (typeof value === 'string') return scrubSecrets(value).text;
+  if (Array.isArray(value)) return value.slice(0, 1000).map((v) => scrubJson(v, depth + 1));
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = scrubJson(v, depth + 1);
+    }
+    return out;
+  }
+  return value;
+}

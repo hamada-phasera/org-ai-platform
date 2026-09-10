@@ -129,6 +129,27 @@ describe('POST /api/capabilities（カスタムノード作成）', () => {
     await app.close();
   });
 
+  it('URL に使われている param は required でなくても必須に昇格する', async () => {
+    // ⚠️ required:false のまま保存すると、実行時に必ず TemplateError で落ちる
+    //    （保存はできるが一度も動かないノードができる）。planner は optional と判断しがち
+    const app = await build();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/capabilities',
+      payload: {
+        ...VALID_BODY,
+        params: [{ name: 'dealId', type: 'string', required: false }],
+      },
+    });
+    expect(res.statusCode).toBe(201);
+
+    const saved = prismaMock.capability.create.mock.calls[0][0].data;
+    expect(saved.httpConfig.params[0].required).toBe(true);
+    // inputSchema も昇格後の params から作られていること（planner が省略できてしまわない）
+    expect(saved.inputSchema.required).toEqual(['dealId']);
+    await app.close();
+  });
+
   it('予約名は拒否する', async () => {
     const app = await build();
     for (const name of ['notify_slack', 'send_email', 'llm_transform', 'create_google_doc']) {

@@ -120,6 +120,12 @@ export function buildHttpConfig(
     };
   }
 
+  // ⚠️ テンプレートに埋め込まれている以上、その param は事実上「必須」。
+  //    required:false のまま保存すると、実行時に必ず TemplateError で落ちる
+  //    （＝保存はできるが一度も動かないノードができる）。ここで必須に昇格させる。
+  //    planner は使い所のある値を optional と判断しがちなので、拒否ではなく訂正にする。
+  const effectiveParams = params.map((p) => (used.has(p.name) && !p.required ? { ...p, required: true } : p));
+
   const existingByName = new Map(existingHeaders.map((h) => [h.name.toLowerCase(), h]));
   const headers: HttpNodeHeader[] = [];
   for (const h of input.headers) {
@@ -169,7 +175,7 @@ export function buildHttpConfig(
       bodyTemplate: input.bodyTemplate ?? null,
       outputPath: input.outputPath ?? null,
       timeoutMs: input.timeoutMs ?? 15_000,
-      params,
+      params: effectiveParams,
     },
   };
 }

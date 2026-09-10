@@ -371,6 +371,45 @@ describe('resumeAgentTask', () => {
     expect(done).not.toBeNull();
   });
 
+  it('承認後に手順が差し替わっていたら実行しない（承認のすり替え）', async () => {
+    // ⚠️ チャットから手順を編集できる以上、承認待ちの間にステップが差し替わることは普通に起きる。
+    //    ここで照合しないと「Slack に通知」を承認したはずが「メール送信」が走る。
+    const state = initRunState('売上まとめ', AGENT.steps);
+    state.currentIndex = 1;
+    state.steps[0] = { ...state.steps[0], status: 'DONE', output: 'https://doc' };
+    state.steps[1] = { ...state.steps[1], status: 'AWAITING_APPROVAL', args: { channel: '#general', text: '元の本文' } };
+
+    prismaMock.task.findUnique.mockResolvedValue({
+      id: 't1',
+      orgId: 'org-1',
+      agentId: 'A1',
+      status: 'RUNNING',
+      executionResult: JSON.stringify(state),
+      approvalData: JSON.stringify({
+        kind: 'agent_step',
+        stepIndex: 1,
+        capabilityName: 'notify_slack', // 人が承認したのはこれ
+        capabilityLabel: 'Slack 投稿',
+        args: { channel: '#general', text: '元の本文' },
+      }),
+    });
+    prismaMock.agent.findUnique.mockResolvedValue({
+      id: 'A1',
+      instructions: AGENT.instructions,
+      department: AGENT.department,
+      createdBy: AGENT.createdBy,
+      // 承認待ちの間にチャットで差し替えられた
+      steps: [AGENT.steps[0], { capabilityName: 'send_email', argTemplate: { to: 'x@example.com' } }],
+    });
+
+    await resumeAgentTask('t1');
+
+    expect(resolveMock).not.toHaveBeenCalled();
+    const failed = updateDataMatching((d) => d.status === 'FAILED');
+    expect(failed).not.toBeNull();
+    expect(String(failed?.lastError ?? '')).toContain('変更されました');
+  });
+
   it('エージェントが削除済みなら FAILED にする', async () => {
     prismaMock.task.findUnique.mockResolvedValue({
       id: 't1',

@@ -4,6 +4,7 @@ import { prisma } from '../utils/prisma';
 import { executeCapability, type N8nEnvelope } from './capability-executor';
 import { nativeProviderFor } from './adapters/provider-map';
 import { httpMethodOf } from './http-node/template';
+import { scrubJson } from './secret-scrubber';
 
 // 型は capability-executor に移設済み。既存 import 互換のため re-export する。
 export type { ErrorType, N8nEnvelope } from './capability-executor';
@@ -135,14 +136,20 @@ export async function resolveAndExecute(input: {
   }
 
   const envelope = await executeCapability(capability, args, input.orgId);
+
+  // ⚠️ カスタム HTTP ノードの応答は「利用者が指定した任意の外部API」が返したもの。
+  //    トークン更新系の API は平気で access_token を返すし、ExecutionLog は
+  //    org のメンバーなら誰でも読める。永続化する前に一度落とす。
+  //    （native / n8n は宛先が自社管理なので対象外にして、正当なデータを壊さない）
+  const isCustomHttp = capability.kind === 'http';
   const execLog = await prisma.executionLog.create({
     data: {
       orgId: input.orgId,
       capabilityId: capability.id,
       status: envelope.status,
       errorType: envelope.error_type ?? null,
-      requestArgs: args as object,
-      responseData: envelope.data as object,
+      requestArgs: (isCustomHttp ? scrubJson(args) : args) as object,
+      responseData: (isCustomHttp ? scrubJson(envelope.data) : envelope.data) as object,
     },
   });
   return { outcome: 'EXECUTED', capability: capability.name, envelope, executionLogId: execLog.id };

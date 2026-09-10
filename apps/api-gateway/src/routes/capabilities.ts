@@ -247,8 +247,10 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
           displayName: d.displayName,
           description: d.description,
           department: d.department,
-          /* params が単一の真実の源。ユーザーに JSON Schema を書かせない */
-          inputSchema: buildInputSchema(d.params) as object,
+          /* params が単一の真実の源。ユーザーに JSON Schema を書かせない。
+             ⚠️ d.params ではなく built.config.params を使う。テンプレートで使われている
+             param は buildHttpConfig が必須に昇格させており、そちらが正。 */
+          inputSchema: buildInputSchema(built.config.params) as object,
           status: 'ACTIVE',
           kind: 'http',
           httpConfig: built.config as unknown as object,
@@ -409,8 +411,9 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
           .send({ success: false, error: { code: built.code, message: built.message } });
       }
       httpConfig = built.config as unknown as object;
-      /* http kind では inputSchema は params から必ず再生成する（二重の真実の源を作らない） */
-      inputSchema = buildInputSchema(params) as object;
+      /* http kind では inputSchema は params から必ず再生成する（二重の真実の源を作らない）。
+         必須への昇格を反映するため built.config.params を使う。 */
+      inputSchema = buildInputSchema(built.config.params) as object;
     }
 
     const updated = await prisma.capability.update({

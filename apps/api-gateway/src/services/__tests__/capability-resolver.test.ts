@@ -13,6 +13,18 @@ vi.mock('../../utils/prisma', () => ({ prisma: prismaMock }));
 const fetchMock = vi.fn();
 vi.stubGlobal('fetch', fetchMock);
 
+/** カスタム HTTP ノードは undici を直接使う（グローバル fetch のモックでは届かない）。 */
+const undiciRequestMock = vi.fn();
+vi.mock('undici', () => ({
+  Agent: class {
+    constructor(_opts?: unknown) {}
+  },
+  request: (...args: unknown[]) => undiciRequestMock(...args),
+}));
+
+process.env.CHANNEL_CREDENTIAL_ENC_KEY = 'c'.repeat(64);
+process.env.HTTP_NODE_RATE_PER_MIN = '1000';
+
 const { resolveAndExecute } = await import('../capability-resolver');
 
 const SAMPLE_CAP = {
@@ -286,5 +298,92 @@ describe('セルフサーブ接続による credential 判定', () => {
     expect(r.outcome).toBe('NEEDS_AUTH');
     // DB 上 CONNECTED でも、実際の接続が無ければ DISCONNECTED に矯正される
     expect(prismaMock.requiredCredential.update).toHaveBeenCalled();
+  });
+});
+
+describe('ExecutionLog に外部APIの資格情報を残さない', () => {
+  const HTTP_CAP = {
+    ...SAMPLE_CAP,
+    id: 'cap-http',
+    name: 'refresh_partner_token',
+    displayName: '取引先APIトークン更新',
+    kind: 'http',
+    httpConfig: {
+      version: 1,
+      method: 'GET',
+      url: 'https://api.partner.example.com/v1/token',
+      headers: [],
+      bodyTemplate: null,
+      outputPath: '',
+      timeoutMs: 15000,
+      params: [],
+    },
+    inputSchema: { type: 'object', required: [], properties: {}, additionalProperties: false },
+    requiredCreds: [],
+  };
+
+  function undiciReply(body: string) {
+    return {
+      statusCode: 200,
+      headers: { 'content-type': 'application/json' },
+      body: Object.assign(
+        (async function* () {
+          yield Buffer.from(body);
+        })(),
+        { destroy: vi.fn(), on: vi.fn() },
+      ),
+    };
+  }
+
+  it('カスタム HTTP ノードの応答本文はマスクしてから保存する', async () => {
+    // ⚠️ 宛先は利用者が指定した任意の外部API。トークン更新系は平気で access_token を返すし、
+    //    ExecutionLog は org のメンバーなら誰でも読める
+    prismaMock.capability.findUnique.mockResolvedValue(HTTP_CAP);
+    prismaMock.requiredCredential.findMany.mockResolvedValue([]);
+    prismaMock.executionLog.create.mockResolvedValue({ id: 'log-http' });
+    undiciRequestMock.mockResolvedValue(
+      undiciReply(JSON.stringify({ access_token: 'sk-live-ABCDEFGHIJKLMNOPQRST', expires_in: 3600 })),
+    );
+
+    const r = await resolveAndExecute({
+      name: 'refresh_partner_token',
+      args: {},
+      userId: 'u1',
+      orgId: 'org-1',
+    });
+
+    expect(r.outcome).toBe('EXECUTED');
+    const logged = JSON.stringify(prismaMock.executionLog.create.mock.calls.at(-1)?.[0]?.data ?? {});
+    expect(logged).not.toContain('sk-live-ABCDEFGHIJKLMNOPQRST');
+    expect(logged).toContain('REDACTED');
+    expect(logged).toContain('3600'); // 資格情報以外は壊さない
+  });
+
+  it('自社管理の capability（n8n / native）の応答は書き換えない', async () => {
+    // 宛先が自社なので、正当なデータを誤検出で壊すリスクのほうが大きい
+    prismaMock.capability.findUnique.mockResolvedValue({ ...SAMPLE_CAP, kind: 'n8n' });
+    prismaMock.requiredCredential.findMany.mockResolvedValue([]);
+    prismaMock.executionLog.create.mockResolvedValue({ id: 'log-n8n' });
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          status: 'success',
+          error_type: null,
+          message: '',
+          data: { hash: 'a'.repeat(48) },
+        }),
+    });
+
+    await resolveAndExecute({
+      name: 'draft_email',
+      args: { recipientHint: 'x', purpose: 'y' },
+      userId: 'u1',
+      orgId: 'org-1',
+    });
+
+    const logged = JSON.stringify(prismaMock.executionLog.create.mock.calls.at(-1)?.[0]?.data ?? {});
+    expect(logged).toContain('a'.repeat(48));
   });
 });

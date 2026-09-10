@@ -442,6 +442,18 @@ export async function resumeAgentTask(
       return;
     }
 
+    // ⚠️ 承認されたのは approval.capabilityName であって、いま定義に載っている
+    //    def.capabilityName ではない。チャットから手順を編集できるようになった以上、
+    //    承認待ちの間に3番目のステップが差し替わることは普通に起きる。
+    //    照合しないと「Slack に通知」を承認したはずが「メール送信」が走る。
+    if (def.capabilityName !== approval.capabilityName) {
+      await failTask(
+        taskId,
+        'エージェントの手順が承認後に変更されました。安全のため実行を中止しました。もう一度実行してください。',
+      );
+      return;
+    }
+
     // 編集を反映。以前は文字列以外を無条件に JSON.stringify していたが、それだと配列引数が
     // 文字列のまま capability に渡って VALIDATION_ERROR になる。値は実体のまま通す。
     // 例外は「元が配列/オブジェクトだったものを承認 UI が文字列にして返してきた」ケースだけ。
