@@ -25,8 +25,11 @@ export default defineConfig({
           motion: ['framer-motion'],
           query: ['@tanstack/react-query'],
           dnd: ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
-          // ワークフローキャンバス。エージェント詳細でしか使わないので独立させる
-          flow: ['@xyflow/react'],
+          /* ⚠️ @xyflow/react はここに書かない。manualChunks に載せると
+             エントリの静的グラフ扱いになり index.html に modulepreload が付いて、
+             結局全ユーザーが初回に落とすことになる（≒55KB gzip）。
+             キャンバスは AgentDetailPage と AgentCtaCard から動的 import しているので、
+             Rollup に任せれば必要な人だけが読む独立チャンクになる。 */
         },
       },
     },

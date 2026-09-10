@@ -1,3 +1,4 @@
+import { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import LoginPage from './pages/LoginPage';
@@ -6,7 +7,9 @@ import InboxPage from './pages/InboxPage';
 import ChatPage from './pages/ChatPage';
 import HomePage from './pages/HomePage';
 import AgentsPage from './pages/AgentsPage';
-import AgentDetailPage from './pages/AgentDetailPage';
+/* エージェント詳細だけがキャンバス（@xyflow/react ≒ 60KB gzip）を使う。
+   静的に import すると全ユーザーが初回ロードで落とすので、ここだけ遅延にする。 */
+const AgentDetailPage = lazy(() => import('./pages/AgentDetailPage'));
 import GovernancePage from './pages/GovernancePage';
 import TaskManagerPage from './pages/TaskManagerPage';
 import DeliverablesPage from './pages/DeliverablesPage';
@@ -17,6 +20,7 @@ import SnsPage from './pages/SnsPage';
 import AccountingPage from './pages/AccountingPage';
 import TopPage from './pages/TopPage';
 import { AppShell } from './components/shell/AppShell';
+import { Spinner } from './components/ui';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -42,7 +46,14 @@ export default function App() {
         <Route path="chat/:id" element={<ChatPage />} />
         <Route path="inbox" element={<InboxPage />} />
         <Route path="agents" element={<AgentsPage />} />
-        <Route path="agents/:id" element={<AgentDetailPage />} />
+        <Route
+          path="agents/:id"
+          element={
+            <Suspense fallback={<div className="flex justify-center py-20"><Spinner /></div>}>
+              <AgentDetailPage />
+            </Suspense>
+          }
+        />
         <Route path="governance" element={<GovernancePage />} />
         <Route path="tasks" element={<TaskManagerPage />} />
         <Route path="deliverables" element={<DeliverablesPage />} />

@@ -1,9 +1,9 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import {
   Background,
   BackgroundVariant,
-  Controls,
   ReactFlow,
+  useReactFlow,
   type Edge,
   type Node,
 } from '@xyflow/react';
@@ -12,6 +12,7 @@ import type { AgentRunState, AgentStepDef } from '@org-ai/shared-types';
 import { EmptyState } from '../ui';
 import { StepNode } from './StepNode';
 import { NODE_WIDTH, stepsToFlow, type CapabilityMeta, type StepNodeData } from './stepsToFlow';
+import { usePrefersReducedMotion } from '../motion/springs';
 
 import '@xyflow/react/dist/base.css';
 
@@ -24,6 +25,27 @@ import '@xyflow/react/dist/base.css';
  */
 
 const nodeTypes = { step: StepNode };
+
+/**
+ * ノードが増えるたびに全体が収まるよう追従する。
+ *
+ * ⚠️ ReactFlow の `fitView` プロパティは**初回だけ**効く。構築アニメで
+ * ノードを1つずつ生やすと、2つ目以降が画面の外に出たまま見えなくなる
+ * （compact はドラッグも止めていたので、たどり着く手段が無かった）。
+ * ReactFlow の子として置くと、そのインスタンスのストアに繋がる。
+ */
+function FitViewOnCountChange({ count, padding }: { count: number; padding: number }) {
+  const { fitView } = useReactFlow();
+  const reduceMotion = usePrefersReducedMotion();
+  useEffect(() => {
+    // ノードの実測が終わってから合わせる（同フレームだと高さ 0 で計算される）
+    const raf = requestAnimationFrame(() => {
+      void fitView({ padding, maxZoom: 1, duration: reduceMotion ? 0 : 220 });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [count, padding, fitView, reduceMotion]);
+  return null;
+}
 
 interface Props {
   steps: AgentStepDef[] | null | undefined;
@@ -85,7 +107,9 @@ export function WorkflowCanvas({
         edgesFocusable={false}
         nodesFocusable={false}
         deleteKeyCode={null}
-        panOnDrag={!compact}
+        /* 読み取り専用でも移動はできる。compact で止めると、はみ出したノードに
+           たどり着く手段が無くなる（拡大縮小はページのスクロールを奪うので compact では止める） */
+        panOnDrag
         zoomOnScroll={!compact}
         zoomOnDoubleClick={false}
         preventScrolling={!compact}
@@ -97,7 +121,7 @@ export function WorkflowCanvas({
         ]}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--hairline)" />
-        {!compact && <Controls showInteractive={false} position="bottom-right" />}
+        <FitViewOnCountChange count={nodes.length} padding={compact ? 0.15 : 0.25} />
       </ReactFlow>
     </div>
   );

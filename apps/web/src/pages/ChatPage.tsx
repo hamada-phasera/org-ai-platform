@@ -76,6 +76,7 @@ export default function ChatPage() {
     streamingContent, setStreamingContent, appendStreamingContent,
     streamingDepartment, setStreamingDepartment,
     autoCreateSession, setAutoCreateSession,
+    editingAgent, setEditingAgent,
   } = useChatStore();
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -97,23 +98,30 @@ export default function ChatPage() {
   /* 実行前の確認待ち（RunPreviewRow で承認するまで作成しない） */
   const [pendingDeliverable, setPendingDeliverable] = useState<PendingDeliverable | null>(null);
   const [confirmingDeliverable, setConfirmingDeliverable] = useState(false);
-  /* エージェント修正モード。チャットが唯一の編集入口なので、対象をここで保持する */
-  const [editingAgent, setEditingAgent] = useState<{ id: string; name: string } | null>(
-    editingFromNav?.editingAgentId
-      ? { id: editingFromNav.editingAgentId, name: editingFromNav.agentName ?? 'エージェント' }
-      : null,
-  );
+  /* エージェント修正モードの対象はストアが持つ（useChatStore）。
+     ⚠️ location.state に置くと、セッション作成で /chat → /chat/:id に遷移した時点で
+     消えて編集フローが成立しない。古い遷移経路との互換のため state も拾う。 */
   const [applyingSuggestion, setApplyingSuggestion] = useState(false);
   /* ノードの表示名を引くためのレジストリ（設定>連携 と同じキャッシュを共有） */
   const capabilitiesQ = useQuery({
     queryKey: ['capabilities'],
     queryFn: async () => {
-      const res = await api.get<{ success: boolean; data: { name: string; displayName: string; kind?: string | null }[] }>(
+      const res = await api.get<{ success: boolean; data: { name: string; displayName: string; kind?: string | null; httpMethod?: string | null }[] }>(
         '/capabilities',
       );
       return res.data.data;
     },
   });
+  /* 旧経路（location.state）から来た場合はストアへ移してから使う */
+  useEffect(() => {
+    if (editingFromNav?.editingAgentId && editingAgent?.id !== editingFromNav.editingAgentId) {
+      setEditingAgent({
+        id: editingFromNav.editingAgentId,
+        name: editingFromNav.agentName ?? 'エージェント',
+      });
+    }
+  }, [editingFromNav?.editingAgentId, editingFromNav?.agentName, editingAgent?.id, setEditingAgent]);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastInputRef = useRef('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -918,7 +926,12 @@ export default function ChatPage() {
                       <div className="ml-11 mt-3">
                         <AgentCtaCard
                           draft={agentSuggestion.draft}
-                          capabilities={capabilitiesQ.data ?? []}
+                          capabilities={(capabilitiesQ.data ?? []).map((c) => ({
+                            name: c.name,
+                            displayName: c.displayName,
+                            kind: c.kind,
+                            httpMethod: c.httpMethod ?? null,
+                          }))}
                           editing={!!editingAgent}
                           busy={applyingSuggestion}
                           onCreate={() => {
@@ -1170,6 +1183,7 @@ export default function ChatPage() {
             initialName={agentSuggestion.draft.name}
             initialInstructions={agentSuggestion.draft.instructions}
             initialDepartment={agentSuggestion.draft.department}
+            initialSteps={agentSuggestion.draft.steps}
             onClose={() => setSuggestModalOpen(false)}
             onCreated={() => {
               setSuggestModalOpen(false);

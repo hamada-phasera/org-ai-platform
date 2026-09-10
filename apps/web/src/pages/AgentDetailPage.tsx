@@ -29,6 +29,7 @@ import { useAgentRun } from '../hooks/useAgentRun';
 import { DEPT_LABEL } from '../constants/departments';
 import { AGENT_N8N_STATUS_LABEL, type SavedAgent } from '../types/agent';
 import { describeSchedule, formatNextRun, nextRunAt } from '../utils/schedule';
+import { useChatStore } from '../store/chatStore';
 
 /**
  * エージェント詳細。
@@ -55,6 +56,8 @@ interface CapabilityRow {
   displayName: string;
   description?: string;
   kind?: string | null;
+  /** カスタム HTTP ノードの送信方式。GET かどうかで承認要否のバッジが変わる */
+  httpMethod?: string | null;
 }
 
 const TASK_STATUS_LABEL: Record<string, { label: string; className: string }> = {
@@ -69,6 +72,22 @@ const TASK_STATUS_LABEL: Record<string, { label: string; className: string }> = 
 export default function AgentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const setEditingAgent = useChatStore((s) => s.setEditingAgent);
+  const setAutoCreateSession = useChatStore((s) => s.setAutoCreateSession);
+
+  /**
+   * チャットを編集モードで開く。
+   *
+   * ⚠️ 編集対象を location.state で渡してはいけない。/chat でセッションが作られると
+   *    /chat/:id へ遷移し、その時点で state が落ちて編集コンテキストが消える。
+   *    ストアに積んでおけば遷移を跨いで生き残る。
+   *    あわせてセッションの自動作成を頼み、「開いたのに何も打てない」状態を作らない。
+   */
+  const startEditingInChat = (id: string, name: string) => {
+    setEditingAgent({ id, name });
+    setAutoCreateSession(true);
+    navigate('/chat');
+  };
   const qc = useQueryClient();
   const [view, setView] = useState<View>('workflow');
   const [input, setInput] = useState('');
@@ -120,7 +139,15 @@ export default function AgentDetailPage() {
 
   const agent = agentQ.data;
   const capabilities: CapabilityMeta[] = useMemo(
-    () => (capsQ.data ?? []).map((c) => ({ name: c.name, displayName: c.displayName, kind: c.kind })),
+    () =>
+      (capsQ.data ?? []).map((c) => ({
+        name: c.name,
+        displayName: c.displayName,
+        kind: c.kind,
+        // ⚠️ これを落とすと GET 専用のカスタムノードにも「送信前に承認」が出る
+        //    （実際には承認ゲートは走らないので、画面だけが嘘をつく）
+        httpMethod: c.httpMethod ?? null,
+      })),
     [capsQ.data],
   );
   const history = useMemo(
@@ -172,7 +199,7 @@ export default function AgentDetailPage() {
               size="sm"
               icon={<MessageCircle size={13} />}
               onClick={() =>
-                navigate('/chat', { state: { editingAgentId: agent.id, agentName: agent.name } })
+                startEditingInChat(agent.id, agent.name)
               }
             >
               チャットで修正

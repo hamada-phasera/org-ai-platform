@@ -6,6 +6,7 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { DEPARTMENTS } from '../../constants/departments';
 import type { SavedAgent } from '../../types/agent';
+import type { AgentStepDef } from '@org-ai/shared-types';
 import type { ScheduleFrequency } from '@org-ai/shared-types';
 import { jstScheduleToUtc } from '../../utils/schedule';
 
@@ -18,6 +19,12 @@ interface Props {
   initialName?: string;
   initialInstructions?: string;
   initialDepartment?: string;
+  /**
+   * チャットの提案カードが見せた手順。
+   * ⚠️ これを渡さないと、ミニキャンバスに並べて承認させた手順が保存されず、
+   *    「組み上がっているのを見て作ったのに空のエージェントができる」ことになる。
+   */
+  initialSteps?: AgentStepDef[];
 }
 
 const ICONS = ['🤖', '📣', '📊', '📈', '🧮', '🛡️', '✨', '📝', '📧', '🔍'];
@@ -34,6 +41,7 @@ export function CreateAgentModal({
   initialName,
   initialInstructions,
   initialDepartment,
+  initialSteps,
 }: Props) {
   const [name, setName] = useState(initialName ?? '');
   const [description, setDescription] = useState(initialDescription ?? '');
@@ -88,6 +96,8 @@ export function CreateAgentModal({
         instructions: instructions.trim() || undefined,
         trigger,
         icon,
+        // 提案カードで見せた手順をそのまま持っていく
+        ...(initialSteps && initialSteps.length > 0 ? { steps: initialSteps } : {}),
         inferFromDescription: useInfer || undefined,
       };
       // inferFromDescription 時に name 未入力でも通すため、name 必須を緩める

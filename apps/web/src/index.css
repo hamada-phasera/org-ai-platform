@@ -199,10 +199,9 @@ body {
   --xy-node-boxshadow-selected-default: none;
   --xy-handle-background-color-default: var(--border-strong);
   --xy-handle-border-color-default: var(--surface);
-  --xy-controls-button-background-color-default: var(--surface);
-  --xy-controls-button-background-color-hover-default: var(--surface-2);
-  --xy-controls-button-color-default: var(--text-secondary);
-  --xy-controls-button-border-color-default: var(--border);
+  /* Controls（ズームボタン）は使わない。base.css だけを読んでいるので既定の見た目が
+     付いておらず、ここで変数を写像しても効かなかった。読み取り専用キャンバスは
+     自動フィット＋ドラッグ移動で足りるため、部品ごと置いていない。 */
   --xy-attribution-background-color-default: transparent;
 }
 

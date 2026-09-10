@@ -1,10 +1,17 @@
+import { Suspense, lazy } from 'react';
 import { motion } from 'framer-motion';
 import { Sparkles, X, Bot } from 'lucide-react';
 import type { AgentStepDef } from '@org-ai/shared-types';
 import { DEPT_LABEL, DEPT_ACCENT, DEPT_CHARACTER } from '../../constants/departments';
-import { WorkflowCanvas } from '../workflow/WorkflowCanvas';
 import type { CapabilityMeta } from '../workflow/stepsToFlow';
 import { useStaggeredReveal } from '../../hooks/useStaggeredReveal';
+
+/* 提案が出たときにだけキャンバスを読む。チャットを開いただけの人に
+   @xyflow/react を落とさせない（提案は毎回出るものではない）。 */
+const WorkflowCanvas = lazy(() =>
+  import('../workflow/WorkflowCanvas').then((m) => ({ default: m.WorkflowCanvas })),
+);
+
 
 export interface AgentDraft {
   name: string;
@@ -100,12 +107,18 @@ export function AgentCtaCard({
 
           {steps.length > 0 && (
             <div className="mb-2.5">
-              <WorkflowCanvas
-                steps={steps}
-                capabilities={capabilities}
-                visibleCount={visibleCount}
-                compact
-              />
+              <Suspense
+                fallback={
+                  <div className="h-[220px] rounded-panel border border-border bg-canvas" />
+                }
+              >
+                <WorkflowCanvas
+                  steps={steps}
+                  capabilities={capabilities}
+                  visibleCount={visibleCount}
+                  compact
+                />
+              </Suspense>
               <p className="mt-1 text-micro text-text-muted tabular">
                 {visibleCount < steps.length
                   ? `手順を組み立てています… ${visibleCount}/${steps.length}`

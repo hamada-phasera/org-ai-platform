@@ -96,6 +96,11 @@ function sanitizeCapability(cap: {
     /* 'native' は adapter レジストリからの派生（DB には保存していない） */
     kind: getNativeAdapter(cap.name) ? 'native' : cap.kind,
     httpConfig: cap.kind === 'http' ? sanitizeHttpConfig(cap.httpConfig) : null,
+    /* 承認要否の判定に使う。httpConfig を丸ごと読ませずに済ませるため top-level にも出す */
+    httpMethod:
+      cap.kind === 'http'
+        ? ((sanitizeHttpConfig(cap.httpConfig) as { method?: string } | null)?.method ?? null)
+        : null,
   };
 }
 

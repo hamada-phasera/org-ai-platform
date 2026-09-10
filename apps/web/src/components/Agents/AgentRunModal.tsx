@@ -1,32 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { X, Loader2, CheckCircle2, AlertCircle, Clock, ShieldCheck, ArrowRight } from 'lucide-react';
-import { api } from '../../services/api';
-import { useAuthStore } from '../../store/authStore';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
+import { useAgentRun } from '../../hooks/useAgentRun';
 import type { SavedAgent } from '../../types/agent';
-
-interface TaskLogEntry {
-  id: string;
-  message: string;
-  level: 'INFO' | 'WARN' | 'ERROR';
-  createdAt: string;
-}
-
-/** awaiting_approval / rejected も終端。WS の done は DONE/FAILED でしか飛んでこない */
-type RunStatus = 'idle' | 'starting' | 'running' | 'done' | 'failed' | 'awaiting_approval' | 'rejected';
-
-/** GET /tasks/:id の返す Task のうち、ここで見るぶんだけ */
-interface TaskSnapshot {
-  status: string;
-  output?: string | null;
-  lastError?: string | null;
-}
-
-/** Task.status を確認する間隔（ms） */
-const STATUS_POLL_MS = 2500;
 
 interface Props {
   agent: SavedAgent;
@@ -36,32 +15,15 @@ interface Props {
 /** 保存エージェントを実行し、Task の進捗ログ（n8n起動中… → 完了/フォールバック）を WebSocket で可視化する。 */
 export function AgentRunModal({ agent, onClose }: Props) {
   const [input, setInput] = useState('');
-  const [status, setStatus] = useState<RunStatus>('idle');
-  const [logs, setLogs] = useState<TaskLogEntry[]>([]);
-  const [output, setOutput] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const pollRef = useRef<number | null>(null);
+  /* 実行と監視は useAgentRun が持つ（エージェント詳細ページと同じ振る舞いにする）。
+     以前はここに同じロジックが丸ごと複製されており、片方だけ直す事故が起きる形だった。 */
+  const { status, busy, logs, output, error, run } = useAgentRun(agent.id);
   const logEndRef = useRef<HTMLDivElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
-
-  /** 監視をすべて止める（終端に到達したとき / アンマウント時） */
-  const stopWatching = useCallback(() => {
-    wsRef.current?.close();
-    wsRef.current = null;
-    if (pollRef.current !== null) {
-      window.clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => {
-    return () => stopWatching();
-  }, [stopWatching]);
 
   /* a11y: Escape で閉じる */
   useEffect(() => {
@@ -81,93 +43,7 @@ export function AgentRunModal({ agent, onClose }: Props) {
       ?.focus();
   }, []);
 
-  /**
-   * Task の status を直接見にいき、終端なら実行中表示をやめる。
-   *
-   * WS `/api/tasks/:taskId/stream` は DONE / FAILED でしか done を送らないため、
-   * 承認必須の capability（send_email など）で PENDING_APPROVAL に止まった実行は
-   * これが無いとモーダルが永久にスピナーのままになる。REJECTED も終端として扱う。
-   */
-  const syncTaskStatus = useCallback(
-    async (taskId: string) => {
-      try {
-        const res = await api.get<{ success: boolean; data: TaskSnapshot }>(`/tasks/${taskId}`);
-        const task = res.data.data;
-        if (task.status === 'PENDING_APPROVAL') {
-          stopWatching();
-          setStatus('awaiting_approval');
-        } else if (task.status === 'REJECTED') {
-          stopWatching();
-          setStatus('rejected');
-        } else if (task.status === 'DONE') {
-          stopWatching();
-          setOutput(task.output ?? null);
-          setStatus('done');
-        } else if (task.status === 'FAILED') {
-          stopWatching();
-          setOutput(task.output ?? null);
-          setError(task.lastError ?? '実行に失敗しました');
-          setStatus('failed');
-        }
-      } catch {
-        /* 一時的な失敗は次のポーリングで拾う（監視は止めない） */
-      }
-    },
-    [stopWatching],
-  );
-
-  const connectStream = useCallback((taskId: string) => {
-    const token = useAuthStore.getState().token;
-    const wsBase =
-      import.meta.env.VITE_WS_URL ||
-      `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
-    const ws = new WebSocket(`${wsBase}/api/tasks/${taskId}/stream?token=${token}`);
-    wsRef.current = ws;
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'logs') {
-          setLogs((prev) => [...prev, ...(data.data as TaskLogEntry[])]);
-          setStatus('running');
-          /* ログが動いた直後は状態も動いている可能性が高い（承認待ち停止の検知を早める） */
-          void syncTaskStatus(taskId);
-        } else if (data.type === 'done') {
-          /* status の反映と監視停止は syncTaskStatus に一本化する。
-             GET が失敗してもポーリングが残っているので取りこぼさない */
-          void syncTaskStatus(taskId);
-        }
-      } catch {
-        /* skip malformed frame */
-      }
-    };
-    ws.onerror = () => ws.close();
-
-    /* WS だけでは PENDING_APPROVAL / REJECTED を検知できないので status も定期確認する */
-    pollRef.current = window.setInterval(() => {
-      void syncTaskStatus(taskId);
-    }, STATUS_POLL_MS);
-  }, [syncTaskStatus]);
-
-  const handleRun = useCallback(async () => {
-    stopWatching();
-    setStatus('starting');
-    setLogs([]);
-    setOutput(null);
-    setError(null);
-    try {
-      const res = await api.post<{ success: boolean; data: { taskId: string } }>(
-        `/agents/${agent.id}/run`,
-        { input: input.trim() || undefined },
-      );
-      connectStream(res.data.data.taskId);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '実行リクエストに失敗しました');
-      setStatus('failed');
-    }
-  }, [agent.id, input, connectStream, stopWatching]);
-
-  const busy = status === 'starting' || status === 'running';
+  const handleRun = () => void run(input);
 
   return (
     <motion.div
@@ -238,8 +114,8 @@ export function AgentRunModal({ agent, onClose }: Props) {
               実行ログ
             </div>
             <div className="bg-sunken border border-border rounded-sm p-3 space-y-1 max-h-40 overflow-y-auto">
-              {logs.map((log) => (
-                <div key={log.id} className="text-xs flex items-start gap-1.5">
+              {logs.map((log, i) => (
+                <div key={`${log.createdAt}-${i}`} className="text-xs flex items-start gap-1.5">
                   {log.message.includes('n8n起動中') && (
                     <Clock size={12} className="mt-0.5 text-warning flex-shrink-0" />
                   )}

@@ -10,6 +10,12 @@ interface ChatState {
   streamingContent: string | null;
   streamingDepartment: string | null;
   autoCreateSession: boolean;
+  /**
+   * チャットで修正中のエージェント。
+   * ⚠️ location.state には置けない。/chat でセッションを作ると /chat/:id へ遷移し、
+   *    その時点で state が落ちて編集コンテキストが消える（＝修正フローが成立しない）。
+   */
+  editingAgent: { id: string; name: string } | null;
   setSessions: (sessions: ChatSession[]) => void;
   setCurrentSession: (id: string | null) => void;
   setMessages: (messages: Message[]) => void;
@@ -20,6 +26,7 @@ interface ChatState {
   appendStreamingContent: (token: string) => void;
   setStreamingDepartment: (dept: string | null) => void;
   setAutoCreateSession: (val: boolean) => void;
+  setEditingAgent: (agent: { id: string; name: string } | null) => void;
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -31,6 +38,7 @@ export const useChatStore = create<ChatState>((set) => ({
   streamingContent: null,
   streamingDepartment: null,
   autoCreateSession: false,
+  editingAgent: null,
   setSessions: (sessions) => set({ sessions }),
   setCurrentSession: (id) => set({ currentSessionId: id, messages: [] }),
   setMessages: (messages) => set({ messages }),
@@ -43,4 +51,5 @@ export const useChatStore = create<ChatState>((set) => ({
   })),
   setStreamingDepartment: (dept) => set({ streamingDepartment: dept }),
   setAutoCreateSession: (val) => set({ autoCreateSession: val }),
+  setEditingAgent: (agent) => set({ editingAgent: agent }),
 }));
