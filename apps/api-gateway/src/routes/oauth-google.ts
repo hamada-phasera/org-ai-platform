@@ -95,11 +95,19 @@ function gatewayBase(): string {
   return (process.env.API_GATEWAY_URL ?? 'http://localhost:4000').replace(/\/$/, '');
 }
 
-/** リダイレクト先は FRONTEND_URL の先頭固定（returnTo は受け取らない = オープンリダイレクト封じ）。
- *  FRONTEND_URL は CORS 用に '*' やカンマ区切りが入りうるので、http(s) の URL として妥当なものだけ採用する。 */
+/** リダイレクト先は自分のフロント固定（returnTo は受け取らない = オープンリダイレクト封じ）。
+ *
+ *  優先順:
+ *   1. FRONTEND_URL の先頭にある妥当な http(s) URL
+ *   2. ALLOWED_ORIGIN_HOSTS の先頭ホスト（= CORS で許可している本番フロント）
+ *   3. localhost（開発）
+ *
+ *  2 を挟んでいるのは実測の反省: 本番の FRONTEND_URL は CORS 用に '*' が入っていて
+ *  候補が 1 つも取れず、Google 接続後に localhost へ飛ばされる状態だった。
+ *  CORS で許可しているホストは「自分のフロント」と判っているので、そこへ戻すのが安全。 */
 function frontendBase(): string {
   const fallback = 'http://localhost:3000';
-  const candidates = (process.env.FRONTEND_URL ?? fallback).split(',').map((s) => s.trim());
+  const candidates = (process.env.FRONTEND_URL ?? '').split(',').map((s) => s.trim());
   for (const c of candidates) {
     if (!c || c === '*') continue;
     try {
@@ -109,6 +117,11 @@ function frontendBase(): string {
       // 次の候補へ
     }
   }
+  const allowedHost = (process.env.ALLOWED_ORIGIN_HOSTS ?? 'org-ai-platform.vercel.app')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)[0];
+  if (allowedHost) return `https://${allowedHost}`;
   return fallback;
 }
 

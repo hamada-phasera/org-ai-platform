@@ -83,3 +83,49 @@ describe('OAuth state の署名', () => {
     await app.close();
   });
 });
+
+/**
+ * リダイレクト先の決定（routes/oauth-google.ts の frontendBase と同じ規則）。
+ * 本番の FRONTEND_URL が '*' で localhost に飛んでいた実測の回帰を防ぐ。
+ */
+function frontendBase(env: { FRONTEND_URL?: string; ALLOWED_ORIGIN_HOSTS?: string }): string {
+  const fallback = 'http://localhost:3000';
+  const candidates = (env.FRONTEND_URL ?? '').split(',').map((s) => s.trim());
+  for (const c of candidates) {
+    if (!c || c === '*') continue;
+    try {
+      const u = new URL(c);
+      if (u.protocol === 'http:' || u.protocol === 'https:') return c.replace(/\/$/, '');
+    } catch {
+      /* 次の候補へ */
+    }
+  }
+  const allowedHost = (env.ALLOWED_ORIGIN_HOSTS ?? 'org-ai-platform.vercel.app')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)[0];
+  if (allowedHost) return `https://${allowedHost}`;
+  return fallback;
+}
+
+describe('OAuth 後のリダイレクト先', () => {
+  it('FRONTEND_URL が妥当ならそれを使う', () => {
+    expect(frontendBase({ FRONTEND_URL: 'https://app.example.com/' })).toBe('https://app.example.com');
+  });
+
+  it("FRONTEND_URL が '*' でも localhost に飛ばさず本番フロントへ戻す（本番の実測ケース）", () => {
+    expect(frontendBase({ FRONTEND_URL: '*' })).toBe('https://org-ai-platform.vercel.app');
+  });
+
+  it('FRONTEND_URL 未設定でも本番フロントへ戻す', () => {
+    expect(frontendBase({})).toBe('https://org-ai-platform.vercel.app');
+  });
+
+  it('カンマ区切りの先頭にある妥当な URL を採る', () => {
+    expect(frontendBase({ FRONTEND_URL: '*,https://app.example.com' })).toBe('https://app.example.com');
+  });
+
+  it('許可ホストも無ければ localhost（開発）', () => {
+    expect(frontendBase({ FRONTEND_URL: '*', ALLOWED_ORIGIN_HOSTS: '' })).toBe('http://localhost:3000');
+  });
+});
