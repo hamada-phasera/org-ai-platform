@@ -14,6 +14,7 @@ import {
   SkeletonList,
 } from '../components/ui';
 import { LiquidTabs } from '../components/motion/LiquidTabs';
+import { ExternalApiSection } from '../components/Governance/ExternalApiSection';
 
 /* 深刻度＝意味の色。success / warning / danger のトークンで塗る（hex 直書き禁止）。
  * CRITICAL だけ塗りつぶしで一段強く。 */
@@ -34,7 +35,7 @@ interface LogsPayload {
 }
 
 export default function GovernancePage() {
-  const [tab, setTab] = useState<'logs' | 'risks'>('logs');
+  const [tab, setTab] = useState<'logs' | 'risks' | 'connections'>('logs');
   const [deptFilter, setDeptFilter] = useState<DeptFilter>('ALL');
   const [page, setPage] = useState(1);
   const [riskFilter, setRiskFilter] = useState<'all' | 'unresolved' | 'resolved'>('all');
@@ -111,6 +112,7 @@ export default function GovernancePage() {
         items={[
           { value: 'logs', label: 'AIログ' },
           { value: 'risks', label: 'リスクイベント' },
+          { value: 'connections', label: '外部API接続' },
         ]}
         value={tab}
         onChange={(next) => {
@@ -340,6 +342,18 @@ export default function GovernancePage() {
                 </div>
               </Card>
             )}
+          </motion.div>
+        )}
+
+        {tab === 'connections' && (
+          <motion.div
+            key="connections"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2 }}
+          >
+            <ExternalApiSection />
           </motion.div>
         )}
       </AnimatePresence>
