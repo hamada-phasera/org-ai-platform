@@ -17,9 +17,17 @@ const createSchema = z.object({
   dayOfWeek: z.number().int().min(0).max(6).nullable().optional(),
   dayOfMonth: z.number().int().min(1).max(31).nullable().optional(),
   enabled: z.boolean().default(true),
+  /** 紐づけるエージェント。指定時は定期実行がそのエージェント（steps / instructions）で走る。 */
+  agentId: z.string().nullable().optional(),
 });
 
 const updateSchema = createSchema.partial();
+
+/** agentId が指定されたら、その org のエージェントであることを確認する。 */
+async function assertOwnAgent(agentId: string, orgId: string): Promise<boolean> {
+  const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { orgId: true } });
+  return !!agent && agent.orgId === orgId;
+}
 
 export async function scheduledTaskRoutes(app: FastifyInstance): Promise<void> {
   // 一覧
@@ -58,6 +66,13 @@ export async function scheduledTaskRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
+    if (data.agentId && !(await assertOwnAgent(data.agentId, payload.orgId))) {
+      return reply.code(404).send({
+        success: false,
+        error: { code: 'NOT_FOUND', message: '指定されたエージェントが見つかりません' },
+      });
+    }
+
     const created = await prisma.scheduledTask.create({
       data: {
         orgId: payload.orgId,
@@ -71,6 +86,7 @@ export async function scheduledTaskRoutes(app: FastifyInstance): Promise<void> {
         dayOfWeek: data.dayOfWeek ?? null,
         dayOfMonth: data.dayOfMonth ?? null,
         enabled: data.enabled,
+        agentId: data.agentId ?? null,
       },
     });
     return reply.code(201).send({ success: true, data: created });
@@ -93,6 +109,12 @@ export async function scheduledTaskRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({
         success: false,
         error: { code: 'VALIDATION_ERROR', message: result.error.message },
+      });
+    }
+    if (result.data.agentId && !(await assertOwnAgent(result.data.agentId, payload.orgId))) {
+      return reply.code(404).send({
+        success: false,
+        error: { code: 'NOT_FOUND', message: '指定されたエージェントが見つかりません' },
       });
     }
 

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../utils/prisma';
 import { requireAuth } from '../middleware/auth';
 import { dispatchQueuedTask } from '../services/task-executor';
+import { resumeAgentTask, parseRunState } from '../services/step-runner';
 
 const createTaskSchema = z.object({
   title: z.string().min(1).max(200),
@@ -15,6 +16,12 @@ const createTaskSchema = z.object({
 const approveTaskSchema = z.object({
   action: z.string().optional(),
   modifications: z.record(z.unknown()).optional(),
+  /** エージェントのステップ承認: 承認画面で編集した引数（本文など）。 */
+  editedArgs: z.record(z.unknown()).optional(),
+});
+
+const rejectTaskSchema = z.object({
+  reason: z.string().max(500).optional(),
 });
 
 const updateTaskSchema = z.object({
@@ -32,9 +39,13 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
   // タスク一覧取得
   app.get('/', { preHandler: requireAuth }, async (request, reply) => {
     const payload = request.user as { orgId: string };
-    const query = request.query as { department?: string };
-    const where: { orgId: string; department?: string } = { orgId: payload.orgId };
+    const query = request.query as { department?: string; status?: string; taskType?: string };
+    const where: { orgId: string; department?: string; status?: string; taskType?: string } = {
+      orgId: payload.orgId,
+    };
     if (query.department) where.department = query.department;
+    if (query.status) where.status = query.status;
+    if (query.taskType) where.taskType = query.taskType;
     const tasks = await prisma.task.findMany({
       where,
       include: { logs: { orderBy: { createdAt: 'asc' }, take: 20 } },
@@ -131,6 +142,34 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const body = approveTaskSchema.safeParse(request.body);
+
+    // エージェントのステップ承認（approvalData.kind === 'agent_step'）は step-runner を再開する。
+    // 従来の承認（SNS 下書き等）は QUEUED に戻して dispatchQueuedTask。
+    let isAgentStep = false;
+    if (task.approvalData) {
+      try {
+        isAgentStep = (JSON.parse(task.approvalData) as { kind?: string }).kind === 'agent_step';
+      } catch {
+        isAgentStep = false;
+      }
+    }
+    if (isAgentStep) {
+      if (task.status !== 'PENDING_APPROVAL') {
+        return reply.code(409).send({
+          success: false,
+          error: { code: 'INVALID_STATE', message: 'このタスクは承認待ちではありません' },
+        });
+      }
+      await prisma.taskLog.create({
+        data: { taskId, message: 'ステップを承認しました。実行を再開します', level: 'INFO' },
+      });
+      void resumeAgentTask(taskId, {
+        editedArgs: body.success ? body.data.editedArgs : undefined,
+      });
+      const current = await prisma.task.findUnique({ where: { id: taskId } });
+      return reply.send({ success: true, data: current });
+    }
+
     const approvalData = body.success ? JSON.stringify(body.data) : null;
 
     const updated = await prisma.task.update({
@@ -148,6 +187,46 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     // n8n or AI Engine で実行
     void dispatchQueuedTask(updated);
 
+    return reply.send({ success: true, data: updated });
+  });
+
+  // タスク却下（エージェントのステップ承認待ちを止める。残りステップは実行しない）
+  app.post('/:taskId/reject', { preHandler: requireAuth }, async (request, reply) => {
+    const { taskId } = request.params as { taskId: string };
+    const payload = request.user as { orgId: string };
+
+    const task = await prisma.task.findUnique({ where: { id: taskId } });
+    if (!task || task.orgId !== payload.orgId) {
+      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'タスクが見つかりません' } });
+    }
+    if (task.status !== 'PENDING_APPROVAL') {
+      return reply.code(409).send({
+        success: false,
+        error: { code: 'INVALID_STATE', message: 'このタスクは承認待ちではありません' },
+      });
+    }
+
+    const body = rejectTaskSchema.safeParse(request.body ?? {});
+    const reason = body.success ? body.data.reason : undefined;
+
+    // 承認待ちだったステップを REJECTED として executionResult に反映（履歴が読めるように）
+    const state = parseRunState(task.executionResult);
+    if (state) {
+      const step = state.steps[state.currentIndex];
+      if (step && step.status === 'AWAITING_APPROVAL') step.status = 'REJECTED';
+    }
+
+    const updated = await prisma.task.update({
+      where: { id: taskId },
+      data: {
+        status: 'REJECTED',
+        lastError: reason ?? null,
+        ...(state ? { executionResult: JSON.stringify(state) } : {}),
+      },
+    });
+    await prisma.taskLog.create({
+      data: { taskId, message: `承認を却下しました${reason ? `: ${reason}` : ''}`, level: 'INFO' },
+    });
     return reply.send({ success: true, data: updated });
   });
 

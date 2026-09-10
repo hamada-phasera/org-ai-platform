@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../utils/prisma';
 import { requireAuth, requireOwner } from '../middleware/auth';
 import { dispatchAgentTask } from '../services/task-executor';
+import { runAgentTask } from '../services/step-runner';
 import {
   createAgentWorkflow,
   syncAgentWorkflow,
@@ -322,17 +323,33 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
       data: { taskId: task.id, message: `エージェント実行を開始: ${agent.name}`, level: 'INFO' },
     });
 
-    void dispatchAgentTask(
-      { id: task.id, orgId: task.orgId, title: task.title, input: task.input, taskType: 'agent' },
-      {
-        id: agent.id,
-        instructions: agent.instructions,
-        department: agent.department,
-        webhookPath: agent.webhookPath,
-        n8nStatus: agent.n8nStatus,
-        steps: (agent.steps as unknown as { capabilityName: string }[] | null) ?? undefined,
-      },
-    );
+    // steps を持つエージェントは gateway の step-runner でシーケンシャル実行
+    //（外部送信ステップの手前で承認待ちに止まる）。steps 無しは従来経路。
+    const steps =
+      (agent.steps as unknown as { capabilityName: string; argTemplate?: Record<string, string> }[] | null) ?? [];
+    if (steps.length > 0) {
+      void runAgentTask(
+        { id: task.id, orgId: task.orgId, input: task.input },
+        {
+          id: agent.id,
+          instructions: agent.instructions,
+          department: agent.department,
+          createdBy: agent.createdBy,
+          steps,
+        },
+      );
+    } else {
+      void dispatchAgentTask(
+        { id: task.id, orgId: task.orgId, title: task.title, input: task.input, taskType: 'agent' },
+        {
+          id: agent.id,
+          instructions: agent.instructions,
+          department: agent.department,
+          webhookPath: agent.webhookPath,
+          n8nStatus: agent.n8nStatus,
+        },
+      );
+    }
 
     return reply.code(201).send({ success: true, data: { taskId: task.id, agentId: agent.id } });
   });
@@ -398,6 +415,8 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
         .send({ success: false, error: { code: 'NOT_FOUND', message: 'エージェントが見つかりません' } });
     }
     if (agent.n8nWorkflowId) await deleteAgentWorkflow(agent.n8nWorkflowId);
+    // 紐づく定期タスクも掃除（FK は SetNull だが、孤児を残すと定期実行側で skip ログが出続ける）
+    await prisma.scheduledTask.deleteMany({ where: { agentId } });
     await prisma.agent.delete({ where: { id: agentId } });
     return reply.send({ success: true, data: { deleted: true } });
   });

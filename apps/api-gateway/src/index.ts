@@ -23,6 +23,9 @@ import { analyticsRoutes } from './routes/analytics';
 import { lineWebhookRoutes } from './routes/inbox/line-webhook';
 import { inboxMessagesRoutes } from './routes/inbox/messages';
 import { inboxConnectionsRoutes } from './routes/inbox/connections';
+import { integrationsRoutes } from './routes/integrations';
+import { oauthGoogleRoutes } from './routes/oauth-google';
+import { startInternalScheduler } from './services/schedule-dispatcher';
 import { prisma } from './utils/prisma';
 
 const app = Fastify({ logger: true });
@@ -106,10 +109,16 @@ async function start(): Promise<void> {
   await app.register(lineWebhookRoutes, { prefix: '/api/webhooks/line' });
   await app.register(inboxMessagesRoutes, { prefix: '/api/inbox/messages' });
   await app.register(inboxConnectionsRoutes, { prefix: '/api/inbox/connections' });
+  await app.register(integrationsRoutes, { prefix: '/api/integrations' });
+  await app.register(oauthGoogleRoutes, { prefix: '/api/oauth/google' });
 
   const port = parseInt(process.env.PORT ?? '4000');
   await app.listen({ port, host: '0.0.0.0' });
   console.log(`API Gateway running on port ${port}`);
+
+  // 定期実行の gateway 内 tick（n8n schedule-dispatcher が未インポートでも定期実行が動く保険。
+  // 併走しても enqueue 側の atomic claim が二重発火を防ぐ）
+  startInternalScheduler();
 }
 
 start().catch((err) => {

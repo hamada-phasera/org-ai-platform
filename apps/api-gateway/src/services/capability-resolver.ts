@@ -1,38 +1,36 @@
 import Ajv, { type Schema } from 'ajv';
 import addFormats from 'ajv-formats';
 import { prisma } from '../utils/prisma';
+import { executeCapability, type N8nEnvelope } from './capability-executor';
+import { nativeProviderFor } from './adapters/provider-map';
+
+// 型は capability-executor に移設済み。既存 import 互換のため re-export する。
+export type { ErrorType, N8nEnvelope } from './capability-executor';
 
 const AI_ENGINE_URL = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
 const N8N_URL = process.env.N8N_CLOUD_URL ?? process.env.N8N_URL ?? 'http://localhost:5678';
 const N8N_API_KEY = process.env.N8N_API_KEY ?? '';
-const N8N_WEBHOOK_AUTH_TOKEN = process.env.N8N_WEBHOOK_AUTH_TOKEN ?? 'org-ai-n8n-secret-token';
-const N8N_TIMEOUT_MS = Number(process.env.N8N_TIMEOUT_MS ?? 30_000);
 const CREDS_CACHE_TTL_MS = 3 * 60 * 1000;
 const ADMIN_SLACK_CHANNEL = process.env.ADMIN_SLACK_CHANNEL ?? '#org-ai-admin';
+// rawInput 推論の確信度がこれ未満なら実行せず NEEDS_CONFIRMATION を返す（人が確認して確定実行）。
+const CONFIDENCE_THRESHOLD = Number(process.env.CAPABILITY_CONFIDENCE_THRESHOLD ?? 0.7);
 
 const ajv = new Ajv({ allErrors: true, strict: false });
 addFormats(ajv);
-
-export type ErrorType =
-  | 'AUTH_MISSING'
-  | 'RATE_LIMIT'
-  | 'NODE_FAILED'
-  | 'TIMEOUT'
-  | 'VALIDATION_ERROR'
-  | null;
-
-export type N8nEnvelope = {
-  status: 'success' | 'error';
-  error_type: ErrorType;
-  message: string;
-  data: unknown;
-};
 
 export type ResolveOutcome =
   | { outcome: 'EXECUTED'; capability: string; envelope: N8nEnvelope; executionLogId: string }
   | { outcome: 'NEEDS_AUTH'; capability: string; missing: string[] }
   | { outcome: 'UNSUPPORTED'; inferredName: string | null; reasoning: string; gapId: string }
-  | { outcome: 'VALIDATION_ERROR'; capability: string; errors: string[] };
+  | { outcome: 'VALIDATION_ERROR'; capability: string; errors: string[] }
+  | {
+      outcome: 'NEEDS_CONFIRMATION';
+      capability: string;
+      displayName: string;
+      args: Record<string, unknown>;
+      confidence: number;
+      reasoning: string;
+    };
 
 type PlanFromAi = {
   capability_name: string | null;
@@ -52,10 +50,15 @@ export async function resolveAndExecute(input: {
   userId: string;
   orgId: string;
   plan?: string;
+  /** preview = 実行せず内容確認（NEEDS_CONFIRMATION）を返す。既定は execute。 */
+  mode?: 'execute' | 'preview';
 }): Promise<ResolveOutcome> {
   let { name, args = {} } = input;
   let reasoning = '';
   let inferredName: string | null = null;
+  // name 明示指定（承認後の確定実行・step-runner）は confidence ゲートを素通りさせる。
+  // rawInput からの推論時のみ確信度を見る。
+  let inferredConfidence: number | null = null;
 
   if (!name) {
     const planResult = await fetchPlanFromAiEngine(input.rawInput ?? '', input.orgId, input.plan ?? 'STARTER', input.userId);
@@ -63,6 +66,7 @@ export async function resolveAndExecute(input: {
     args = planResult.args ?? {};
     reasoning = planResult.reasoning;
     inferredName = planResult.inferred_name ?? null;
+    inferredConfidence = typeof planResult.confidence === 'number' ? planResult.confidence : null;
     if (!name) {
       const gap = await recordGap({
         orgId: input.orgId,
@@ -90,6 +94,20 @@ export async function resolveAndExecute(input: {
     return { outcome: 'UNSUPPORTED', inferredName: name, reasoning: 'レジストリに該当 capability なし or DISABLED', gapId: gap.id };
   }
 
+  // 実行前確認ゲート: preview 指定は常に、rawInput 推論は確信度不足のときだけ止める。
+  // 承認後は name + args を明示指定して呼び直す（→ このゲートを通らず確定実行）。
+  const lowConfidence = inferredConfidence !== null && inferredConfidence < CONFIDENCE_THRESHOLD;
+  if (input.mode === 'preview' || lowConfidence) {
+    return {
+      outcome: 'NEEDS_CONFIRMATION',
+      capability: capability.name,
+      displayName: capability.displayName,
+      args,
+      confidence: inferredConfidence ?? 1,
+      reasoning,
+    };
+  }
+
   const validation = validateArgs(capability.inputSchema as Schema, args);
   if (!validation.ok) {
     await prisma.executionLog.create({
@@ -105,12 +123,12 @@ export async function resolveAndExecute(input: {
     return { outcome: 'VALIDATION_ERROR', capability: capability.name, errors: validation.errors };
   }
 
-  const missing = await checkCredentials(capability.id);
+  const missing = await checkCredentials(capability.id, input.orgId);
   if (missing.length > 0) {
     return { outcome: 'NEEDS_AUTH', capability: capability.name, missing };
   }
 
-  const envelope = await invokeN8n(capability.webhookPath ?? `cap-${capability.name}`, args);
+  const envelope = await executeCapability(capability, args, input.orgId);
   const execLog = await prisma.executionLog.create({
     data: {
       orgId: input.orgId,
@@ -175,22 +193,39 @@ function validateArgs(schema: Schema, args: unknown): { ok: true } | { ok: false
   }
 }
 
-async function checkCredentials(capabilityId: string): Promise<string[]> {
+async function checkCredentials(capabilityId: string, orgId: string): Promise<string[]> {
   const creds = await prisma.requiredCredential.findMany({ where: { capabilityId } });
   if (creds.length === 0) return [];
   const now = Date.now();
   const missing: string[] = [];
   for (const cred of creds) {
-    let status = cred.status;
-    const stale = !cred.lastCheckedAt || now - cred.lastCheckedAt.getTime() > CREDS_CACHE_TTL_MS;
-    if (stale && N8N_API_KEY) {
-      const refreshed = await refreshCredentialFromN8n(cred.provider);
-      if (refreshed !== null) {
-        status = refreshed ? 'CONNECTED' : 'DISCONNECTED';
+    let status: string = cred.status;
+    const nativeProvider = nativeProviderFor(cred.provider);
+    if (nativeProvider) {
+      // セルフサーブ接続（自社DB）が真実の源。org 単位で正確に判定できる
+      // （旧 n8n 部分一致判定の「org 分離なし・誤判定」問題はここで解消）。
+      const conn = await prisma.providerConnection.findUnique({
+        where: { orgId_provider: { orgId, provider: nativeProvider } },
+      });
+      status = conn?.status === 'CONNECTED' ? 'CONNECTED' : 'DISCONNECTED';
+      if (status !== cred.status) {
         await prisma.requiredCredential.update({
           where: { id: cred.id },
-          data: { status, lastCheckedAt: new Date() },
+          data: { status: status as 'CONNECTED' | 'DISCONNECTED', lastCheckedAt: new Date() },
         });
+      }
+    } else {
+      // 従来経路（gmail / x / google_sheets）: n8n credential 一覧の部分一致判定を維持
+      const stale = !cred.lastCheckedAt || now - cred.lastCheckedAt.getTime() > CREDS_CACHE_TTL_MS;
+      if (stale && N8N_API_KEY) {
+        const refreshed = await refreshCredentialFromN8n(cred.provider);
+        if (refreshed !== null) {
+          status = refreshed ? 'CONNECTED' : 'DISCONNECTED';
+          await prisma.requiredCredential.update({
+            where: { id: cred.id },
+            data: { status: status as 'CONNECTED' | 'DISCONNECTED', lastCheckedAt: new Date() },
+          });
+        }
       }
     }
     if (status !== 'CONNECTED') missing.push(cred.provider);
@@ -221,55 +256,6 @@ async function refreshCredentialFromN8n(provider: string): Promise<boolean | nul
   } catch (e) {
     console.error(`[capability-resolver] n8n credentials check failed (${provider}):`, e);
     return null;
-  }
-}
-
-async function invokeN8n(webhookPath: string, args: Record<string, unknown>): Promise<N8nEnvelope> {
-  const url = `${N8N_URL}/webhook/${webhookPath}`;
-  try {
-    const ctrl = AbortSignal.timeout(N8N_TIMEOUT_MS);
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-org-ai-token': N8N_WEBHOOK_AUTH_TOKEN,
-      },
-      body: JSON.stringify(args),
-      signal: ctrl,
-    });
-    const text = await res.text();
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      parsed = null;
-    }
-    if (!res.ok) {
-      return {
-        status: 'error',
-        error_type: res.status === 404 ? 'NODE_FAILED' : res.status === 429 ? 'RATE_LIMIT' : 'NODE_FAILED',
-        message: `n8n HTTP ${res.status}: ${text.slice(0, 200)}`,
-        data: parsed,
-      };
-    }
-    if (parsed && typeof parsed === 'object' && 'status' in (parsed as object)) {
-      const env = parsed as Partial<N8nEnvelope>;
-      return {
-        status: env.status === 'error' ? 'error' : 'success',
-        error_type: (env.error_type ?? null) as ErrorType,
-        message: typeof env.message === 'string' ? env.message : '',
-        data: env.data ?? null,
-      };
-    }
-    return { status: 'success', error_type: null, message: '', data: parsed ?? text };
-  } catch (e: unknown) {
-    const isTimeout = (e as { name?: string })?.name === 'AbortError' || /timeout|aborted/i.test(String(e));
-    return {
-      status: 'error',
-      error_type: isTimeout ? 'TIMEOUT' : 'NODE_FAILED',
-      message: String(e),
-      data: null,
-    };
   }
 }
 
