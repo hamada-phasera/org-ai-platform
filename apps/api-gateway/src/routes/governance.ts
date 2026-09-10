@@ -41,11 +41,24 @@ export async function governanceRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.patch('/risks/:id/resolve', { preHandler: requireOwner }, async (request, reply) => {
+    const payload = request.user as { orgId: string };
     const { id } = request.params as { id: string };
-    const updated = await prisma.riskEvent.update({
-      where: { id },
+
+    /* ⚠️ id だけで update してはいけない。同ファイルの /logs /risks /stats は全て orgId で
+       絞っているのに、ここだけ抜けていた（他組織のリスクを既読にできる状態だった）。
+       ガバナンスは「見張る」機能なので、そこで分離が破れているのは売り文句と正面衝突する。
+       件数が0なら他組織のものか存在しないので、どちらか判別させずに 404 を返す。 */
+    const result = await prisma.riskEvent.updateMany({
+      where: { id, orgId: payload.orgId },
       data: { resolved: true },
     });
+    if (result.count === 0) {
+      return reply
+        .code(404)
+        .send({ success: false, error: { code: 'NOT_FOUND', message: 'リスクイベントが見つかりません' } });
+    }
+
+    const updated = await prisma.riskEvent.findFirst({ where: { id, orgId: payload.orgId } });
     return reply.send({ success: true, data: updated });
   });
 
