@@ -195,8 +195,10 @@ export const TAX_RATE = 0.1;
  * そもそも登録の有無が関係なく、全額控除できたため。原価明細は過去日付で入力されうるので、
  * ここを 0 にすると過去分の負担額を実際より大きく見せてしまう。
  */
-export function deductionRateAt(date: Date): number {
-  const iso = date.toISOString().slice(0, 10);
+export function deductionRateAt(date: Date | string): number {
+  // ⚠️ Date を渡すと UTC の暦日で判定される。JST の会社が使うので、
+  //    呼び出し側は jstToday() の文字列を渡すこと（切り替え当日の朝9時間ずれる）
+  const iso = typeof date === 'string' ? date : date.toISOString().slice(0, 10);
   let rate = 1;
   for (const step of INVOICE_TRANSITION_STEPS) {
     if (iso >= step.from) rate = step.rate;
@@ -205,13 +207,15 @@ export function deductionRateAt(date: Date): number {
 }
 
 /** 次の切り替え日と、そこまでの残日数。もう無ければ null。 */
-export function nextTransition(date: Date): { from: string; rate: number; daysLeft: number } | null {
-  const iso = date.toISOString().slice(0, 10);
+export function nextTransition(
+  date: Date | string,
+): { from: string; rate: number; daysLeft: number } | null {
+  const iso = typeof date === 'string' ? date : date.toISOString().slice(0, 10);
+  // 残日数も暦日どうしで数える。時刻が混ざると「あと1日」と「今日」が入れ替わる
+  const todayMs = new Date(`${iso}T00:00:00.000Z`).getTime();
   for (const step of INVOICE_TRANSITION_STEPS) {
     if (iso < step.from) {
-      const daysLeft = Math.ceil(
-        (new Date(`${step.from}T00:00:00Z`).getTime() - date.getTime()) / 86_400_000,
-      );
+      const daysLeft = Math.round((new Date(`${step.from}T00:00:00.000Z`).getTime() - todayMs) / 86_400_000);
       return { from: step.from, rate: step.rate, daysLeft };
     }
   }
@@ -242,7 +246,10 @@ export interface InvoiceImpact {
  *
  * ⚠️ これは概算であり、税務判断ではない（画面にもその旨を出すこと）。
  */
-export function estimateInvoiceImpact(unregisteredTax: number, now: Date = new Date()): InvoiceImpact {
+export function estimateInvoiceImpact(
+  unregisteredTax: number,
+  now: Date | string = new Date(),
+): InvoiceImpact {
   const tax = Math.max(0, Math.round(unregisteredTax || 0));
   const currentRate = deductionRateAt(now);
   const next = nextTransition(now);

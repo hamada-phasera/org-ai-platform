@@ -73,6 +73,13 @@ export function NodeCtaCard({ draft, busy = false, error, onCreate, onDismiss }:
     () => (http?.headers ?? []).filter((h) => h.secret),
     [http?.headers],
   );
+  /* 平文のまま保存されるヘッダ。承認前に人が見られるようにする
+     （見えないものは承認しようがない）。資格情報らしき名前はサーバ側で
+     必ず secret に格上げされるので、ここに並ぶのは無害なものだけのはず。 */
+  const plainHeaders = useMemo(
+    () => (http?.headers ?? []).filter((h) => !h.secret && (h.value ?? '') !== ''),
+    [http?.headers],
+  );
   const [secrets, setSecrets] = useState<Record<string, string>>({});
 
   const method = (http?.method ?? 'GET').toUpperCase();
@@ -150,7 +157,10 @@ export function NodeCtaCard({ draft, busy = false, error, onCreate, onDismiss }:
                 id={`secret-${h.name}`}
                 size="sm"
                 type="password"
-                autoComplete="off"
+                /* ⚠️ "off" は Chrome/Safari の「パスワードを保存しますか？」を止められない。
+                   このカードは「会話にもAIにも渡りません」と約束しているので、
+                   ブラウザや同期先に残る導線も作らない */
+                autoComplete="new-password"
                 spellCheck={false}
                 placeholder="APIキーを貼り付けてください"
                 value={secrets[h.name] ?? ''}
@@ -162,6 +172,25 @@ export function NodeCtaCard({ draft, busy = false, error, onCreate, onDismiss }:
           <p className="text-micro leading-relaxed text-text-muted">
             ここに入れた値は<b className="text-secondary">会話にもAIにも渡りません。</b>
             暗号化して保存し、以降このノードを実行するときだけ使われます。
+          </p>
+        </div>
+      )}
+
+      {plainHeaders.length > 0 && !blocked && (
+        <div className="mb-2.5 rounded-xl bg-sunken p-3">
+          <p className="mb-1 text-micro font-semibold uppercase tracking-[0.15em] text-muted">
+            そのまま保存されるヘッダ
+          </p>
+          <ul className="space-y-0.5">
+            {plainHeaders.map((h) => (
+              <li key={h.name} className="font-mono text-micro text-secondary">
+                {h.name}: {(h.value ?? '').slice(0, 60)}
+                {(h.value ?? '').length > 60 ? '…' : ''}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-micro text-text-muted">
+            ここに鍵らしきものが混ざっていたら登録せず、上の欄に入れ直してください。
           </p>
         </div>
       )}

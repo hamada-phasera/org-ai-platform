@@ -42,6 +42,34 @@ export function toDateOnly(d: Date | null | undefined): string | null {
   return d ? d.toISOString().slice(0, 10) : null;
 }
 
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+/**
+ * いまの JST の暦日を `YYYY-MM-DD` で返す。
+ *
+ * ⚠️ `new Date().toISOString()` を直接使ってはいけない。UTC の日付になるので、
+ * JST の 0:00〜9:00 のあいだ「昨日」として扱われる。
+ * インボイスの切り替え当日（2026-10-01）の朝 9 時間、画面が
+ * 「まだ 80%、あと 1 日」と嘘をつくことになる。期日を知らせるのが仕事の機能で
+ * 一番外してはいけない日なので、ここは必ず JST で判定する。
+ */
+export function jstToday(now: Date = new Date()): string {
+  return new Date(now.getTime() + JST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** いまの JST の暦月を `YYYY-MM` で返す（月次集計の既定値）。 */
+export function jstThisMonth(now: Date = new Date()): string {
+  return jstToday(now).slice(0, 7);
+}
+
+/**
+ * JST の暦日に対応する UTC 深夜の Date を返す。
+ * 保存する日付は必ずこれを通し、時刻を持たせない（月次集計が1日ずれる）。
+ */
+export function jstDateOnly(now: Date = new Date()): Date {
+  return new Date(`${jstToday(now)}T00:00:00.000Z`);
+}
+
 /** Prisma の一意制約違反か。 */
 export function isUniqueViolation(e: unknown): boolean {
   return typeof e === 'object' && e !== null && (e as { code?: string }).code === 'P2002';

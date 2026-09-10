@@ -242,12 +242,20 @@ export function VendorInvoice() {
     },
   });
 
+  const [toggleError, setToggleError] = useState<string | null>(null);
+
   const toggleMut = useMutation({
     mutationFn: ({ id, registered }: { id: string; registered: boolean }) =>
       api.patch(`/accounting/vendors/${id}`, { invoiceRegistered: registered }),
     onSuccess: () => {
+      setToggleError(null);
       qc.invalidateQueries({ queryKey: ['accounting-vendors'] });
       qc.invalidateQueries({ queryKey: ['accounting-invoice-impact'] });
+    },
+    onError: (err) => {
+      const data = (err as { response?: { data?: { error?: { message?: string } } } }).response?.data;
+      // 黙って元に戻ると「登録済みにしたはず」の取引先が未登録のまま試算に乗り続ける
+      setToggleError(data?.error?.message ?? '登録状況を変更できませんでした');
     },
   });
 
@@ -271,6 +279,8 @@ export function VendorInvoice() {
           取引先を追加
         </Button>
       </div>
+
+      {toggleError && <p className="text-xs text-danger">{toggleError}</p>}
 
       {adding && <AddVendorForm onDone={() => setAdding(false)} />}
 

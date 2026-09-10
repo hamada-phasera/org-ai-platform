@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { jstThisMonth, jstToday } from '../../src/routes/accounting/shared';
 import {
   COST_CATEGORIES,
   INVOICE_TRANSITION_STEPS,
@@ -339,5 +340,39 @@ describe('budgetTotals / formatYen', () => {
     expect(formatYen(1_234_567)).toBe('¥1,234,567');
     expect(formatYen(0)).toBe('¥0');
     expect(formatYen(-50_000)).toBe('¥-50,000');
+  });
+});
+
+describe('JST の暦日（インボイスの期日を1日ずらさない）', () => {
+  it('⚠️ UTC 深夜〜午前9時の JST は「翌日」になる', () => {
+    // 2026-10-01 08:00 JST = 2026-09-30T23:00Z。
+    // UTC で判定すると「まだ 9/30」になり、率が下がるその朝に画面が
+    // 「まだ80%、あと1日」と言う。期日を知らせるのが仕事の機能で一番外せない日
+    expect(jstToday(new Date('2026-09-30T23:00:00Z'))).toBe('2026-10-01');
+    expect(jstToday(new Date('2026-09-30T14:59:59Z'))).toBe('2026-09-30');
+    expect(jstToday(new Date('2026-09-30T15:00:00Z'))).toBe('2026-10-01');
+  });
+
+  it('切り替え当日の朝でも新しい率を返す', () => {
+    const morningOfSwitch = new Date('2026-09-30T23:00:00Z'); // 2026-10-01 08:00 JST
+    expect(deductionRateAt(jstToday(morningOfSwitch))).toBe(0.7);
+    // 「あと1日」ではなく、次はその先の区切り
+    expect(nextTransition(jstToday(morningOfSwitch))?.from).toBe('2028-10-01');
+  });
+
+  it('月次の既定も JST の暦月（毎月1日の朝に先月分を出さない）', () => {
+    expect(jstThisMonth(new Date('2026-09-30T23:00:00Z'))).toBe('2026-10');
+    expect(jstThisMonth(new Date('2026-09-30T14:00:00Z'))).toBe('2026-09');
+  });
+
+  it('残日数は暦日どうしで数える', () => {
+    expect(nextTransition('2026-09-30')?.daysLeft).toBe(1);
+    expect(nextTransition('2026-09-01')?.daysLeft).toBe(30);
+  });
+
+  it('文字列と Date のどちらでも同じ結果（移行期の取り違えを防ぐ）', () => {
+    const d = new Date('2026-11-15T00:00:00Z');
+    expect(deductionRateAt(d)).toBe(deductionRateAt('2026-11-15'));
+    expect(nextTransition(d)?.from).toBe(nextTransition('2026-11-15')?.from);
   });
 });

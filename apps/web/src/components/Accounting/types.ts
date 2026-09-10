@@ -112,11 +112,18 @@ export function yen(amount: number): string {
   return `¥${Math.round(amount).toLocaleString('ja-JP')}`;
 }
 
-/** 大きい金額を「1,234万円」に畳む。表の中で桁を数えさせないため。 */
+/**
+ * 大きい金額を「1,234万円」に畳む。表の中で桁を数えさせないため。
+ *
+ * ⚠️ 丸めは絶対値に対して行い、符号を最後に戻す。
+ * JS の Math.round は half を +∞ 方向に丸めるので、素直に書くと
+ * -15,000 が「-1万円」、+15,000 が「2万円」になり、**赤字だけ小さく見える**。
+ */
 export function yenShort(amount: number): string {
   const abs = Math.abs(amount);
-  if (abs >= 100_000_000) return `${(amount / 100_000_000).toFixed(1)}億円`;
-  if (abs >= 10_000) return `${Math.round(amount / 10_000).toLocaleString('ja-JP')}万円`;
+  const sign = amount < 0 ? '-' : '';
+  if (abs >= 100_000_000) return `${sign}${(abs / 100_000_000).toFixed(1)}億円`;
+  if (abs >= 10_000) return `${sign}${Math.round(abs / 10_000).toLocaleString('ja-JP')}万円`;
   return yen(amount);
 }
 

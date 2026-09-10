@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma';
 import { requireAuth } from '../middleware/auth';
+import { aiEngineHeaders } from '../services/ai-engine-auth';
 
 const rankSchema = z.object({
   items: z
@@ -36,7 +37,7 @@ export async function deliverablesRoutes(app: FastifyInstance): Promise<void> {
     try {
       const res = await fetch(`${aiEngineUrl}/rank`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: aiEngineHeaders(),
         body: JSON.stringify({ items: parsed.data.items, org_id: payload.orgId, plan }),
         signal: AbortSignal.timeout(25000),
       });

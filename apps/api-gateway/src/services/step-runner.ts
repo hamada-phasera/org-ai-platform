@@ -15,6 +15,7 @@ import { APPROVAL_REQUIRED_CAPS, LLM_TRANSFORM_STEP } from '@org-ai/shared-types
 import { prisma } from '../utils/prisma';
 import { resolveAndExecute } from './capability-resolver';
 import { httpMethodOf } from './http-node/template';
+import { aiEngineHeaders } from './ai-engine-auth';
 
 const AI_ENGINE_URL = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
 
@@ -199,7 +200,7 @@ async function runLlmTransform(
   try {
     const res = await fetch(`${AI_ENGINE_URL}/llm/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: aiEngineHeaders(),
       body: JSON.stringify({
         messages: [
           { role: 'system', content: agent.instructions },

@@ -34,12 +34,16 @@ function AddCostForm({
   const qc = useQueryClient();
   const today = new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState({
-    projectId: projects[0]?.id ?? '',
+    // ⚠️ 先頭の工事を初期選択しない。並び順の都合で「請求済みの古い現場」が先頭に来ることがあり、
+    //    金額が別の現場に付く。工事は必ず人に選ばせる。
+    projectId: '',
     vendorId: '',
     incurredOn: today,
     category: 'MATERIAL' as CostCategory,
     amountIncludingTax: '',
     description: '',
+    /** 消費税がかからない支出（自社雇用の労務費など）。true なら税抜として送る */
+    taxExempt: false,
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -50,8 +54,13 @@ function AddCostForm({
         vendorId: form.vendorId || null,
         incurredOn: form.incurredOn,
         category: form.category,
-        // 手入力の入口は税込に統一する。領収書に書いてある数字をそのまま打てるように
-        amountIncludingTax: Number(form.amountIncludingTax) || 0,
+        // 領収書に書いてある数字をそのまま打てるよう、既定は税込で受ける。
+        // ⚠️ ただし不課税（自社雇用の労務費など）を10%で割り戻すと、
+        //    労務費の比率が高い建設業では原価が実額より小さく出て粗利が良く見える。
+        //    その場合は税抜として送り、消費税0で持つ。
+        ...(form.taxExempt
+          ? { amount: Number(form.amountIncludingTax) || 0, taxAmount: 0 }
+          : { amountIncludingTax: Number(form.amountIncludingTax) || 0 }),
         description: form.description.trim() || null,
         source: 'MANUAL',
         status: 'CONFIRMED', // 人が自分で打った数字は確認済み
@@ -60,6 +69,8 @@ function AddCostForm({
       qc.invalidateQueries({ queryKey: ['accounting-costs'] });
       qc.invalidateQueries({ queryKey: ['accounting-projects'] });
       qc.invalidateQueries({ queryKey: ['accounting-summary'] });
+      qc.invalidateQueries({ queryKey: ['accounting-vendors'] });
+      qc.invalidateQueries({ queryKey: ['accounting-invoice-impact'] });
       onDone();
     },
     onError: (err) => {
@@ -89,7 +100,11 @@ function AddCostForm({
         <select
           className={selectClass}
           value={form.category}
-          onChange={(e) => setForm({ ...form, category: e.target.value as CostCategory })}
+          onChange={(e) => {
+            const category = e.target.value as CostCategory;
+            // 自社雇用の労務費は不課税。既定をそちらに倒しておき、外注の人工代なら外せるようにする
+            setForm({ ...form, category, taxExempt: category === 'LABOR' });
+          }}
           aria-label="費目"
         >
           {COST_CATEGORIES.map((c) => (
@@ -123,7 +138,7 @@ function AddCostForm({
           size="sm"
           type="number"
           inputMode="numeric"
-          placeholder="金額（税込）"
+          placeholder={form.taxExempt ? '金額（税抜・消費税なし）' : '金額（税込）'}
           value={form.amountIncludingTax}
           onChange={(e) => setForm({ ...form, amountIncludingTax: e.target.value })}
         />
@@ -134,6 +149,14 @@ function AddCostForm({
           onChange={(e) => setForm({ ...form, description: e.target.value })}
         />
       </div>
+      <label className="flex items-center gap-2 text-xs text-secondary">
+        <input
+          type="checkbox"
+          checked={form.taxExempt}
+          onChange={(e) => setForm({ ...form, taxExempt: e.target.checked })}
+        />
+        消費税がかからない支出（自社の給与・賃金など）
+      </label>
       {error && <p className="text-xs text-danger">{error}</p>}
       <div className="flex items-center gap-2">
         <Button
@@ -151,7 +174,8 @@ function AddCostForm({
           やめる
         </Button>
         <p className="ml-auto text-micro text-text-muted">
-          領収書のとおり税込で入力してください。台帳側では税抜と消費税に分けて持ちます。
+          領収書のとおり税込で入力してください（台帳では税抜と消費税に分けて持ちます）。
+          自社の給与・賃金は消費税がかからないので、上のチェックを入れてください。
         </p>
       </div>
     </Card>
@@ -189,23 +213,55 @@ export function CostApproval() {
     },
   });
 
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [confirmedNotice, setConfirmedNotice] = useState<string | null>(null);
+
+  function invalidateAccounting() {
+    qc.invalidateQueries({ queryKey: ['accounting-costs'] });
+    qc.invalidateQueries({ queryKey: ['accounting-projects'] });
+    qc.invalidateQueries({ queryKey: ['accounting-summary'] });
+    // 取引先の取引額とインボイス試算も確定分から作っているので一緒に更新する
+    qc.invalidateQueries({ queryKey: ['accounting-vendors'] });
+    qc.invalidateQueries({ queryKey: ['accounting-invoice-impact'] });
+  }
+
+  function describeError(err: unknown, fallback: string): string {
+    const data = (err as { response?: { data?: { error?: { message?: string } } } }).response?.data;
+    return data?.error?.message ?? fallback;
+  }
+
   const confirmMut = useMutation({
-    mutationFn: (ids: string[]) => api.post('/accounting/costs/confirm', { ids }),
-    onSuccess: () => {
+    mutationFn: (ids: string[]) =>
+      api.post<{ success: boolean; data: { confirmed: number } }>('/accounting/costs/confirm', { ids }),
+    onSuccess: (res, ids) => {
+      const confirmed = res.data.data.confirmed;
       setSelected(new Set());
-      qc.invalidateQueries({ queryKey: ['accounting-costs'] });
-      qc.invalidateQueries({ queryKey: ['accounting-projects'] });
-      qc.invalidateQueries({ queryKey: ['accounting-summary'] });
+      setActionError(null);
+      // ⚠️ 要求件数と実際の件数を突き合わせて出す。黙って少なく確定されると気づけない
+      setConfirmedNotice(
+        confirmed === ids.length
+          ? `${confirmed} 件を確定しました`
+          : `${confirmed} 件を確定しました（${ids.length - confirmed} 件は既に確定済みか削除されています）`,
+      );
+      invalidateAccounting();
     },
+    onError: (err) => setActionError(describeError(err, '確定できませんでした')),
   });
 
   const deleteMut = useMutation({
     mutationFn: (id: string) => api.delete(`/accounting/costs/${id}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['accounting-costs'] });
-      qc.invalidateQueries({ queryKey: ['accounting-projects'] });
-      qc.invalidateQueries({ queryKey: ['accounting-summary'] });
+    onSuccess: (_res, id) => {
+      // ⚠️ 選択からも外す。残すとボタンの「選択した N 件」が嘘になり、
+      //    押しても存在しない id が黙って無視されて件数が合わない
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      setActionError(null);
+      invalidateAccounting();
     },
+    onError: (err) => setActionError(describeError(err, '削除できませんでした')),
   });
 
   const costs = costsQ.data ?? [];
@@ -277,6 +333,11 @@ export function CostApproval() {
           </Button>
         )}
       </div>
+
+      {actionError && <p className="text-xs text-danger">{actionError}</p>}
+      {confirmedNotice && !actionError && (
+        <p className="text-xs text-success">{confirmedNotice}</p>
+      )}
 
       {adding && (
         <AddCostForm

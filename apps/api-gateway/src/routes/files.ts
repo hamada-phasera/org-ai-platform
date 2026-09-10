@@ -7,6 +7,7 @@ import { prisma } from '../utils/prisma';
 import { requireAuth } from '../middleware/auth';
 import { extractText } from '../utils/fileExtractor';
 import { indexFile } from '../services/rag';
+import { aiEngineHeaders } from '../services/ai-engine-auth';
 
 const ALLOWED_DEPARTMENTS = new Set(['SALES', 'MARKETING', 'ACCOUNTING', 'ANALYTICS', 'GENERAL']);
 
@@ -148,7 +149,7 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     try {
       res = await fetch(`${aiEngineUrl}/orchestrate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: aiEngineHeaders(),
         body: JSON.stringify({
           message: prompt,
           org_id: payload.orgId,

@@ -152,6 +152,9 @@ export default function ChatPage() {
       setAgentSuggestion(null);
       setSuggestModalOpen(false);
       setSuggestDismissed(false);
+      // 外部API接続の提案もセッションに属する。残すと別の会話にカードが出続ける
+      setNodeSuggestion(null);
+      setNodeError(null);
       api.get<{ success: boolean; data: Message[] }>(`/chat/sessions/${id}/messages`)
         .then((res) => setMessages(res.data.data))
         .catch(() => null);
@@ -556,6 +559,7 @@ export default function ChatPage() {
    */
   const createNodeFromSuggestion = async (secrets: Record<string, string>) => {
     if (!nodeSuggestion || creatingNode) return;
+    const startedInSession = id;
     setCreatingNode(true);
     setNodeError(null);
     try {
@@ -574,9 +578,13 @@ export default function ChatPage() {
         http: { ...d.http, headers },
       });
       setNodeSuggestion(null);
-      pushAssistantMessage(
-        `✅ 「${d.displayName ?? d.name}」を登録しました。エージェントの手順に組み込めます（ガバナンス > 外部API接続 で確認・停止できます）。`,
-      );
+      // ⚠️ 通信中にセッションを切り替えられていたら、完了メッセージを今のセッションに
+      //    差し込まない（DB には無いので再読込で消える「幽霊メッセージ」になる）
+      if (startedInSession === id) {
+        pushAssistantMessage(
+          `✅ 「${d.displayName ?? d.name}」を登録しました。エージェントの手順に組み込めます（ガバナンス > 外部API接続 で確認・停止できます）。`,
+        );
+      }
     } catch (e) {
       const data = (e as { response?: { data?: { error?: { message?: string } } } }).response?.data;
       setNodeError(data?.error?.message ?? '登録できませんでした');

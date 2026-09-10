@@ -11,6 +11,7 @@ import {
   type SnsGenInputs,
 } from './format';
 import { groupDraftsByDate, type CalendarTask } from './calendar';
+import { aiEngineHeaders } from '../../services/ai-engine-auth';
 
 /**
  * SNS投稿 下書き生成 & 承認待ちキュー（N-1 / N-2）。
@@ -94,7 +95,7 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
     try {
       res = await fetch(`${aiEngineUrl}/llm/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: aiEngineHeaders(),
         body: JSON.stringify({
           messages,
           department: SNS_DEPARTMENT,

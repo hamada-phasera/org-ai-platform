@@ -5,6 +5,7 @@
 // 実送信は絶対にしない（送信は承認 API → adapter.sendReply だけ）。
 
 import { prisma } from '../../utils/prisma';
+import { aiEngineHeaders } from '../ai-engine-auth';
 
 const INBOX_DEPARTMENT = 'GENERAL';
 const MAX_INPUT_CHARS = 4000;
@@ -134,7 +135,7 @@ export async function generateInboxDraft(
     try {
       const res = await fetch(`${aiEngineUrl}/llm/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: aiEngineHeaders(),
         body: JSON.stringify({
           messages,
           department: INBOX_DEPARTMENT,

@@ -23,6 +23,23 @@ const FORBIDDEN_HEADERS = new Set([
   'proxy-authorization',
 ]);
 
+/**
+ * 名前からして資格情報を運ぶヘッダ。`secret` が付いていなくても必ず封緘する。
+ *
+ * ⚠️ これが無いと、**LLM が返した `secret` boolean 1つ**で
+ *    「暗号化して保存」か「平文のまま org 全員に配る」かが決まってしまう。
+ *    GET /capabilities は requireAuth（OWNER 限定ではない）なので、
+ *    secret:false のヘッダ値は sanitizeHttpConfig を素通りして全員のブラウザに届く。
+ *    判断を LLM の一言に委ねてよい種類のことではないので、名前で機械的に決める。
+ */
+const CREDENTIAL_HEADER_RE =
+  /^(authorization|proxy-authorization|cookie|x-api-key|api-key|apikey)$|(^|-)(auth|token|secret|key|credential|signature|sig|password|passwd)$/i;
+
+/** そのヘッダは資格情報として扱うべきか。 */
+export function isCredentialHeader(name: string): boolean {
+  return CREDENTIAL_HEADER_RE.test(name.trim().toLowerCase());
+}
+
 const paramSchema = z.object({
   name: z
     .string()
@@ -128,7 +145,10 @@ export function buildHttpConfig(
 
   const existingByName = new Map(existingHeaders.map((h) => [h.name.toLowerCase(), h]));
   const headers: HttpNodeHeader[] = [];
-  for (const h of input.headers) {
+  for (const raw of input.headers) {
+    // ⚠️ 名前が資格情報を示すなら、LLM や呼び出し側の申告に関わらず secret に格上げする。
+    //    平文で保存すると org の全員が GET /capabilities で読めてしまう。
+    const h = isCredentialHeader(raw.name) ? { ...raw, secret: true } : raw;
     if (!h.secret) {
       headers.push({ name: h.name, value: h.value ?? '', secret: false });
       continue;

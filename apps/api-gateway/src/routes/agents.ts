@@ -10,6 +10,7 @@ import {
   deleteAgentWorkflow,
 } from '../services/n8n-workflow-builder';
 import { scrubSecrets } from '../services/secret-scrubber';
+import { aiEngineHeaders } from '../services/ai-engine-auth';
 
 const DEPARTMENTS = ['SALES', 'MARKETING', 'ACCOUNTING', 'ANALYTICS', 'GENERAL', 'ASSISTANT'];
 
@@ -102,7 +103,7 @@ async function inferAgentDefinition(
   try {
     const res = await fetch(`${aiEngineUrl}/plan/agent`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: aiEngineHeaders(),
       body: JSON.stringify({
         description: safeDescription,
         org_id: orgId,

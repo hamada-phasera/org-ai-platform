@@ -25,7 +25,12 @@ const dateOnly = z
   .nullable()
   .optional();
 
-const money = z.number().int().min(0).max(999_999_999_999);
+/**
+ * 金額の上限。
+ * ⚠️ DB は INTEGER（int4）なので、これを超える値を通すと Postgres が 22003 を投げ、
+ *    日本語の 400 ではなく 500 になる。列の型と必ず揃えること。
+ */
+const money = z.number().int().min(0).max(2_147_483_647);
 
 const createSchema = z.object({
   code: z.string().min(1).max(50),
@@ -93,7 +98,7 @@ export async function accountingProjectsRoutes(app: FastifyInstance): Promise<vo
   // 一覧（収支つき）
   app.get('/', { preHandler: requireAuth }, async (request, reply) => {
     const { orgId } = request.user as AuthPayload;
-    const { status, confirmedOnly } = request.query as { status?: string; confirmedOnly?: string };
+    const { status, includeDraft } = request.query as { status?: string; includeDraft?: string };
 
     if (status !== undefined && !(PROJECT_STATUSES as readonly string[]).includes(status)) {
       return fail(reply, 400, 'VALIDATION_ERROR', `不正な工事ステータス: ${status}`);
@@ -103,10 +108,13 @@ export async function accountingProjectsRoutes(app: FastifyInstance): Promise<vo
       where: { orgId, ...(status ? { status } : {}) },
       orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
     });
+    /* ⚠️ 既定は確定分のみ。画面が「確定したものだけが台帳の数字になります」と
+       言っている以上、既定が DRAFT 込みだと承認操作が無意味に見える
+       （承認しても数字が1円も動かない）。未確認込みで見たいときは明示的に頼む。 */
     const actuals = await actualsByProject(
       orgId,
       projects.map((p) => p.id),
-      confirmedOnly === 'true',
+      includeDraft !== 'true',
     );
 
     const data = projects.map((p) => {
@@ -136,6 +144,7 @@ export async function accountingProjectsRoutes(app: FastifyInstance): Promise<vo
   app.get('/:projectId', { preHandler: requireAuth }, async (request, reply) => {
     const { orgId } = request.user as AuthPayload;
     const { projectId } = request.params as { projectId: string };
+    const { includeDraft } = request.query as { includeDraft?: string };
 
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return fail(reply, 404, 'NOT_FOUND', '工事が見つかりません');
@@ -146,7 +155,9 @@ export async function accountingProjectsRoutes(app: FastifyInstance): Promise<vo
       include: { vendor: { select: { id: true, name: true, kind: true, invoiceRegistered: true } } },
     });
 
-    const summary = summarizeProject(project, entries);
+    // ⚠️ 一覧と同じ条件で集計する。ここだけ DRAFT 込み固定にすると、
+    //    同じ工事の粗利率が一覧と詳細で食い違う
+    const summary = summarizeProject(project, entries, includeDraft !== 'true');
     return reply.send({
       success: true,
       data: {

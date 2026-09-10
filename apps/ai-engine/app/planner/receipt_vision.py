@@ -13,10 +13,8 @@
 
 from __future__ import annotations
 
-import json
+from datetime import datetime
 from typing import Any, Optional
-
-from app.llm.providers.anthropic_provider import AnthropicProvider, MODEL_SONNET
 
 SYSTEM = """あなたは建設業の経理を手伝うアシスタントです。
 領収書・レシート・請求書の写真から、工事原価として記帳するための情報を読み取ります。
@@ -83,15 +81,25 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
         amount = None
 
     tax = _as_int(raw.get("taxAmount"))
-    if tax is not None and (tax < 0 or (amount is not None and tax > amount)):
+    # ⚠️ tax == amount も弾く。等しいと本体価格 0 円の明細ができ、原価 0 として
+    #    粗利が過大に出る（崩れた感熱紙で「合計」と「消費税」を取り違えると起きる）
+    if tax is not None and (tax < 0 or (amount is not None and tax >= amount)):
         tax = None
 
+    # ⚠️ 「長さ10・5文字目がハイフン」だけでは "2026-13-45" や "abcd-ef-gh" が通る。
+    #    通すと gateway 側で Invalid Date になり、受信日で仮置きされて期ズレを生む。
     incurred = raw.get("incurredOn")
-    if not isinstance(incurred, str) or len(incurred) != 10 or incurred[4] != "-":
+    if isinstance(incurred, str):
+        try:
+            datetime.strptime(incurred, "%Y-%m-%d")
+        except ValueError:
+            incurred = None
+    else:
         incurred = None
 
     confidence = raw.get("confidence")
-    if not isinstance(confidence, (int, float)):
+    # ⚠️ Python の bool は int のサブクラス。これを弾かないと confidence: true が 1.0 になる
+    if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
         confidence = 0.0
     confidence = max(0.0, min(1.0, float(confidence)))
 
@@ -116,8 +124,16 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 async def read_receipt(image_base64: str, media_type: str) -> dict[str, Any]:
-    """領収書画像から候補を読み取る。読めなければ全項目 null で返す（例外にしない）。"""
-    provider = AnthropicProvider()
+    """領収書画像から候補を読み取る。読めなければ全項目 null で返す（例外にしない）。
+
+    ⚠️ provider は router のシングルトンを使う。ここで AnthropicProvider() を new すると
+    領収書が来るたびに httpx のコネクションプールが増え、閉じられずに積み上がる。
+    """
+    from app.llm.providers.anthropic_provider import MODEL_SONNET
+    from app.llm.router import _get_anthropic
+    from app.planner.planner import _safe_parse_json
+
+    provider = _get_anthropic()
     response = await provider.vision_json(
         system=SYSTEM,
         prompt=PROMPT,
@@ -125,19 +141,11 @@ async def read_receipt(image_base64: str, media_type: str) -> dict[str, Any]:
         media_type=media_type,
         model=MODEL_SONNET,
     )
-    text = (response.content or "").strip()
-    # コードブロックで包んで返してくることがある
-    if text.startswith("```"):
-        text = text.split("```")[1] if "```" in text[3:] else text
-        if text.startswith("json"):
-            text = text[4:]
-    try:
-        raw = json.loads(text)
-    except (json.JSONDecodeError, ValueError):
+    # 前置きテキストやコードブロックを剥がす処理は planner と共通のものを使う
+    raw = _safe_parse_json(response.content or "")
+    if not isinstance(raw, dict):
         return {
             **normalize({}),
             "notes": "領収書を読み取れませんでした。手入力で登録してください。",
         }
-    if not isinstance(raw, dict):
-        return {**normalize({}), "notes": "領収書を読み取れませんでした。"}
     return normalize(raw)

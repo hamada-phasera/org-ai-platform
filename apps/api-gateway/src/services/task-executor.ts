@@ -1,5 +1,6 @@
 import { prisma } from '../utils/prisma';
 import { agentWorkflowName } from './n8n-workflow-builder';
+import { aiEngineHeaders } from './ai-engine-auth';
 
 const N8N_URL = (process.env.N8N_CLOUD_URL ?? process.env.N8N_URL ?? 'http://localhost:5678').replace(
   /\/$/,
@@ -176,7 +177,7 @@ export async function executeTaskViaAiEngine(task: {
     });
     const res = await fetch(`${aiEngineUrl}/orchestrate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: aiEngineHeaders(),
       body: JSON.stringify({
         message: task.input,
         org_id: task.orgId,
@@ -275,7 +276,7 @@ export async function executeTaskViaAgentEngine(
     });
     const res = await fetch(`${aiEngineUrl}/llm/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: aiEngineHeaders(),
       body: JSON.stringify({
         messages: [
           { role: 'system', content: agent.instructions },

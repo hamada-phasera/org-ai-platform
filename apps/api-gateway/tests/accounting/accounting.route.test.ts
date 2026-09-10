@@ -10,6 +10,7 @@ const prismaMock = {
     update: vi.fn(),
     delete: vi.fn(),
     groupBy: vi.fn(),
+    count: vi.fn(),
   },
   costEntry: {
     findMany: vi.fn(),
@@ -72,6 +73,7 @@ const PROJECT = {
 beforeEach(() => {
   vi.clearAllMocks();
   prismaMock.project.groupBy.mockResolvedValue([]);
+  prismaMock.project.count.mockResolvedValue(0);
   prismaMock.costEntry.groupBy.mockResolvedValue([]);
   prismaMock.costEntry.count.mockResolvedValue(0);
 });
@@ -94,6 +96,33 @@ describe('GET /api/accounting/projects', () => {
     expect(row.grossMarginRate).toBe(45);
     expect(row.overBudget).toEqual(['SUBCON']); // 外注費が予算300万を超えている
     expect(row.startOn).toBe('2026-04-01'); // 日付は時刻を持たせない
+  });
+
+  it('⚠️ 既定は確定分だけを積む（承認しても数字が動かない、を作らない）', async () => {
+    // 画面は「確定したものだけが工事台帳の数字になります」と言っている。
+    // 既定が DRAFT 込みだと、承認操作が1円も数字を動かさず無意味に見える
+    prismaMock.project.findMany.mockResolvedValue([PROJECT]);
+    const app = await build();
+    await app.inject({ method: 'GET', url: '/api/accounting/projects' });
+    expect(prismaMock.costEntry.groupBy.mock.calls[0][0].where.status).toBe('CONFIRMED');
+  });
+
+  it('includeDraft=true で未確認込みにできる', async () => {
+    prismaMock.project.findMany.mockResolvedValue([PROJECT]);
+    const app = await build();
+    await app.inject({ method: 'GET', url: '/api/accounting/projects?includeDraft=true' });
+    expect(prismaMock.costEntry.groupBy.mock.calls[0][0].where.status).toBeUndefined();
+  });
+
+  it('金額が INTEGER の上限を超えたら 400（500 にしない）', async () => {
+    const app = await build();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/accounting/projects',
+      payload: { code: 'K-BIG', name: '巨大工事', contractAmount: 3_000_000_000 },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(prismaMock.project.create).not.toHaveBeenCalled();
   });
 
   it('必ず orgId で絞る（他社の工事が混ざらない）', async () => {
@@ -397,9 +426,9 @@ describe('POST /api/accounting/vendors', () => {
 });
 
 describe('GET /api/accounting/summary', () => {
-  it('未成工事支出金は確定分だけを積む', async () => {
+  it('未成工事支出金も今月の原価も確定分だけを積む', async () => {
     prismaMock.project.groupBy.mockResolvedValue([{ status: 'IN_PROGRESS', _count: { _all: 2 } }]);
-    prismaMock.project.findMany.mockResolvedValue([{ id: 'p-1' }, { id: 'p-2' }]);
+    prismaMock.project.count.mockResolvedValue(2);
     prismaMock.costEntry.count.mockResolvedValue(5);
     prismaMock.costEntry.groupBy
       .mockResolvedValueOnce([{ category: 'MATERIAL', _sum: { amount: 100_000 } }]) // 今月
@@ -412,9 +441,13 @@ describe('GET /api/accounting/summary', () => {
     const data = res.json().data;
     expect(data.monthlyCost.total).toBe(100_000);
     expect(data.workInProgress.total).toBe(900_000);
+    expect(data.workInProgress.projectCount).toBe(2);
     expect(data.pendingCostEntries).toBe(5);
-    // 未成工事の集計は CONFIRMED 限定
+    // ⚠️ 同じ画面の中で確定分と DRAFT 込みが混在すると、どの数字が何なのか読めない
+    expect(prismaMock.costEntry.groupBy.mock.calls[0][0].where.status).toBe('CONFIRMED');
     expect(prismaMock.costEntry.groupBy.mock.calls[1][0].where.status).toBe('CONFIRMED');
+    // 未成工事はリレーションフィルタで DB 側に絞らせる（工事 id を全件 IN に入れない）
+    expect(prismaMock.costEntry.groupBy.mock.calls[1][0].where.project.status.in).toContain('IN_PROGRESS');
   });
 
   it('月の範囲は UTC の月初から翌月初まで（JST でも境界がずれない）', async () => {

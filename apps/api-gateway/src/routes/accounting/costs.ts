@@ -17,7 +17,12 @@ const CATEGORY_VALUES = COST_CATEGORIES;
 const SOURCES = ['MANUAL', 'CHAT', 'LINE'] as const;
 const STATUSES = ['DRAFT', 'CONFIRMED'] as const;
 
-const money = z.number().int().min(0).max(999_999_999_999);
+/**
+ * 金額の上限。
+ * ⚠️ DB は INTEGER（int4）なので、これを超える値を通すと Postgres が 22003 を投げ、
+ *    日本語の 400 ではなく 500 になる。列の型と必ず揃えること。
+ */
+const money = z.number().int().min(0).max(2_147_483_647);
 
 const baseFields = {
   projectId: z.string().min(1),

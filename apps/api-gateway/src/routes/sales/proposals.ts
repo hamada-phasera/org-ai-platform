@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
 import { requireAuth } from '../../middleware/auth';
+import { aiEngineHeaders } from '../../services/ai-engine-auth';
 import {
   PROPOSAL_TEMPLATES,
   getTemplate,
@@ -84,7 +85,7 @@ export async function salesProposalsRoutes(app: FastifyInstance): Promise<void> 
     try {
       res = await fetch(`${aiEngineUrl}/llm/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: aiEngineHeaders(),
         body: JSON.stringify({
           messages,
           department: 'SALES',

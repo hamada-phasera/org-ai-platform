@@ -1,4 +1,5 @@
 import os
+import secrets
 import asyncio
 import json
 import time
@@ -6,7 +7,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -93,6 +95,42 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── 内部呼び出しの共有シークレット ────────────────────────────────
+#
+# ⚠️ ai-engine は Render の `type: web` で **公開 URL を持つ**。認証が1つも無いと、
+#    URL を知っている第三者が /llm/chat や /vision/receipt を直接叩ける:
+#      * Anthropic の課金がこちら持ちで発生する（画像入力は特に単価が高い）
+#      * org_id は検証しないので、他組織の id で AILog に行を書き込める
+#    CORS はブラウザ向けなので curl には効かない。共有シークレットで塞ぐ。
+#
+# INTERNAL_API_TOKEN が未設定なら素通しする。gateway 側も未設定なら送らないので、
+# 「片方だけ先にデプロイして全部落ちる」ことがない。**設定して初めて有効になる**。
+INTERNAL_API_TOKEN = os.getenv("INTERNAL_API_TOKEN", "").strip()
+
+# 認証を求めないパス（Render のヘルスチェックと、ドキュメント類）
+PUBLIC_PATHS = frozenset({"/health", "/docs", "/redoc", "/openapi.json"})
+
+if not INTERNAL_API_TOKEN:
+    print(
+        "[ai-engine] ⚠️ INTERNAL_API_TOKEN が未設定です。"
+        "公開 URL の全エンドポイントが無認証で叩けます（課金・AILog 汚染のリスク）。"
+        "gateway と同じ値を設定してください。"
+    )
+
+
+@app.middleware("http")
+async def require_internal_token(request: Request, call_next):
+    """gateway 以外からの呼び出しを弾く。"""
+    if INTERNAL_API_TOKEN and request.url.path not in PUBLIC_PATHS:
+        # ⚠️ CORS プリフライトにはカスタムヘッダが載らないので通す（本体は弾かれる）
+        if request.method != "OPTIONS":
+            provided = request.headers.get("x-internal-token", "")
+            if not secrets.compare_digest(provided, INTERNAL_API_TOKEN):
+                # ⚠️ 理由を細かく返さない（トークンの有無を推測させない）
+                return JSONResponse(status_code=401, content={"detail": "unauthorized"})
+    return await call_next(request)
 
 
 @app.get("/health")
@@ -400,6 +438,10 @@ class ReadReceiptRequest(BaseModel):
     image_base64: str
     media_type: str = "image/jpeg"
     org_id: str
+    # ⚠️ 受け取るが**ルーティングには使わない**。領収書の読み取りは全プラン Claude 固定。
+    #    松竹梅の Gemini 側に画像入力の口が無いことに加え、金額の読み違いは
+    #    トークン代より高くつくため（エージェント構築を全ユーザー Opus 固定にしているのと同じ判断）。
+    #    互換のために残しているだけで、外すと gateway 側の呼び出しが壊れる。
     plan: str = "STARTER"
 
 
@@ -434,7 +476,9 @@ async def read_receipt_endpoint(request: ReadReceiptRequest) -> ReadReceiptRespo
     try:
         result = await read_receipt(request.image_base64, request.media_type)
     except Exception as e:  # noqa: BLE001 — 読めなかったことを人に返す（例外で 500 にしない）
-        print(f"[vision/receipt] 読み取りに失敗: {e}")
+        # ⚠️ 例外の中身をそのまま出さない。このフレームは request.image_base64 を握っており、
+        #    例外の型は無制限なので、将来どこかで画像が文字列化される余地を残さない
+        print(f"[vision/receipt] 読み取りに失敗: {type(e).__name__}")
         return ReadReceiptResponse(notes="領収書を読み取れませんでした。手入力で登録してください。")
 
     # ⚠️ AILog には画像も base64 も残さない。入力は「領収書画像」という事実だけ。

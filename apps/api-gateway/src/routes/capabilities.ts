@@ -7,6 +7,7 @@ import { resolveAndExecute } from '../services/capability-resolver';
 import { getNativeAdapter } from '../services/adapters';
 import {
   buildHttpConfig,
+  isCredentialHeader,
   httpNodeInputSchema,
   paramsSchema,
   sanitizeHttpConfig,
@@ -15,6 +16,7 @@ import { buildInputSchema } from '../services/http-node/template';
 import { validateUrlTemplate } from '../services/http-node/url-guard';
 import { scrubSecrets } from '../services/secret-scrubber';
 import { executeHttpCapabilityDetailed } from '../services/http-node/executor';
+import { aiEngineHeaders } from '../services/ai-engine-auth';
 
 const resolveSchema = z.object({
   rawInput: z.string().optional(),
@@ -164,7 +166,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
     try {
       const res = await fetch(`${aiEngineUrl}/plan/http-node`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: aiEngineHeaders(),
         body: JSON.stringify({
           source: scrubbed.text,
           org_id: payload.orgId,
@@ -179,7 +181,20 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
         });
       }
       const draft = (await res.json()) as Record<string, unknown>;
-      const http = draft.http as { url?: string } | null | undefined;
+      const http = draft.http as
+        | { url?: string; headers?: Array<{ name: string; value?: string | null; secret?: boolean }> }
+        | null
+        | undefined;
+
+      /* ⚠️ LLM が返した secret フラグを鵜呑みにしない。名前からして資格情報のヘッダは
+         ここで secret に格上げして返す。保存時にも buildHttpConfig が同じ判定をするので、
+         ここで揃えておかないと「画面に入力欄が出ないのに保存時は値を要求される」ことになる。
+         判定の正本は config-schema の isCredentialHeader（規則を2箇所に置かない）。 */
+      if (http?.headers) {
+        http.headers = http.headers.map((h) =>
+          isCredentialHeader(h.name) ? { ...h, value: null, secret: true } : h,
+        );
+      }
 
       /* 提案の時点で URL を検査しておく。保存時にも同じ検査が走るが、
          人に見せる前に弾いた方が「入力して保存 → 拒否」の往復を避けられる */

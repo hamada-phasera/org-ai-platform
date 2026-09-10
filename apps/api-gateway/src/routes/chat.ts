@@ -4,6 +4,7 @@ import { prisma } from '../utils/prisma';
 import { requireAuth } from '../middleware/auth';
 import { retrieveContext, indexMessages } from '../services/rag';
 import { scrubSecrets } from '../services/secret-scrubber';
+import { aiEngineHeaders } from '../services/ai-engine-auth';
 
 const N8N_CLOUD_URL = process.env.N8N_CLOUD_URL ?? 'https://hamahiro.app.n8n.cloud';
 const N8N_API_KEY = process.env.N8N_API_KEY ?? '';
@@ -216,7 +217,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       try {
         const res = await fetch(`${aiEngineUrl}/orchestrate`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: aiEngineHeaders(),
           body: JSON.stringify({
             message: userContent,
             org_id: payload.orgId,
@@ -351,7 +352,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     try {
       const res = await fetch(`${aiEngineUrl}/orchestrate/stream`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: aiEngineHeaders(),
         body: JSON.stringify({
           message: userContent,
           org_id: payload.orgId,
@@ -499,7 +500,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     try {
       const res = await fetch(`${aiEngineUrl}/plan/agent`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: aiEngineHeaders(),
         body: JSON.stringify({
           description,
           org_id: payload.orgId,

@@ -5,6 +5,7 @@ import { executeCapability, type N8nEnvelope } from './capability-executor';
 import { nativeProviderFor } from './adapters/provider-map';
 import { httpMethodOf } from './http-node/template';
 import { scrubJson } from './secret-scrubber';
+import { aiEngineHeaders } from './ai-engine-auth';
 
 // 型は capability-executor に移設済み。既存 import 互換のため re-export する。
 export type { ErrorType, N8nEnvelope } from './capability-executor';
@@ -179,7 +180,7 @@ async function fetchPlanFromAiEngine(message: string, orgId: string, plan: strin
     try {
       const res = await fetch(`${AI_ENGINE_URL}/plan`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: aiEngineHeaders(),
         body: payload,
         signal: AbortSignal.timeout(20_000),
       });

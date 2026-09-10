@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
 import { requireAuth } from '../../middleware/auth';
 import { VENDOR_KINDS, estimateInvoiceImpact } from './accounting-core';
-import { AuthPayload, fail, isUniqueViolation, parseDateOnly } from './shared';
+import { AuthPayload, fail, isUniqueViolation, jstToday, parseDateOnly } from './shared';
 
 /**
  * 取引先・インボイス（Vendor）API。prefix: `/api/accounting/vendors`
@@ -55,6 +55,8 @@ export async function accountingVendorsRoutes(app: FastifyInstance): Promise<voi
       where: {
         orgId,
         vendorId: { not: null },
+        // インボイスの判断材料なので確定分だけを出す（試算と数字を揃える）
+        status: 'CONFIRMED',
         ...(sinceDate ? { incurredOn: { gte: sinceDate } } : {}),
       },
       _sum: { amount: true, taxAmount: true },
@@ -94,13 +96,25 @@ export async function accountingVendorsRoutes(app: FastifyInstance): Promise<voi
       select: { id: true, name: true, kind: true },
     });
 
+    // ⚠️ 未登録先が0社でも、取引先が紐付いていない明細の件数は返す。
+    //    未紐付けの明細こそ未登録業者が隠れている側なので、
+    //    ここで早期 return すると「出したい場面で警告が出ない」ことになる。
+    const unlinked = await prisma.costEntry.count({
+      where: {
+        orgId,
+        vendorId: null,
+        status: 'CONFIRMED',
+        ...(sinceDate ? { incurredOn: { gte: sinceDate } } : {}),
+      },
+    });
+
     if (unregistered.length === 0) {
       return reply.send({
         success: true,
         data: {
-          impact: estimateInvoiceImpact(0),
+          impact: estimateInvoiceImpact(0, jstToday()),
           unregisteredVendors: [],
-          unknownRegistrationCount: 0,
+          unlinkedCostEntryCount: unlinked,
         },
       });
     }
@@ -110,6 +124,9 @@ export async function accountingVendorsRoutes(app: FastifyInstance): Promise<voi
       where: {
         orgId,
         vendorId: { in: unregistered.map((v) => v.id) },
+        // ⚠️ 確定分だけで試算する。DRAFT を含めると、AI が1枚読み違えただけで
+        //    「切り替えで増える負担」の円表示が人の承認前に動く
+        status: 'CONFIRMED',
         ...(sinceDate ? { incurredOn: { gte: sinceDate } } : {}),
       },
       _sum: { amount: true, taxAmount: true },
@@ -131,16 +148,10 @@ export async function accountingVendorsRoutes(app: FastifyInstance): Promise<voi
 
     const totalTax = rows.reduce((sum, r) => sum + r.taxAmount, 0);
 
-    // 「取引はあるが取引先が未登録として作られていない」ものは数えられない。
-    // 画面で「未紐付けの明細が N 件あります」と出すための数字。
-    const unlinked = await prisma.costEntry.count({
-      where: { orgId, vendorId: null, ...(sinceDate ? { incurredOn: { gte: sinceDate } } : {}) },
-    });
-
     return reply.send({
       success: true,
       data: {
-        impact: estimateInvoiceImpact(totalTax),
+        impact: estimateInvoiceImpact(totalTax, jstToday()),
         unregisteredVendors: rows,
         unlinkedCostEntryCount: unlinked,
       },

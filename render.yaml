@@ -45,6 +45,10 @@ services:
         sync: false
       - key: AI_ENGINE_URL
         sync: false
+      # ai-engine を呼ぶときの共有シークレット。ai-engine と **同じ値** を入れること。
+      # 未設定なら送らず、ai-engine 側も素通しするので、片方だけのデプロイでは落ちない。
+      - key: INTERNAL_API_TOKEN
+        sync: false
       # RAG: 埋め込みプロバイダ。キーが無ければ RAG は no-op（チャットは従来通り）。
       # 既定は gemini＝LLM 用の GEMINI_API_KEY を流用できるので追加契約が不要。
       # gemini-embedding-001 は outputDimensionality=1024 に対応し DB の vector(1024) と一致する。
@@ -101,6 +105,11 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: ADMIN_EMAILS
+        sync: false
+      # ⚠️ ai-engine は公開 URL を持つ。未設定だと誰でも /llm/chat・/vision/receipt を叩けて
+      #    Anthropic の課金がこちら持ちで発生し、任意の org_id で AILog を汚せる。
+      #    api-gateway と **同じ値** を入れること（片方だけでは 401 になる）。
+      - key: INTERNAL_API_TOKEN
         sync: false
 
   - type: web
