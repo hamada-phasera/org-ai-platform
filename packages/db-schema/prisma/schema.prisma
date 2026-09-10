@@ -213,12 +213,22 @@ model Capability {
   status        CapabilityStatus     @default(NEEDS_AUTH)
   n8nWorkflowId String?
   webhookPath   String?
+  /// 'n8n' | 'http'。'native' は adapter レジストリからの派生表示値で DB には保存しない
+  /// （保存すると backfill が必要になり、adapter の増減と二重管理になる）。
+  kind          String               @default("n8n")
+  /// kind='http' のときのみ有効。ユーザーが定義した外部 API 呼び出しの設定。
+  /// ⚠️ headers[].value は secret=true のとき secret-box の暗号文のみを持つ（平文禁止）。
+  /// ⚠️ この列を含む行を API レスポンスへ生で流さないこと（sanitizeCapability 必須）。
+  httpConfig    Json?
+  /// カスタムノードを作成した User.id（監査用）。seed 由来は null。
+  createdBy     String?
   requiredCreds RequiredCredential[]
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
 
   @@unique([orgId, name])
   @@index([orgId, status])
+  @@index([orgId, kind])
 }
 
 model RequiredCredential {

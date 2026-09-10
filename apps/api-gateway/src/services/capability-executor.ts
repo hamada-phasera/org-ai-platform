@@ -4,6 +4,8 @@
 // 無ければ従来どおり n8n webhook を呼ぶ。
 
 import { getNativeAdapter } from './adapters';
+import { executeHttpCapabilityDetailed } from './http-node/executor';
+import { prisma } from '../utils/prisma';
 
 const N8N_URL = process.env.N8N_CLOUD_URL ?? process.env.N8N_URL ?? 'http://localhost:5678';
 const N8N_WEBHOOK_AUTH_TOKEN = process.env.N8N_WEBHOOK_AUTH_TOKEN ?? 'org-ai-n8n-secret-token';
@@ -24,12 +26,33 @@ export type N8nEnvelope = {
   data: unknown;
 };
 
-/** capability を実行する。adapter → n8n の順で解決（adapter は provider-map に載る 4 つのみ）。 */
+/** capability を実行する。kind='http' → adapter → n8n の順で解決。
+ *
+ * ⚠️ kind='http' を adapter より**先に**見るのは、カスタムノードが native adapter に
+ *    横取りされないようにするため（seed 未投入の org が 'notify_slack' という名前の
+ *    http ノードを作れてしまうので、名前一致より kind を優先する）。
+ */
 export async function executeCapability(
-  capability: { name: string; webhookPath: string | null },
+  capability: {
+    id?: string;
+    name: string;
+    webhookPath: string | null;
+    kind?: string | null;
+    httpConfig?: unknown;
+  },
   args: Record<string, unknown>,
   orgId: string,
 ): Promise<N8nEnvelope> {
+  if (capability.kind === 'http') {
+    const result = await executeHttpCapabilityDetailed(capability, args, orgId);
+    if (result.authDead && capability.id) {
+      // 資格情報が死んだ = 再接続が要る。Slack/Google と同じく status を落として可視化する
+      await prisma.capability
+        .update({ where: { id: capability.id }, data: { status: 'NEEDS_AUTH' } })
+        .catch(() => {});
+    }
+    return result.envelope;
+  }
   const adapter = getNativeAdapter(capability.name);
   if (adapter) {
     return adapter(args, { orgId });

@@ -92,6 +92,59 @@ export interface AgentStepApprovalData {
   args: Record<string, unknown>;
 }
 
+// ── ユーザー定義ノード（カスタム HTTP capability） ──────────────
+/** 'native' は adapter レジストリからの派生表示値で DB には保存しない。 */
+export type CapabilityKind = 'n8n' | 'native' | 'http';
+export type HttpNodeMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+export type HttpNodeParamType = 'string' | 'number' | 'integer' | 'boolean';
+
+export interface HttpNodeParam {
+  /** 英数字とアンダースコアのみ。url/headers/body から {{name}} で参照する */
+  name: string;
+  type: HttpNodeParamType;
+  required: boolean;
+  /** LLM が値を埋めるための手がかり */
+  description?: string;
+}
+
+export interface HttpNodeHeader {
+  name: string;
+  /** secret=false は平文。secret=true は secret-box の暗号文（API では常に伏字）。 */
+  value: string;
+  secret?: boolean;
+}
+
+export interface HttpNodeConfig {
+  version: 1;
+  method: HttpNodeMethod;
+  /** https 固定。origin（scheme+host+port）に {{...}} を含めてはならない。 */
+  url: string;
+  headers: HttpNodeHeader[];
+  bodyEncoding?: 'json';
+  /** オブジェクトのみ。文字列リーフに {{param}} を書ける（文字列連結で JSON を組まない）。 */
+  bodyTemplate?: Record<string, unknown> | null;
+  /** レスポンスから取り出すドットパス（例: 'data.items[0].id'）。未指定はボディ全体。 */
+  outputPath?: string | null;
+  timeoutMs?: number;
+  params: HttpNodeParam[];
+}
+
+/** API レスポンス用の公開形。secret ヘッダは伏字になっている。 */
+export interface HttpNodeConfigPublic extends Omit<HttpNodeConfig, 'headers'> {
+  headers: Array<{ name: string; secret: boolean; value: string }>;
+}
+
+/** ユーザーがカスタムノード名に使えない予約名（seed / native / 予約ステップ）。 */
+export const RESERVED_CAPABILITY_NAMES = [
+  ...APPROVAL_REQUIRED_CAPS,
+  LLM_TRANSFORM_STEP,
+  'draft_email',
+  'summarize_sheet',
+  'create_google_doc',
+  'create_google_sheet',
+  'create_google_slides',
+] as const;
+
 export type RiskSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type RiskType = 'PII_DETECTED' | 'HARMFUL_CONTENT' | 'ANOMALY' | 'COST_ANOMALY';
 export type MessageRole = 'user' | 'assistant' | 'system';

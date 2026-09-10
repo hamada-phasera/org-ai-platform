@@ -6,7 +6,7 @@ const prismaMock = {
   task: { update: vi.fn(), updateMany: vi.fn(), findMany: vi.fn(), findUnique: vi.fn() },
   taskLog: { create: vi.fn() },
   agent: { findUnique: vi.fn() },
-  capability: { findUnique: vi.fn() },
+  capability: { findUnique: vi.fn(), findMany: vi.fn() },
   organization: { findUnique: vi.fn() },
 };
 vi.mock('../../utils/prisma', () => ({ prisma: prismaMock }));
@@ -61,6 +61,7 @@ beforeEach(() => {
   prismaMock.taskLog.create.mockResolvedValue({ id: 'l' });
   prismaMock.organization.findUnique.mockResolvedValue({ plan: 'STARTER' });
   prismaMock.capability.findUnique.mockResolvedValue({ displayName: 'Slack 投稿' });
+  prismaMock.capability.findMany.mockResolvedValue([]);
 });
 
 describe('renderArgTemplate', () => {
@@ -173,6 +174,23 @@ describe('requiresApproval', () => {
     expect(requiresApproval('create_google_doc')).toBe(false);
     expect(requiresApproval('llm_transform')).toBe(false);
   });
+
+  it('カスタム HTTP ノードは GET だけ承認不要', () => {
+    expect(requiresApproval('custom_get', { kind: 'http', httpMethod: 'GET' })).toBe(false);
+    expect(requiresApproval('custom_get', { kind: 'http', httpMethod: 'get' })).toBe(false);
+    expect(requiresApproval('custom_post', { kind: 'http', httpMethod: 'POST' })).toBe(true);
+    expect(requiresApproval('custom_del', { kind: 'http', httpMethod: 'DELETE' })).toBe(true);
+  });
+
+  it('method 不明のカスタムノードは承認必要（fail-closed）', () => {
+    // httpConfig が壊れていても無承認で外部送信させない
+    expect(requiresApproval('broken', { kind: 'http', httpMethod: null })).toBe(true);
+    expect(requiresApproval('broken', { kind: 'http' })).toBe(true);
+  });
+
+  it('kind が http でなければメタがあっても承認不要のまま', () => {
+    expect(requiresApproval('create_google_doc', { kind: 'native', httpMethod: 'POST' })).toBe(false);
+  });
 });
 
 describe('initRunState / parseRunState', () => {
@@ -260,6 +278,52 @@ describe('runAgentTask', () => {
     const done = updateDataMatching((d) => d.status === 'DONE');
     expect(done).not.toBeNull();
     expect(String(done!.output)).toContain('https://doc');
+  });
+});
+
+describe('カスタム HTTP ノードの承認ゲート（実行時）', () => {
+  const agent = {
+    ...AGENT,
+    steps: [{ capabilityName: 'custom_post', argTemplate: { body: '{{input}}' } }],
+  };
+
+  it('非 GET のカスタムノードは実行前に PENDING_APPROVAL で止まる', async () => {
+    prismaMock.capability.findMany.mockResolvedValue([
+      { name: 'custom_post', kind: 'http', httpConfig: { method: 'POST' } },
+    ]);
+    prismaMock.capability.findUnique.mockResolvedValue({ displayName: 'CRM登録' });
+
+    await runAgentTask({ id: 't9', orgId: 'org-1', input: 'x' }, agent);
+
+    expect(resolveMock).not.toHaveBeenCalled();
+    const pending = updateDataMatching((d) => d.status === 'PENDING_APPROVAL');
+    expect(pending).not.toBeNull();
+  });
+
+  it('GET のカスタムノードは止まらず実行される', async () => {
+    prismaMock.capability.findMany.mockResolvedValue([
+      { name: 'custom_post', kind: 'http', httpConfig: { method: 'GET' } },
+    ]);
+    resolveMock.mockResolvedValue({
+      outcome: 'EXECUTED',
+      capability: 'custom_post',
+      envelope: { status: 'success', error_type: null, message: '', data: { ok: true } },
+      executionLogId: 'l',
+    });
+
+    await runAgentTask({ id: 't10', orgId: 'org-1', input: 'x' }, agent);
+
+    expect(resolveMock).toHaveBeenCalledTimes(1);
+    expect(updateDataMatching((d) => d.status === 'PENDING_APPROVAL')).toBeNull();
+  });
+
+  it('メタ取得が失敗したら Task を FAILED にする（fail-open しない）', async () => {
+    prismaMock.capability.findMany.mockRejectedValue(new Error('db down'));
+
+    await runAgentTask({ id: 't11', orgId: 'org-1', input: 'x' }, agent);
+
+    expect(resolveMock).not.toHaveBeenCalled();
+    expect(updateDataMatching((d) => d.status === 'FAILED')).not.toBeNull();
   });
 });
 

@@ -14,6 +14,7 @@ import type { AgentRunState, AgentStepApprovalData, AgentStepDef, StepState } fr
 import { APPROVAL_REQUIRED_CAPS, LLM_TRANSFORM_STEP } from '@org-ai/shared-types';
 import { prisma } from '../utils/prisma';
 import { resolveAndExecute } from './capability-resolver';
+import { httpMethodOf } from './http-node/template';
 
 const AI_ENGINE_URL = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
 
@@ -87,8 +88,49 @@ export function renderArgTemplate(
   return out;
 }
 
-export function requiresApproval(capabilityName: string): boolean {
-  return (APPROVAL_REQUIRED_CAPS as readonly string[]).includes(capabilityName);
+/** 承認要否の判定に必要な capability のメタ情報。 */
+export interface CapabilityApprovalMeta {
+  kind?: string | null;
+  httpMethod?: string | null;
+}
+
+/**
+ * 外部へ送信するステップか。
+ *
+ * 第2引数は任意なので、既存の requiresApproval(name) 呼び出しはそのまま通る。
+ * カスタム HTTP ノードは **GET 以外を必ず承認待ち**にし、
+ * **method 不明（httpConfig が壊れている等）は「GET ではない」側に倒す（fail-closed）**。
+ * ここを fail-open にすると、設定が壊れた瞬間に無承認で外部送信が走る。
+ */
+export function requiresApproval(capabilityName: string, meta?: CapabilityApprovalMeta): boolean {
+  if ((APPROVAL_REQUIRED_CAPS as readonly string[]).includes(capabilityName)) return true;
+  if (meta?.kind === 'http') return (meta.httpMethod ?? '').toUpperCase() !== 'GET';
+  return false;
+}
+
+/**
+ * ステップで使う capability のメタを1クエリでまとめて引く。
+ *
+ * ⚠️ 呼び出し側でこれを try/catch しないこと。DB 障害時に例外を握って
+ * 「メタ無し = 承認不要」に倒すと**セキュリティゲートが fail-open する**。
+ * 例外は advance を抜けて runAgentTask / resumeAgentTask の catch が Task を FAILED にする
+ * ＝ それが正しい出口。
+ */
+export async function loadStepMeta(
+  orgId: string,
+  steps: AgentStepDef[],
+): Promise<Map<string, CapabilityApprovalMeta>> {
+  const names = [...new Set(steps.map((s) => s.capabilityName))].filter(
+    (n) => n !== LLM_TRANSFORM_STEP,
+  );
+  if (names.length === 0) return new Map();
+  const rows = await prisma.capability.findMany({
+    where: { orgId, name: { in: names } },
+    select: { name: true, kind: true, httpConfig: true },
+  });
+  return new Map(
+    rows.map((r) => [r.name, { kind: r.kind, httpMethod: httpMethodOf(r.httpConfig) }]),
+  );
 }
 
 export function initRunState(input: string, steps: AgentStepDef[]): AgentRunState {
@@ -245,6 +287,9 @@ async function executeStep(
  */
 async function advance(taskId: string, orgId: string, agent: StepAgentContext, state: AgentRunState): Promise<void> {
   const total = state.steps.length;
+  /* 承認要否の判定に使う capability メタ。ループ前に1回だけ引く。
+     ⚠️ ここを try/catch しない（握ると承認ゲートが fail-open する） */
+  const meta = await loadStepMeta(orgId, agent.steps);
   for (let i = state.currentIndex; i < total; i++) {
     const def = agent.steps[i];
     const step: StepState = state.steps[i];
@@ -254,7 +299,7 @@ async function advance(taskId: string, orgId: string, agent: StepAgentContext, s
       : {};
 
     // 外部送信は実行前に必ず止める（編集・承認は受信ページで）
-    if (requiresApproval(def.capabilityName) && step.status !== 'RUNNING') {
+    if (requiresApproval(def.capabilityName, meta.get(def.capabilityName)) && step.status !== 'RUNNING') {
       step.status = 'AWAITING_APPROVAL';
       step.args = args;
       state.currentIndex = i;

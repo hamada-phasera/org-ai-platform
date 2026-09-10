@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../utils/prisma';
 import { requireAuth } from '../middleware/auth';
 import { retrieveContext, indexMessages } from '../services/rag';
+import { scrubSecrets } from '../services/secret-scrubber';
 
 const N8N_CLOUD_URL = process.env.N8N_CLOUD_URL ?? 'https://hamahiro.app.n8n.cloud';
 const N8N_API_KEY = process.env.N8N_API_KEY ?? '';
@@ -163,8 +164,20 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     const org = await prisma.organization.findUnique({ where: { id: payload.orgId } });
     const plan = org?.plan ?? 'STARTER';
 
+    // 資格情報らしき文字列は「保存前に1回だけ」マスクし、以降の DB 保存 / LLM 送信 / RAG 索引は
+    // すべてこのマスク後テキストを使う。実キーは確認カードの専用入力欄 → gateway 直送 →
+    // sealSecret の経路でのみ渡る想定なので、チャットに出たものは消えるのが正しい挙動。
+    const scrubbed = scrubSecrets(result.data.content);
+    if (scrubbed.found) {
+      // 出せるのはマスク後の文字列だけ。元の値は絶対にログに出さない。
+      console.warn(
+        `[chat] 資格情報らしき文字列をマスクしました kinds=${scrubbed.kinds.join(',')} masked=${JSON.stringify(scrubbed.text.slice(0, 300))}`,
+      );
+    }
+    const userContent = scrubbed.text;
+
     const userMessage = await prisma.message.create({
-      data: { sessionId: id, role: 'user', content: result.data.content },
+      data: { sessionId: id, role: 'user', content: userContent },
     });
 
     const recentMessages = await prisma.message.findMany({
@@ -177,7 +190,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://ai-engine:8000';
     let aiResponse: { content: string; department: string };
     const n8nResult = await generateViaN8n({
-      message: result.data.content,
+      message: userContent,
       department: result.data.department ?? null,
       orgId: payload.orgId,
       sessionId: id,
@@ -194,7 +207,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       try {
         const retrieved = await retrieveContext({
           orgId: payload.orgId,
-          query: result.data.content,
+          query: userContent,
           fileIds: result.data.fileIds,
         });
         if (retrieved) ragContext = retrieved.block;
@@ -205,7 +218,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            message: result.data.content,
+            message: userContent,
             org_id: payload.orgId,
             session_id: id,
             department: result.data.department ?? null,
@@ -246,12 +259,12 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
     // RAG: 履歴の横断参照のため索引（1回の埋め込み呼び出しにまとめる・fire-and-forget）
     void indexMessages(payload.orgId, id, [
-      { messageId: userMessage.id, role: 'user', content: result.data.content },
+      { messageId: userMessage.id, role: 'user', content: userContent },
       { messageId: assistantMessage.id, role: 'assistant', content: aiResponse.content },
     ]).catch(() => null);
 
     if (!session.title) {
-      const title = result.data.content.slice(0, 30);
+      const title = userContent.slice(0, 30);
       await prisma.chatSession.update({ where: { id }, data: { title } });
     }
 
@@ -279,12 +292,24 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     const org = await prisma.organization.findUnique({ where: { id: payload.orgId } });
     const plan = org?.plan ?? 'STARTER';
 
+    // 資格情報らしき文字列は「保存前に1回だけ」マスクし、以降の DB 保存 / LLM 送信 / RAG 索引は
+    // すべてこのマスク後テキストを使う。実キーは確認カードの専用入力欄 → gateway 直送 →
+    // sealSecret の経路でのみ渡る想定なので、チャットに出たものは消えるのが正しい挙動。
+    const scrubbed = scrubSecrets(body.data.content);
+    if (scrubbed.found) {
+      // 出せるのはマスク後の文字列だけ。元の値は絶対にログに出さない。
+      console.warn(
+        `[chat-stream] 資格情報らしき文字列をマスクしました kinds=${scrubbed.kinds.join(',')} masked=${JSON.stringify(scrubbed.text.slice(0, 300))}`,
+      );
+    }
+    const userContent = scrubbed.text;
+
     const userMessage = await prisma.message.create({
-      data: { sessionId: id, role: 'user', content: body.data.content },
+      data: { sessionId: id, role: 'user', content: userContent },
     });
 
     if (!session.title) {
-      const title = body.data.content.slice(0, 30);
+      const title = userContent.slice(0, 30);
       await prisma.chatSession.update({ where: { id }, data: { title } });
     }
 
@@ -309,7 +334,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     try {
       const retrieved = await retrieveContext({
         orgId: payload.orgId,
-        query: body.data.content,
+        query: userContent,
         fileIds: body.data.fileIds,
       });
       if (retrieved) ragContext = retrieved.block;
@@ -328,7 +353,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: body.data.content,
+          message: userContent,
           org_id: payload.orgId,
           session_id: id,
           department: body.data.department ?? null,
@@ -376,7 +401,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       console.error('[chat-stream] ai-engine stream failed, trying n8n fallback:', err);
       const orgRow = await prisma.organization.findUnique({ where: { id: payload.orgId }, select: { plan: true } });
       const n8nResult = await generateViaN8n({
-        message: body.data.content,
+        message: userContent,
         department: body.data.department ?? null,
         orgId: payload.orgId,
         sessionId: id,
@@ -401,7 +426,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
     // RAG: 履歴の横断参照のため、今回のやり取りを索引（1回の埋め込み呼び出しにまとめる・fire-and-forget）
     void indexMessages(payload.orgId, id, [
-      { messageId: userMessage.id, role: 'user', content: body.data.content },
+      { messageId: userMessage.id, role: 'user', content: userContent },
       { messageId: assistantMessage.id, role: 'assistant', content: fullContent },
     ]).catch(() => null);
 
