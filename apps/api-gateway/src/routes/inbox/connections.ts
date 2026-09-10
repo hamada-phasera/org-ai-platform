@@ -1,11 +1,11 @@
-// LINE 公式アカウント接続の管理 API（prefix /api/inbox/connections、requireOwner）。
+// LINE 公式アカウント接続の管理 API（prefix /api/inbox/connections、requireAdmin）。
 // ⚠️ channelSecretEnc / accessTokenEnc は絶対にレスポンスへ含めない（sanitizeConnection 必須）。
 // ⚠️ ログにも secret / token（平文・暗号文とも）を出さない。
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../../utils/prisma';
-import { requireOwner } from '../../middleware/auth';
+import { requireAdmin } from '../../middleware/auth';
 import { sealSecret } from '../../services/secret-box';
 import { getBotInfo } from '../../services/inbox/line-client';
 import { getChannelAdapter } from '../../services/inbox/adapter';
@@ -51,7 +51,7 @@ function sanitizeConnection(conn: {
 
 export async function inboxConnectionsRoutes(app: FastifyInstance): Promise<void> {
   // ── 接続登録: 資格情報を LINE API で検証してから暗号化保存 ──
-  app.post('/', { preHandler: requireOwner }, async (request, reply) => {
+  app.post('/', { preHandler: requireAdmin }, async (request, reply) => {
     const payload = request.user as AuthPayload;
     const parsed = createSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -97,7 +97,7 @@ export async function inboxConnectionsRoutes(app: FastifyInstance): Promise<void
   });
 
   // ── 一覧（quota は best-effort で LINE 実測値を添える） ──────
-  app.get('/', { preHandler: requireOwner }, async (request, reply) => {
+  app.get('/', { preHandler: requireAdmin }, async (request, reply) => {
     const payload = request.user as AuthPayload;
     const connections = await prisma.channelConnection.findMany({
       where: { orgId: payload.orgId },
@@ -138,7 +138,7 @@ export async function inboxConnectionsRoutes(app: FastifyInstance): Promise<void
   });
 
   // ── 削除（InboundMessage は FK SetNull で残る） ─────────────
-  app.delete('/:id', { preHandler: requireOwner }, async (request, reply) => {
+  app.delete('/:id', { preHandler: requireAdmin }, async (request, reply) => {
     const payload = request.user as AuthPayload;
     const { id } = request.params as { id: string };
     const conn = await prisma.channelConnection.findUnique({ where: { id } });

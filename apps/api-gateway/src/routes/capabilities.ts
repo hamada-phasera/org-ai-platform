@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma';
 import { RESERVED_CAPABILITY_NAMES, type HttpNodeConfig, type HttpNodeHeader } from '@org-ai/shared-types';
-import { requireAuth, requireOwner } from '../middleware/auth';
+import { requireAuth, requireAdmin } from '../middleware/auth';
 import { resolveAndExecute } from '../services/capability-resolver';
 import { getNativeAdapter } from '../services/adapters';
 import {
@@ -147,7 +147,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
    *    ai-engine へ渡す（この経路が別ルートから叩かれても鍵が LLM に届かないように）。
    * ⚠️ 返る設定の secret ヘッダは常に空。実キーは画面の専用入力欄から POST / で直送される。
    */
-  app.post('/suggest', { preHandler: requireOwner }, async (request, reply) => {
+  app.post('/suggest', { preHandler: requireAdmin }, async (request, reply) => {
     const payload = request.user as { orgId: string };
     const parsed = suggestSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -235,7 +235,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
    *    （integrations.ts が保存前に実 API を叩くのは、宛先が Slack という固定の
    *    信頼済みホストだから成立する話で、ここには当てはまらない）
    */
-  app.post('/', { preHandler: requireOwner }, async (request, reply) => {
+  app.post('/', { preHandler: requireAdmin }, async (request, reply) => {
     const payload = request.user as { sub: string; orgId: string };
     const parsed = createSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -291,7 +291,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /** カスタムノードを削除する。seed 由来（kind='n8n'）は構造的に消せない。 */
-  app.delete('/:id', { preHandler: requireOwner }, async (request, reply) => {
+  app.delete('/:id', { preHandler: requireAdmin }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const { orgId } = request.user as { orgId: string };
     const force = (request.query as { force?: string }).force === 'true';
@@ -339,7 +339,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
    * 保存済みノードの接続テスト。実行履歴（ExecutionLog）には書かない。
    * ⚠️ レスポンスに展開後 URL とヘッダを含めない（PII と API キーが載るため）。
    */
-  app.post('/:id/test', { preHandler: requireOwner }, async (request, reply) => {
+  app.post('/:id/test', { preHandler: requireAdmin }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const { orgId } = request.user as { orgId: string };
     const parsed = testSchema.safeParse(request.body ?? {});
@@ -380,7 +380,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  app.patch('/:id', { preHandler: requireOwner }, async (request, reply) => {
+  app.patch('/:id', { preHandler: requireAdmin }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const { orgId } = request.user as { orgId: string };
     const parsed = patchSchema.safeParse(request.body);

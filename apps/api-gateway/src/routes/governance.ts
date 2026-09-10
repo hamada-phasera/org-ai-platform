@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../utils/prisma';
-import { requireOwner } from '../middleware/auth';
+import { requireAdmin } from '../middleware/auth';
 
 export async function governanceRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/logs', { preHandler: requireOwner }, async (request, reply) => {
+  app.get('/logs', { preHandler: requireAdmin }, async (request, reply) => {
     const payload = request.user as { orgId: string };
     const query = request.query as { page?: string; limit?: string; department?: string };
     const page = parseInt(query.page ?? '1');
@@ -27,7 +27,7 @@ export async function governanceRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  app.get('/risks', { preHandler: requireOwner }, async (request, reply) => {
+  app.get('/risks', { preHandler: requireAdmin }, async (request, reply) => {
     const payload = request.user as { orgId: string };
     const query = request.query as { resolved?: string };
     const risks = await prisma.riskEvent.findMany({
@@ -40,7 +40,7 @@ export async function governanceRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: risks });
   });
 
-  app.patch('/risks/:id/resolve', { preHandler: requireOwner }, async (request, reply) => {
+  app.patch('/risks/:id/resolve', { preHandler: requireAdmin }, async (request, reply) => {
     const payload = request.user as { orgId: string };
     const { id } = request.params as { id: string };
 
@@ -62,7 +62,7 @@ export async function governanceRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: updated });
   });
 
-  app.get('/stats', { preHandler: requireOwner }, async (request, reply) => {
+  app.get('/stats', { preHandler: requireAdmin }, async (request, reply) => {
     const payload = request.user as { orgId: string };
     const orgId = payload.orgId;
 

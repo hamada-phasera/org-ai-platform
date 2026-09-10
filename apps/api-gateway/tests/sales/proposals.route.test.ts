@@ -19,6 +19,9 @@ vi.mock('../../src/middleware/auth', () => ({
   requireOwner: async (req: { user?: unknown }) => {
     req.user = { orgId: 'org-1', sub: 'user-1', role: 'OWNER' };
   },
+  requireAdmin: async (req: { user?: unknown }) => {
+    req.user = { orgId: 'org-1', sub: 'user-1', role: 'OWNER' };
+  },
 }));
 
 const fetchMock = vi.fn();

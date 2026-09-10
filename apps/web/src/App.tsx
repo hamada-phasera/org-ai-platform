@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
+import InvitePage from './pages/InvitePage';
 import InboxPage from './pages/InboxPage';
 import ChatPage from './pages/ChatPage';
 import HomePage from './pages/HomePage';
@@ -32,6 +33,8 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
+      {/* 招待の受諾。ログイン前に踏むので RequireAuth の外に置く */}
+      <Route path="/invite/:token" element={<InvitePage />} />
       <Route
         element={
           <RequireAuth>

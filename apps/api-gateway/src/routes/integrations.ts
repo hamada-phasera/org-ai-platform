@@ -1,11 +1,11 @@
-// セルフサーブ連携の管理 API（prefix /api/integrations、requireOwner）。
+// セルフサーブ連携の管理 API（prefix /api/integrations、requireAdmin）。
 // ⚠️ accessTokenEnc / refreshTokenEnc は絶対にレスポンスへ含めない（sanitize 必須）。
 // ⚠️ ログにもトークン（平文・暗号文とも）を出さない。
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma';
-import { requireOwner } from '../middleware/auth';
+import { requireAdmin } from '../middleware/auth';
 import { sealSecret } from '../services/secret-box';
 import { authTest } from '../services/adapters/slack-client';
 import { revokeGoogleToken } from '../services/google-auth';
@@ -49,7 +49,7 @@ function sanitize(conn: {
 
 export async function integrationsRoutes(app: FastifyInstance): Promise<void> {
   // ── 一覧 ─────────────────────────────────────────────
-  app.get('/', { preHandler: requireOwner }, async (request, reply) => {
+  app.get('/', { preHandler: requireAdmin }, async (request, reply) => {
     const payload = request.user as AuthPayload;
     const connections = await prisma.providerConnection.findMany({
       where: { orgId: payload.orgId },
@@ -59,7 +59,7 @@ export async function integrationsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── Slack 接続（Bot トークン貼付） ───────────────────
-  app.post('/slack', { preHandler: requireOwner }, async (request, reply) => {
+  app.post('/slack', { preHandler: requireAdmin }, async (request, reply) => {
     const payload = request.user as AuthPayload;
     const parsed = slackSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -119,7 +119,7 @@ export async function integrationsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── 解除 ─────────────────────────────────────────────
-  app.delete('/:provider', { preHandler: requireOwner }, async (request, reply) => {
+  app.delete('/:provider', { preHandler: requireAdmin }, async (request, reply) => {
     const payload = request.user as AuthPayload;
     const { provider } = request.params as { provider: string };
     if (!PROVIDERS.includes(provider as (typeof PROVIDERS)[number])) {

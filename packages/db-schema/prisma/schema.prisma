@@ -13,19 +13,64 @@ model User {
   email        String        @unique
   passwordHash String
   name         String
-  role         String        @default("OWNER")
+  /// 'OWNER' | 'ADMIN' | 'MEMBER'（shared-types の UserRole で縛る。DB enum にはしない）
+  /// ⚠️ DEFAULT を 'OWNER' から 'MEMBER' に変えてある。role を省略した INSERT が
+  ///    黙って最強権限を作るのを塞ぐため（fail-closed）。既存行の値は変えていない。
+  role         String        @default("MEMBER")
+  /// 'ACTIVE' | 'DISABLED'。退職者は物理削除しない
+  /// （Agent.createdBy / Capability.createdBy などの User.id 参照を壊さないため）
+  status       String        @default("ACTIVE")
   orgId        String?
   org          Organization? @relation(fields: [orgId], references: [id])
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 }
 
+/// 招待。管理者が発行し、リンクを手渡す（口頭・Slack・LINE 等）。
+///
+/// ⚠️ メール送信はこのプロダクトに存在しない（nodemailer/resend/SES すべて依存に無い）。
+///    メール前提の招待にすると永久に動かないので、リンクを手渡す方式にしてある。
+///    あとからメール送付を足すときは、この行を作った直後に送るだけでよい。
+///
+/// ⚠️ トークンはハッシュだけを保存する。生値は発行時のレスポンスに1回出るきり。
+///    DB が読まれても招待を成立させられないようにするため（OAuth state と同じ流儀）。
+model Invitation {
+  id         String       @id @default(cuid())
+  orgId      String
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// 招待する相手の目印。メールは送らないので、識別のためだけに持つ（任意）
+  email      String?
+  /// 受諾したときに付与する役割。'ADMIN' | 'MEMBER'（OWNER は招待で渡さない）
+  role       String       @default("MEMBER")
+  /// sha256(生トークン)。生値は保存しない
+  tokenHash  String       @unique
+  expiresAt  DateTime
+  /// 使い切り。受諾した時刻が入る
+  acceptedAt DateTime?
+  acceptedBy String?
+  /// 発行を取り消した時刻
+  revokedAt  DateTime?
+  createdBy  String
+  createdAt  DateTime     @default(now())
+
+  @@index([orgId, createdAt])
+}
+
 model Organization {
   id                  String               @id @default(cuid())
   name                String
+  /// 'STARTER' | 'PRO' | 'MAX'。**プランの真実の源はここ**。
+  /// Subscription.plan は Stripe 側の申告のミラーで、食い違いは検知対象。
   plan                String               @default("STARTER")
   billingEmail        String?
+  /// Stripe の顧客ID。決済を繋いだ組織にだけ入る
+  stripeCustomerId    String?
+  /// 使用中のストレージ量（バイト）。**使用量の正本はこのカウンタ**で、
+  /// UploadedFile の SUM は復旧時の再計算にだけ使う
+  /// （毎回 SUM すると一覧のたびに全表走査になる）
+  storageUsedBytes    BigInt               @default(0)
   users               User[]
+  invitations         Invitation[]
   sessions            ChatSession[]
   tasks               Task[]
   files               UploadedFile[]

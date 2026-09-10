@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma';
-import { requireAuth, requireOwner } from '../middleware/auth';
+import { requireAuth, requireAdmin } from '../middleware/auth';
 import { dispatchAgentTask } from '../services/task-executor';
 import { runAgentTask } from '../services/step-runner';
 import {
@@ -255,7 +255,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
    * agentId を渡すと現状を土台にした修正提案になり、返る steps は差分ではなく
    * **変更後の完成形**（適用が単純な置換になり、部分適用の失敗が起きない）。
    */
-  app.post('/suggest', { preHandler: requireOwner }, async (request, reply) => {
+  app.post('/suggest', { preHandler: requireAdmin }, async (request, reply) => {
     const payload = request.user as { orgId: string };
     const parsed = suggestAgentSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -316,7 +316,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // 保存エージェント作成（任意で n8n 専用ワークフローを best-effort 生成）
-  app.post('/', { preHandler: requireOwner }, async (request, reply) => {
+  app.post('/', { preHandler: requireAdmin }, async (request, reply) => {
     const payload = request.user as { sub: string; orgId: string };
     const parsed = createAgentSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -471,7 +471,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // 保存エージェント更新
-  app.patch('/:agentId', { preHandler: requireOwner }, async (request, reply) => {
+  app.patch('/:agentId', { preHandler: requireAdmin }, async (request, reply) => {
     const { agentId } = request.params as { agentId: string };
     const payload = request.user as { orgId: string };
     const agent = await prisma.agent.findUnique({ where: { id: agentId } });
@@ -527,7 +527,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // 保存エージェント削除（実行履歴は Task.agentId が SET NULL で保持される）
-  app.delete('/:agentId', { preHandler: requireOwner }, async (request, reply) => {
+  app.delete('/:agentId', { preHandler: requireAdmin }, async (request, reply) => {
     const { agentId } = request.params as { agentId: string };
     const payload = request.user as { orgId: string };
     const agent = await prisma.agent.findUnique({ where: { id: agentId } });

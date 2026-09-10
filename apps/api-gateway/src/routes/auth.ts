@@ -41,13 +41,15 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
+      /* 新しい組織を作った本人がオーナー。以降のメンバーは招待から入る
+         （Invitation の role は ADMIN|MEMBER のみ）。 */
       data: { name, email, passwordHash, role: 'OWNER', orgId: org.id },
     });
 
     const token = app.jwt.sign(
       // email は LLM 松竹梅ルーティングの admin 判定（ADMIN_EMAILS）に使う
       { sub: user.id, orgId: org.id, role: user.role, email: user.email },
-      { expiresIn: '7d' },
+      { expiresIn: process.env.JWT_EXPIRES_IN ?? '24h' },
     );
 
     return reply.code(201).send({
@@ -77,7 +79,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const token = app.jwt.sign(
       // email は LLM 松竹梅ルーティングの admin 判定（ADMIN_EMAILS）に使う
       { sub: user.id, orgId: user.orgId, role: user.role, email: user.email },
-      { expiresIn: '7d' },
+      { expiresIn: process.env.JWT_EXPIRES_IN ?? '24h' },
     );
 
     return reply.send({

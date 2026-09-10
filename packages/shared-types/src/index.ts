@@ -20,7 +20,39 @@ export const PLAN_LIMITS: Record<Plan, { aiCallsPerMonth: number; model: string;
     modelLabel: 'Claude Opus 4.7',
   },
 };
-export type UserRole = 'OWNER' | 'MEMBER' | 'VIEWER';
+/**
+ * 組織内の役割。DB は String カラムで運用し、値域はこの型で縛る。
+ *
+ *   OWNER  契約者。人の出し入れと組織/請求先の変更ができる。組織に必ず1人以上いる。
+ *   ADMIN  管理者。連携の接続・外部APIノードの登録・エージェントの定義・監査の閲覧。
+ *   MEMBER 一般。チャット・エージェントの実行・成果物の閲覧・受信箱の対応。
+ *
+ * ⚠️ VIEWER は作らない。読み取り専用の需要が具体化していない段階で3値目を増やすと、
+ *    「MEMBER と VIEWER のどちらを配るか」を毎回考えることになる。必要になったら足す。
+ */
+export type UserRole = 'OWNER' | 'ADMIN' | 'MEMBER';
+
+/** 強い順。requireRole の比較に使う（数値が大きいほど強い）。 */
+export const ROLE_RANK: Record<UserRole, number> = { MEMBER: 1, ADMIN: 2, OWNER: 3 };
+
+export const ROLE_LABEL: Record<UserRole, string> = {
+  OWNER: 'オーナー',
+  ADMIN: '管理者',
+  MEMBER: 'メンバー',
+};
+
+export function isUserRole(value: unknown): value is UserRole {
+  return value === 'OWNER' || value === 'ADMIN' || value === 'MEMBER';
+}
+
+/** その役割が要求水準を満たすか。未知の値は必ず false（fail-closed）。 */
+export function hasRoleAtLeast(role: unknown, required: UserRole): boolean {
+  if (!isUserRole(role)) return false;
+  return ROLE_RANK[role] >= ROLE_RANK[required];
+}
+
+/** 利用者の状態。退職者は物理削除せず DISABLED にする（作成者参照を壊さないため）。 */
+export type UserStatus = 'ACTIVE' | 'DISABLED';
 export type AgentDepartment = 'SALES' | 'MARKETING' | 'ACCOUNTING' | 'ANALYTICS' | 'GENERAL';
 export const AGENT_DEPARTMENTS: AgentDepartment[] = ['SALES', 'MARKETING', 'ACCOUNTING', 'ANALYTICS', 'GENERAL'];
 

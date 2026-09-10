@@ -25,6 +25,7 @@ import {
 import UsageCard from '../components/Settings/UsageCard';
 import IntegrationsSection from '../components/Settings/IntegrationsSection';
 import { LiquidTabs } from '../components/motion/LiquidTabs';
+import { MembersSection } from '../components/Settings/MembersSection';
 
 interface OrganizationView {
   id: string;
@@ -48,11 +49,13 @@ export default function SettingsPage() {
   const logout = useAuthStore((s) => s.logout);
   const storedUser = useAuthStore((s) => s.user);
   // OAuth コールバックは ?tab=integrations で戻ってくるので、初期表示をクエリで決める
-  const [view, setView] = useState<'general' | 'integrations'>(() =>
-    new URLSearchParams(window.location.search).get('tab') === 'integrations'
-      ? 'integrations'
-      : 'general',
-  );
+  const [view, setView] = useState<'general' | 'members' | 'integrations'>(() => {
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    // OAuth コールバックは ?tab=integrations で戻ってくる
+    if (tab === 'integrations') return 'integrations';
+    if (tab === 'members') return 'members';
+    return 'general';
+  });
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<{ fileName: string; content: string } | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
@@ -140,12 +143,13 @@ export default function SettingsPage() {
       />
 
       <div className="mb-5">
-        <LiquidTabs<'general' | 'integrations'>
+        <LiquidTabs<'general' | 'members' | 'integrations'>
           id="settings-tab"
           size="sm"
           label="設定の切り替え"
           items={[
             { value: 'general', label: '基本' },
+            { value: 'members', label: 'メンバー' },
             { value: 'integrations', label: '連携' },
           ]}
           value={view}
@@ -153,7 +157,9 @@ export default function SettingsPage() {
         />
       </div>
 
-      {view === 'integrations' ? (
+      {view === 'members' ? (
+        <MembersSection />
+      ) : view === 'integrations' ? (
         <IntegrationsSection />
       ) : (
         <>

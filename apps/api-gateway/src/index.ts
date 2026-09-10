@@ -26,6 +26,7 @@ import { inboxConnectionsRoutes } from './routes/inbox/connections';
 import { integrationsRoutes } from './routes/integrations';
 import { oauthGoogleRoutes } from './routes/oauth-google';
 import { accountingRoutes } from './routes/accounting';
+import { memberRoutes } from './routes/members';
 import { startInternalScheduler } from './services/schedule-dispatcher';
 import { recoverStaleRunningTasks } from './services/step-runner';
 import { prisma } from './utils/prisma';
@@ -124,6 +125,7 @@ async function start(): Promise<void> {
   await app.register(integrationsRoutes, { prefix: '/api/integrations' });
   await app.register(oauthGoogleRoutes, { prefix: '/api/oauth/google' });
   await app.register(accountingRoutes, { prefix: '/api/accounting' });
+  await app.register(memberRoutes, { prefix: '/api/members' });
 
   const port = parseInt(process.env.PORT ?? '4000');
   await app.listen({ port, host: '0.0.0.0' });

@@ -1,12 +1,12 @@
 // Google OAuth（セルフサーブ連携）。prefix /api/oauth/google。
 //
 // フロー（3 段階。CSRF とトークン悪用を構造的に潰すためこの形にしている）:
-//   1. POST /start (requireOwner) → { authUrl } を返す
+//   1. POST /start (requireAdmin) → { authUrl } を返す
 //      ブラウザの top-level リダイレクトには Authorization ヘッダが乗らないため、
 //      フロントが XHR で URL を取得してから遷移する。
 //   2. GET /callback?code&state（無認証）→ code を交換し、トークンは **どの org にも紐づけず**
 //      サーバー内の一時保管に置いて、フロントへ ?googleLink=<linkId> で戻す。
-//   3. POST /confirm { linkId } (requireOwner) → **ログイン中のセッションの orgId** に保存する。
+//   3. POST /confirm { linkId } (requireAdmin) → **ログイン中のセッションの orgId** に保存する。
 //
 // なぜ callback で保存しないか（アカウント連結 CSRF 対策）:
 //   state に orgId を埋めて callback で保存する実装だと、攻撃者が自分の org の state を作って
@@ -27,7 +27,7 @@ import type { FastifyInstance } from 'fastify';
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma';
-import { requireOwner } from '../middleware/auth';
+import { requireAdmin } from '../middleware/auth';
 import { sealSecret } from '../services/secret-box';
 import { syncRequiredCredentialStatus } from '../services/integration-sync';
 
@@ -142,7 +142,7 @@ function decodeIdTokenEmail(idToken: string | undefined): string | null {
 
 export async function oauthGoogleRoutes(app: FastifyInstance): Promise<void> {
   // ── 認可 URL の発行 ──────────────────────────────────
-  app.post('/start', { preHandler: requireOwner }, async (_request, reply) => {
+  app.post('/start', { preHandler: requireAdmin }, async (_request, reply) => {
     const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
     if (!clientId || !process.env.GOOGLE_OAUTH_CLIENT_SECRET) {
       return reply.code(503).send({
@@ -227,7 +227,7 @@ export async function oauthGoogleRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── 確定（ログイン中のセッションの org に保存する） ──
-  app.post('/confirm', { preHandler: requireOwner }, async (request, reply) => {
+  app.post('/confirm', { preHandler: requireAdmin }, async (request, reply) => {
     const payload = request.user as AuthPayload;
     const parsed = confirmSchema.safeParse(request.body);
     if (!parsed.success) {
