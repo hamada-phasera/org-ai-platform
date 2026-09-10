@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 process.env.AI_ENGINE_URL = 'https://ai.test';
 
 const prismaMock = {
-  task: { update: vi.fn(), findUnique: vi.fn() },
+  task: { update: vi.fn(), updateMany: vi.fn(), findMany: vi.fn(), findUnique: vi.fn() },
   taskLog: { create: vi.fn() },
   agent: { findUnique: vi.fn() },
   capability: { findUnique: vi.fn() },
@@ -17,8 +17,17 @@ vi.mock('../capability-resolver', () => ({ resolveAndExecute: resolveMock }));
 const fetchMock = vi.fn();
 vi.stubGlobal('fetch', fetchMock);
 
-const { renderArgTemplate, requiresApproval, initRunState, parseRunState, runAgentTask, resumeAgentTask } =
-  await import('../step-runner');
+const {
+  renderArgTemplate,
+  coerceJsonLike,
+  requiresApproval,
+  initRunState,
+  parseRunState,
+  runAgentTask,
+  resumeAgentTask,
+  recoverStaleRunningTasks,
+  STALE_RUNNING_MESSAGE,
+} = await import('../step-runner');
 
 const AGENT = {
   id: 'A1',
@@ -46,6 +55,8 @@ function updateDataMatching(predicate: (d: Record<string, unknown>) => boolean):
 beforeEach(() => {
   vi.clearAllMocks();
   prismaMock.task.update.mockResolvedValue({});
+  prismaMock.task.updateMany.mockResolvedValue({ count: 1 });
+  prismaMock.task.findMany.mockResolvedValue([]);
   prismaMock.taskLog.create.mockResolvedValue({ id: 'l' });
   prismaMock.organization.findUnique.mockResolvedValue({ plan: 'STARTER' });
   prismaMock.capability.findUnique.mockResolvedValue({ displayName: 'Slack 投稿' });
@@ -63,6 +74,75 @@ describe('renderArgTemplate', () => {
   it('未知のプレースホルダは置換しない（勝手に解釈しない）', () => {
     const out = renderArgTemplate({ a: '{{foo}}', b: '{{ output }}' }, { input: 'IN', prev: 'P' });
     expect(out).toEqual({ a: '{{foo}}', b: '{{ output }}' });
+  });
+
+  it('string 以外の値（配列・オブジェクト・数値）を壊さずそのまま通す', () => {
+    // AI 推論で作られた steps は zod を通らないので実配列が入りうる。
+    // 以前は value.replace で TypeError になり run 全体が落ちていた。
+    const out = renderArgTemplate(
+      {
+        title: '{{input}}',
+        headers: ['日付', '売上'],
+        rows: [['1/1', 100]],
+        slides: [{ title: 'A', body: 'B' }],
+        count: 3,
+        flag: true,
+        nothing: null,
+      },
+      { input: 'IN', prev: 'P' },
+    );
+    expect(out).toEqual({
+      title: 'IN',
+      headers: ['日付', '売上'],
+      rows: [['1/1', 100]],
+      slides: [{ title: 'A', body: 'B' }],
+      count: 3,
+      flag: true,
+      nothing: null,
+    });
+  });
+
+  it('LLM が JSON 文字列で出した配列引数を実体に戻す（Ajv の type: array を通す）', () => {
+    const out = renderArgTemplate(
+      { headers: '["日付","売上"]', rows: '[["1/1",100]]', text: '{{prev}}' },
+      { input: 'IN', prev: '売上まとめ' },
+    );
+    expect(out.headers).toEqual(['日付', '売上']);
+    expect(out.rows).toEqual([['1/1', 100]]);
+    expect(out.text).toBe('売上まとめ');
+  });
+
+  it('置換が起きた値は JSON 復元しない（本文がオブジェクトに化けるのを防ぐ）', () => {
+    // {{prev}} には前ステップの出力 JSON（例 {"url":"..."}）が入る。ここで復元してしまうと
+    // Slack 本文やメール本文が文字列でなくなり、Ajv の type: string で必ず落ちる。
+    const out = renderArgTemplate(
+      { text: '{{prev}}', rows: '{{input}}' },
+      { input: '[["a",1]]', prev: '{"url":"https://doc"}' },
+    );
+    expect(out.text).toBe('{"url":"https://doc"}');
+    expect(out.rows).toBe('[["a",1]]');
+  });
+});
+
+describe('coerceJsonLike', () => {
+  it('[ / { 始まりの JSON 文字列だけ実体に戻す', () => {
+    expect(coerceJsonLike('["a","b"]')).toEqual(['a', 'b']);
+    expect(coerceJsonLike('  {"a":1}  ')).toEqual({ a: 1 });
+  });
+  it('JSON でない文字列はそのまま（本文を壊さない）', () => {
+    expect(coerceJsonLike('こんにちは')).toBe('こんにちは');
+    expect(coerceJsonLike('{{foo}}')).toBe('{{foo}}');
+    expect(coerceJsonLike('{未完了')).toBe('{未完了');
+    // [ / { で始まらない JSON リテラルは数値化しない（"123" が 123 になると型が変わる）
+    expect(coerceJsonLike('123')).toBe('123');
+    expect(coerceJsonLike('true')).toBe('true');
+  });
+  it('string 以外はそのまま返す', () => {
+    const arr = ['a'];
+    expect(coerceJsonLike(arr)).toBe(arr);
+    expect(coerceJsonLike(5)).toBe(5);
+    expect(coerceJsonLike(null)).toBeNull();
+    expect(coerceJsonLike(undefined)).toBeUndefined();
   });
 });
 
@@ -177,6 +257,8 @@ describe('resumeAgentTask', () => {
       id: 't1',
       orgId: 'org-1',
       agentId: 'A1',
+      // approve 側が条件付き更新で claim 済み（PENDING_APPROVAL → RUNNING）の状態
+      status: 'RUNNING',
       executionResult: JSON.stringify(state),
       approvalData: JSON.stringify({
         kind: 'agent_step',
@@ -213,6 +295,7 @@ describe('resumeAgentTask', () => {
       id: 't1',
       orgId: 'org-1',
       agentId: 'A1',
+      status: 'RUNNING',
       executionResult: null,
       approvalData: null,
     });
@@ -221,5 +304,84 @@ describe('resumeAgentTask', () => {
     await resumeAgentTask('t1');
 
     expect(lastUpdateData().status).toBe('FAILED');
+  });
+
+  it('却下済み・完了済みの Task は再開しない（外部送信を蒸し返さない）', async () => {
+    prismaMock.task.findUnique.mockResolvedValue({
+      id: 't1',
+      orgId: 'org-1',
+      agentId: 'A1',
+      status: 'REJECTED',
+      executionResult: null,
+      approvalData: null,
+    });
+
+    await resumeAgentTask('t1');
+
+    expect(prismaMock.agent.findUnique).not.toHaveBeenCalled();
+    expect(resolveMock).not.toHaveBeenCalled();
+    expect(prismaMock.task.update).not.toHaveBeenCalled();
+  });
+
+  it('承認内容を復元できないときは RUNNING のまま放置せず FAILED にする', async () => {
+    prismaMock.task.findUnique.mockResolvedValue({
+      id: 't1',
+      orgId: 'org-1',
+      agentId: 'A1',
+      status: 'RUNNING',
+      executionResult: null,
+      approvalData: null,
+    });
+    prismaMock.agent.findUnique.mockResolvedValue({
+      id: 'A1',
+      instructions: AGENT.instructions,
+      department: AGENT.department,
+      createdBy: AGENT.createdBy,
+      steps: AGENT.steps,
+    });
+
+    await resumeAgentTask('t1');
+
+    expect(resolveMock).not.toHaveBeenCalled();
+    expect(lastUpdateData().status).toBe('FAILED');
+  });
+});
+
+describe('recoverStaleRunningTasks', () => {
+  it('古い RUNNING の agent タスクだけを FAILED にして件数を返す', async () => {
+    prismaMock.task.findMany.mockResolvedValue([{ id: 't1' }, { id: 't2' }]);
+    prismaMock.task.updateMany.mockResolvedValue({ count: 1 });
+
+    const n = await recoverStaleRunningTasks(30 * 60_000);
+
+    expect(n).toBe(2);
+    const where = prismaMock.task.findMany.mock.calls[0][0].where;
+    expect(where.status).toBe('RUNNING');
+    expect(where.taskType).toBe('agent');
+    expect(where.updatedAt.lt).toBeInstanceOf(Date);
+    // 条件付き更新で claim している（他インスタンスと二重回収しない）
+    expect(prismaMock.task.updateMany).toHaveBeenCalledTimes(2);
+    const claim = prismaMock.task.updateMany.mock.calls[0][0];
+    expect(claim.where).toEqual({ id: 't1', status: 'RUNNING' });
+    expect(claim.data.status).toBe('FAILED');
+    expect(String(claim.data.lastError)).toBe(STALE_RUNNING_MESSAGE);
+    // TaskLog も残す
+    expect(prismaMock.taskLog.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('他インスタンスに先を越された分（count 0）は数えない', async () => {
+    prismaMock.task.findMany.mockResolvedValue([{ id: 't1' }, { id: 't2' }]);
+    prismaMock.task.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 });
+
+    expect(await recoverStaleRunningTasks()).toBe(1);
+    expect(prismaMock.taskLog.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('対象なしなら 0 を返し、更新もしない', async () => {
+    prismaMock.task.findMany.mockResolvedValue([]);
+    expect(await recoverStaleRunningTasks()).toBe(0);
+    expect(prismaMock.task.updateMany).not.toHaveBeenCalled();
   });
 });

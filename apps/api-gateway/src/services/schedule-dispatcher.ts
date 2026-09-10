@@ -28,6 +28,36 @@ export function matchesSchedule(
   return false;
 }
 
+/**
+ * fire-and-forget 実行の共通ラッパー。
+ * 定期実行は誰も見ていない時間に走るので、握りきれない例外（Prisma の一時障害など）が
+ * unhandled rejection になると Node の既定挙動で gateway プロセスごと落ち、全機能が止まる。
+ * ここで必ず握り、ログと Task の FAILED 記録まで best-effort で行う。
+ * start() が同期 throw しても Promise 化して受けられるよう Promise.resolve().then() を挟む。
+ */
+function fireAndForget(taskId: string, label: string, start: () => Promise<void> | void): void {
+  void Promise.resolve()
+    .then(start)
+    .catch((e) => markDispatchFailed(taskId, label, e));
+}
+
+/** 発火に失敗した Task を FAILED + TaskLog(ERROR) に落とす。この更新自体の失敗も握りつぶす。 */
+async function markDispatchFailed(taskId: string, label: string, error: unknown): Promise<void> {
+  console.error(`[schedule] ${label} failed (task=${taskId}):`, error);
+  try {
+    await prisma.task.update({
+      where: { id: taskId },
+      data: { status: 'FAILED', lastError: String(error) },
+    });
+    await prisma.taskLog.create({
+      data: { taskId, message: `定期実行の起動に失敗: ${String(error)}`, level: 'ERROR' },
+    });
+  } catch (e) {
+    // DB 側が死んでいるときはここも失敗する。プロセスを落とさないことを最優先にして諦める。
+    console.error(`[schedule] FAILED マークにも失敗 (task=${taskId}):`, e);
+  }
+}
+
 export type EnqueueResult =
   | { enqueued: true; taskId: string }
   | { enqueued: false; reason: 'already_ran' | 'not_found' | 'agent_gone' };
@@ -81,28 +111,32 @@ export async function claimAndEnqueueScheduledTask(
     });
     const steps = (agent.steps as unknown as AgentStepDef[] | null) ?? [];
     if (steps.length > 0) {
-      void runAgentTask(
-        { id: task.id, orgId: task.orgId, input: task.input },
-        {
-          id: agent.id,
-          instructions: agent.instructions,
-          department: agent.department,
-          createdBy: agent.createdBy,
-          steps,
-        },
+      fireAndForget(task.id, 'runAgentTask', () =>
+        runAgentTask(
+          { id: task.id, orgId: task.orgId, input: task.input },
+          {
+            id: agent.id,
+            instructions: agent.instructions,
+            department: agent.department,
+            createdBy: agent.createdBy,
+            steps,
+          },
+        ),
       );
     } else {
       // steps 無しエージェント: instructions を効かせた単発実行
       // （従来は dispatchQueuedTask に流れて instructions が無視されていたギャップの修正）
-      void dispatchAgentTask(
-        { id: task.id, orgId: task.orgId, title: task.title, input: task.input, taskType: 'agent' },
-        {
-          id: agent.id,
-          instructions: agent.instructions,
-          department: agent.department,
-          webhookPath: agent.webhookPath,
-          n8nStatus: agent.n8nStatus,
-        },
+      fireAndForget(task.id, 'dispatchAgentTask', () =>
+        dispatchAgentTask(
+          { id: task.id, orgId: task.orgId, title: task.title, input: task.input, taskType: 'agent' },
+          {
+            id: agent.id,
+            instructions: agent.instructions,
+            department: agent.department,
+            webhookPath: agent.webhookPath,
+            n8nStatus: agent.n8nStatus,
+          },
+        ),
       );
     }
     return { enqueued: true, taskId: task.id };
@@ -122,7 +156,7 @@ export async function claimAndEnqueueScheduledTask(
   await prisma.taskLog.create({
     data: { taskId: task.id, message: `定期実行から起動 (scheduledTaskId=${st.id})`, level: 'INFO' },
   });
-  void dispatchQueuedTask(task);
+  fireAndForget(task.id, 'dispatchQueuedTask', () => dispatchQueuedTask(task));
   return { enqueued: true, taskId: task.id };
 }
 
@@ -140,8 +174,13 @@ export async function enqueueDueScheduledTasks(now: Date = new Date()): Promise<
   let count = 0;
   for (const st of candidates) {
     if (!matchesSchedule(st, now)) continue;
-    const result = await claimAndEnqueueScheduledTask(st.id, now);
-    if (result.enqueued) count += 1;
+    // 1 件の失敗（DB 瞬断など）で残り全件を止めない。ここで握って次の候補へ進む。
+    try {
+      const result = await claimAndEnqueueScheduledTask(st.id, now);
+      if (result.enqueued) count += 1;
+    } catch (e) {
+      console.error(`[schedule] scheduledTask=${st.id} の発火に失敗（残りは続行）:`, e);
+    }
   }
   return count;
 }
@@ -162,6 +201,10 @@ export function startInternalScheduler(): void {
       console.error('[schedule] tick failed:', e);
     }
   };
-  void tick();
-  setInterval(() => void tick(), TICK_INTERVAL_MS).unref?.();
+  // tick 内でも catch しているが、万一こぼれても unhandled rejection にしない（上の方針と同じ）。
+  const safeTick = (): void => {
+    void tick().catch((e) => console.error('[schedule] tick crashed:', e));
+  };
+  safeTick();
+  setInterval(safeTick, TICK_INTERVAL_MS).unref?.();
 }

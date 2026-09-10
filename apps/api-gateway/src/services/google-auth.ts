@@ -19,14 +19,20 @@ export function isTokenExpired(expiresAt: Date | null, now: Date, skewMs: number
   return expiresAt.getTime() - skewMs <= now.getTime();
 }
 
+/**
+ * TEMPORARY_FAILURE は「接続は生きているが今回は取れなかった」＝時間をおけば直る失敗。
+ * NEEDS_RECONNECT（本当に失効・再接続が要る）と混ぜると、ネットワーク瞬断や Google 側 5xx でも
+ * UI が「再接続が必要」と促してしまうため、呼び出し側が区別できるよう分けている。
+ */
 export type GoogleTokenResult =
   | { ok: true; accessToken: string }
-  | { ok: false; reason: 'NOT_CONNECTED' | 'NEEDS_RECONNECT' };
+  | { ok: false; reason: 'NOT_CONNECTED' | 'NEEDS_RECONNECT' | 'TEMPORARY_FAILURE' };
 
 /**
  * org の Google access_token を返す。期限切れなら refresh_token で更新して保存する。
  * refresh が invalid_grant（ユーザーが取り消した / テストモードの7日失効）なら
  * status を NEEDS_RECONNECT に落とし、RequiredCredential も DISCONNECTED に同期する。
+ * ネットワーク瞬断や Google 側 5xx/429 は TEMPORARY_FAILURE を返し、ProviderConnection は触らない。
  *
  * 並行呼び出しで二重リフレッシュしても Google は旧 access_token を期限まで有効に保つため
  * 楽観的に last-write-wins とする（ロックは持たない）。
@@ -63,11 +69,18 @@ export async function getGoogleAccessToken(orgId: string): Promise<GoogleTokenRe
 
   const refreshed = await requestRefresh(refreshToken);
   if (!refreshed.ok) {
-    if (refreshed.invalidGrant) {
+    if (refreshed.failure === 'invalid_grant') {
       await markNeedsReconnect(conn.id, orgId);
       return { ok: false, reason: 'NEEDS_RECONNECT' };
     }
-    // ネットワーク等の一時故障: 状態は変えず、今回だけ失敗扱い（次回リトライで直る）
+    if (refreshed.failure === 'temporary') {
+      // ネットワーク瞬断 / Google 側 5xx・429: 接続自体は生きているので状態は変えず、
+      // 「再接続が必要」とも言わない。次回リトライで直る想定。
+      console.warn(`[google-auth] トークンのリフレッシュが一時的に失敗 (org=${orgId})`);
+      return { ok: false, reason: 'TEMPORARY_FAILURE' };
+    }
+    // invalid_client / unauthorized_client / OAuth クライアント未設定など、
+    // リトライしても直らない失敗。状態は変えないが再接続を促す（従来どおり）。
     return { ok: false, reason: 'NEEDS_RECONNECT' };
   }
 
@@ -90,14 +103,17 @@ async function markNeedsReconnect(connectionId: string, orgId: string): Promise<
   await syncRequiredCredentialStatus(orgId, 'google', 'DISCONNECTED');
 }
 
+/** invalid_grant=本当に失効 / temporary=瞬断・5xx・429 / permanent=設定不備など再試行しても無駄。 */
+type RefreshFailure = 'invalid_grant' | 'temporary' | 'permanent';
+
 type RefreshResult =
   | { ok: true; accessToken: string; expiresInSec: number }
-  | { ok: false; invalidGrant: boolean };
+  | { ok: false; failure: RefreshFailure };
 
 async function requestRefresh(refreshToken: string): Promise<RefreshResult> {
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID ?? '';
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET ?? '';
-  if (!clientId || !clientSecret) return { ok: false, invalidGrant: false };
+  if (!clientId || !clientSecret) return { ok: false, failure: 'permanent' };
   try {
     const res = await fetch(TOKEN_URL, {
       method: 'POST',
@@ -122,9 +138,14 @@ async function requestRefresh(refreshToken: string): Promise<RefreshResult> {
         expiresInSec: typeof json.expires_in === 'number' ? json.expires_in : 3600,
       };
     }
-    return { ok: false, invalidGrant: json?.error === 'invalid_grant' };
+    if (json?.error === 'invalid_grant') return { ok: false, failure: 'invalid_grant' };
+    // Google 側の一時故障（5xx）とレート制限（429）はリトライで直るので接続を殺さない。
+    const status = typeof res.status === 'number' ? res.status : 0;
+    if (status >= 500 || status === 429) return { ok: false, failure: 'temporary' };
+    return { ok: false, failure: 'permanent' };
   } catch {
-    return { ok: false, invalidGrant: false };
+    // fetch の throw = ネットワーク断 / AbortSignal.timeout によるタイムアウト。
+    return { ok: false, failure: 'temporary' };
   }
 }
 

@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const prismaMock = {
   scheduledTask: { updateMany: vi.fn(), findUnique: vi.fn(), findMany: vi.fn() },
   agent: { findUnique: vi.fn() },
-  task: { create: vi.fn() },
+  task: { create: vi.fn(), update: vi.fn() },
   taskLog: { create: vi.fn() },
 };
 vi.mock('../../utils/prisma', () => ({ prisma: prismaMock }));
@@ -52,8 +52,12 @@ const AGENT = {
 beforeEach(() => {
   vi.clearAllMocks();
   prismaMock.task.create.mockResolvedValue({ id: 't1', orgId: 'org-1', title: 'T', input: 'i', department: 'ANALYTICS' });
+  prismaMock.task.update.mockResolvedValue({ id: 't1' });
   prismaMock.taskLog.create.mockResolvedValue({ id: 'l' });
 });
+
+/** fire-and-forget の catch はマイクロタスク後に走るので 1 tick 待つ。 */
+const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
 describe('startOfCurrentHourUtc', () => {
   it('分・秒・ミリ秒を切り捨てる', () => {
@@ -143,6 +147,29 @@ describe('claimAndEnqueueScheduledTask（二重発火防止）', () => {
     expect(dispatchQueuedTaskMock).not.toHaveBeenCalled();
   });
 
+  it('fire-and-forget の失敗を握りつぶし、Task を FAILED + ERROR ログにする（プロセスを落とさない）', async () => {
+    prismaMock.scheduledTask.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.scheduledTask.findUnique.mockResolvedValue(ST);
+    dispatchQueuedTaskMock.mockRejectedValue(new Error('db down'));
+
+    const r = await claimAndEnqueueScheduledTask('st1');
+    await flush();
+
+    expect(r.enqueued).toBe(true); // enqueue 自体は成功扱い（実行が非同期に失敗しただけ）
+    expect(prismaMock.task.update.mock.calls[0][0].data.status).toBe('FAILED');
+    expect(prismaMock.taskLog.create.mock.calls.at(-1)?.[0].data.level).toBe('ERROR');
+  });
+
+  it('FAILED マーク自体が失敗してもスローしない（DB 全断でも落ちない）', async () => {
+    prismaMock.scheduledTask.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.scheduledTask.findUnique.mockResolvedValue(ST);
+    dispatchQueuedTaskMock.mockRejectedValue(new Error('db down'));
+    prismaMock.task.update.mockRejectedValue(new Error('db down too'));
+
+    await claimAndEnqueueScheduledTask('st1');
+    await expect(flush()).resolves.toBeUndefined();
+  });
+
   it('エージェントが削除済み/無効なら Task を作らない', async () => {
     prismaMock.scheduledTask.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.scheduledTask.findUnique.mockResolvedValue({ ...ST, agentId: 'A1' });
@@ -169,5 +196,21 @@ describe('enqueueDueScheduledTasks', () => {
 
     expect(n).toBe(1);
     expect(prismaMock.scheduledTask.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('1 件が例外で落ちても残りの候補は発火する', async () => {
+    prismaMock.scheduledTask.findMany.mockResolvedValue([
+      { id: 'st-ng', frequency: 'daily', dayOfWeek: null, dayOfMonth: null },
+      { id: 'st-ok', frequency: 'daily', dayOfWeek: null, dayOfMonth: null },
+    ]);
+    prismaMock.scheduledTask.updateMany
+      .mockRejectedValueOnce(new Error('db blip'))
+      .mockResolvedValue({ count: 1 });
+    prismaMock.scheduledTask.findUnique.mockResolvedValue(ST);
+
+    const n = await enqueueDueScheduledTasks(new Date('2026-09-09T00:00:00Z'));
+
+    expect(n).toBe(1);
+    expect(prismaMock.scheduledTask.updateMany).toHaveBeenCalledTimes(2);
   });
 });

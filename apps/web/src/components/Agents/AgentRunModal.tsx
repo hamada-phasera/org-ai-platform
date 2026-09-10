@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { X, Loader2, CheckCircle2, AlertCircle, Clock } from 'lucide-react';
+import { X, Loader2, CheckCircle2, AlertCircle, Clock, ShieldCheck, ArrowRight } from 'lucide-react';
 import { api } from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 import { Button } from '../ui/Button';
@@ -14,7 +15,18 @@ interface TaskLogEntry {
   createdAt: string;
 }
 
-type RunStatus = 'idle' | 'starting' | 'running' | 'done' | 'failed';
+/** awaiting_approval / rejected も終端。WS の done は DONE/FAILED でしか飛んでこない */
+type RunStatus = 'idle' | 'starting' | 'running' | 'done' | 'failed' | 'awaiting_approval' | 'rejected';
+
+/** GET /tasks/:id の返す Task のうち、ここで見るぶんだけ */
+interface TaskSnapshot {
+  status: string;
+  output?: string | null;
+  lastError?: string | null;
+}
+
+/** Task.status を確認する間隔（ms） */
+const STATUS_POLL_MS = 2500;
 
 interface Props {
   agent: SavedAgent;
@@ -29,6 +41,7 @@ export function AgentRunModal({ agent, onClose }: Props) {
   const [output, setOutput] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const pollRef = useRef<number | null>(null);
   const logEndRef = useRef<HTMLDivElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
@@ -36,9 +49,19 @@ export function AgentRunModal({ agent, onClose }: Props) {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
-  useEffect(() => {
-    return () => wsRef.current?.close();
+  /** 監視をすべて止める（終端に到達したとき / アンマウント時） */
+  const stopWatching = useCallback(() => {
+    wsRef.current?.close();
+    wsRef.current = null;
+    if (pollRef.current !== null) {
+      window.clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
   }, []);
+
+  useEffect(() => {
+    return () => stopWatching();
+  }, [stopWatching]);
 
   /* a11y: Escape で閉じる */
   useEffect(() => {
@@ -58,6 +81,41 @@ export function AgentRunModal({ agent, onClose }: Props) {
       ?.focus();
   }, []);
 
+  /**
+   * Task の status を直接見にいき、終端なら実行中表示をやめる。
+   *
+   * WS `/api/tasks/:taskId/stream` は DONE / FAILED でしか done を送らないため、
+   * 承認必須の capability（send_email など）で PENDING_APPROVAL に止まった実行は
+   * これが無いとモーダルが永久にスピナーのままになる。REJECTED も終端として扱う。
+   */
+  const syncTaskStatus = useCallback(
+    async (taskId: string) => {
+      try {
+        const res = await api.get<{ success: boolean; data: TaskSnapshot }>(`/tasks/${taskId}`);
+        const task = res.data.data;
+        if (task.status === 'PENDING_APPROVAL') {
+          stopWatching();
+          setStatus('awaiting_approval');
+        } else if (task.status === 'REJECTED') {
+          stopWatching();
+          setStatus('rejected');
+        } else if (task.status === 'DONE') {
+          stopWatching();
+          setOutput(task.output ?? null);
+          setStatus('done');
+        } else if (task.status === 'FAILED') {
+          stopWatching();
+          setOutput(task.output ?? null);
+          setError(task.lastError ?? '実行に失敗しました');
+          setStatus('failed');
+        }
+      } catch {
+        /* 一時的な失敗は次のポーリングで拾う（監視は止めない） */
+      }
+    },
+    [stopWatching],
+  );
+
   const connectStream = useCallback((taskId: string) => {
     const token = useAuthStore.getState().token;
     const wsBase =
@@ -72,26 +130,27 @@ export function AgentRunModal({ agent, onClose }: Props) {
         if (data.type === 'logs') {
           setLogs((prev) => [...prev, ...(data.data as TaskLogEntry[])]);
           setStatus('running');
+          /* ログが動いた直後は状態も動いている可能性が高い（承認待ち停止の検知を早める） */
+          void syncTaskStatus(taskId);
         } else if (data.type === 'done') {
-          const finished = data.status === 'DONE' ? 'done' : 'failed';
-          api
-            .get<{ success: boolean; data: { output?: string; lastError?: string } }>(`/tasks/${taskId}`)
-            .then((res) => {
-              setOutput(res.data.data.output ?? null);
-              if (finished === 'failed') setError(res.data.data.lastError ?? '実行に失敗しました');
-              setStatus(finished);
-            })
-            .catch(() => setStatus(finished));
-          ws.close();
+          /* status の反映と監視停止は syncTaskStatus に一本化する。
+             GET が失敗してもポーリングが残っているので取りこぼさない */
+          void syncTaskStatus(taskId);
         }
       } catch {
         /* skip malformed frame */
       }
     };
     ws.onerror = () => ws.close();
-  }, []);
+
+    /* WS だけでは PENDING_APPROVAL / REJECTED を検知できないので status も定期確認する */
+    pollRef.current = window.setInterval(() => {
+      void syncTaskStatus(taskId);
+    }, STATUS_POLL_MS);
+  }, [syncTaskStatus]);
 
   const handleRun = useCallback(async () => {
+    stopWatching();
     setStatus('starting');
     setLogs([]);
     setOutput(null);
@@ -106,7 +165,7 @@ export function AgentRunModal({ agent, onClose }: Props) {
       setError(e instanceof Error ? e.message : '実行リクエストに失敗しました');
       setStatus('failed');
     }
-  }, [agent.id, input, connectStream]);
+  }, [agent.id, input, connectStream, stopWatching]);
 
   const busy = status === 'starting' || status === 'running';
 
@@ -169,8 +228,10 @@ export function AgentRunModal({ agent, onClose }: Props) {
             <div className="text-xs text-secondary mb-2 flex items-center gap-1.5">
               {status === 'done' ? (
                 <CheckCircle2 size={14} className="text-success" />
-              ) : status === 'failed' ? (
+              ) : status === 'failed' || status === 'rejected' ? (
                 <AlertCircle size={14} className="text-danger" />
+              ) : status === 'awaiting_approval' ? (
+                <ShieldCheck size={14} className="text-warning" />
               ) : (
                 <Loader2 size={14} className="animate-spin" />
               )}
@@ -201,6 +262,35 @@ export function AgentRunModal({ agent, onClose }: Props) {
               <div ref={logEndRef} />
             </div>
           </div>
+        )}
+
+        {/* 外部送信の直前で止まった実行。ここで終端にしないと「実行中…」が終わらない */}
+        {status === 'awaiting_approval' && (
+          <div
+            aria-live="polite"
+            className="mt-4 rounded-card border border-warning/40 bg-warning/10 p-3 flex items-start gap-2"
+          >
+            <ShieldCheck size={14} className="mt-0.5 flex-shrink-0 text-warning" />
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-primary">送信前の承認待ちです</p>
+              <p className="mt-1 text-xs text-secondary">
+                受信ページで内容を確認して承認してください。承認すると残りのステップが続きます。
+              </p>
+              <Link
+                to="/inbox"
+                onClick={onClose}
+                className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-action hover:text-action-hover"
+              >
+                受信ページを開く
+                <ArrowRight size={12} />
+              </Link>
+            </div>
+          </div>
+        )}
+        {status === 'rejected' && (
+          <p aria-live="polite" className="mt-3 text-xs text-danger">
+            この実行は承認されず、却下されました。
+          </p>
         )}
 
         {output && (

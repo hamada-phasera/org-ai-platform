@@ -154,7 +154,14 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       }
     }
     if (isAgentStep) {
-      if (task.status !== 'PENDING_APPROVAL') {
+      // 二重承認（ボタン連打・再送）で Slack 投稿やメール送信が 2 回走らないよう、
+      // status を読んでから実行する read-then-act をやめ、条件付き更新で atomic に claim する。
+      // PENDING_APPROVAL を掴めた 1 リクエストだけが resumeAgentTask を呼べる。
+      const claimed = await prisma.task.updateMany({
+        where: { id: taskId, orgId: payload.orgId, status: 'PENDING_APPROVAL' },
+        data: { status: 'RUNNING' },
+      });
+      if (claimed.count === 0) {
         return reply.code(409).send({
           success: false,
           error: { code: 'INVALID_STATE', message: 'このタスクは承認待ちではありません' },
@@ -163,6 +170,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       await prisma.taskLog.create({
         data: { taskId, message: 'ステップを承認しました。実行を再開します', level: 'INFO' },
       });
+      // claim 済み（既に RUNNING）でも resumeAgentTask は続行する
       void resumeAgentTask(taskId, {
         editedArgs: body.success ? body.data.editedArgs : undefined,
       });
@@ -199,13 +207,6 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     if (!task || task.orgId !== payload.orgId) {
       return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'タスクが見つかりません' } });
     }
-    if (task.status !== 'PENDING_APPROVAL') {
-      return reply.code(409).send({
-        success: false,
-        error: { code: 'INVALID_STATE', message: 'このタスクは承認待ちではありません' },
-      });
-    }
-
     const body = rejectTaskSchema.safeParse(request.body ?? {});
     const reason = body.success ? body.data.reason : undefined;
 
@@ -216,17 +217,25 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       if (step && step.status === 'AWAITING_APPROVAL') step.status = 'REJECTED';
     }
 
-    const updated = await prisma.task.update({
-      where: { id: taskId },
+    // approve と同じく条件付き更新で claim。承認と却下が同時に来ても片方だけが通る。
+    const claimed = await prisma.task.updateMany({
+      where: { id: taskId, orgId: payload.orgId, status: 'PENDING_APPROVAL' },
       data: {
         status: 'REJECTED',
         lastError: reason ?? null,
         ...(state ? { executionResult: JSON.stringify(state) } : {}),
       },
     });
+    if (claimed.count === 0) {
+      return reply.code(409).send({
+        success: false,
+        error: { code: 'INVALID_STATE', message: 'このタスクは承認待ちではありません' },
+      });
+    }
     await prisma.taskLog.create({
       data: { taskId, message: `承認を却下しました${reason ? `: ${reason}` : ''}`, level: 'INFO' },
     });
+    const updated = await prisma.task.findUnique({ where: { id: taskId } });
     return reply.send({ success: true, data: updated });
   });
 

@@ -26,6 +26,7 @@ import { inboxConnectionsRoutes } from './routes/inbox/connections';
 import { integrationsRoutes } from './routes/integrations';
 import { oauthGoogleRoutes } from './routes/oauth-google';
 import { startInternalScheduler } from './services/schedule-dispatcher';
+import { recoverStaleRunningTasks } from './services/step-runner';
 import { prisma } from './utils/prisma';
 
 const app = Fastify({ logger: true });
@@ -125,6 +126,14 @@ async function start(): Promise<void> {
   const port = parseInt(process.env.PORT ?? '4000');
   await app.listen({ port, host: '0.0.0.0' });
   console.log(`API Gateway running on port ${port}`);
+
+  // デプロイ・再起動で RUNNING のまま取り残されたエージェント実行を回収する。
+  // 放置すると受信ページにも一覧にも「実行中」のまま永久に残るため、起動直後に一度だけ掃除する。
+  void recoverStaleRunningTasks()
+    .then((n) => {
+      if (n > 0) console.log(`[startup] 中断された実行 ${n} 件を回収しました`);
+    })
+    .catch((e) => console.error('[startup] stale task recovery failed:', e));
 
   // 定期実行の gateway 内 tick（n8n schedule-dispatcher が未インポートでも定期実行が動く保険。
   // 併走しても enqueue 側の atomic claim が二重発火を防ぐ）

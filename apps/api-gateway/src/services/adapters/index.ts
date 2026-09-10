@@ -24,6 +24,14 @@ const AUTH_MISSING_SLACK: N8nEnvelope = {
   data: null,
 };
 
+/** Google 側の一時故障（5xx / 429 / ネットワーク断）。接続は生きているので再接続を促さない。 */
+const GOOGLE_TEMPORARY_FAILURE: N8nEnvelope = {
+  status: 'error',
+  error_type: 'NODE_FAILED',
+  message: 'Google に一時的に接続できませんでした。時間をおいて再度お試しください。',
+  data: null,
+};
+
 const AUTH_MISSING_GOOGLE: N8nEnvelope = {
   status: 'error',
   error_type: 'AUTH_MISSING',
@@ -111,14 +119,18 @@ async function googleEnvelope<T extends object>(
 
 const createGoogleDocAdapter: CapabilityAdapter = async (args, ctx) => {
   const token = await getGoogleAccessToken(ctx.orgId);
-  if (!token.ok) return AUTH_MISSING_GOOGLE;
+  if (!token.ok) {
+    return token.reason === 'TEMPORARY_FAILURE' ? GOOGLE_TEMPORARY_FAILURE : AUTH_MISSING_GOOGLE;
+  }
   const result = await createDoc(token.accessToken, String(args.title ?? ''), String(args.content ?? ''));
   return googleEnvelope(ctx, result, 'Google ドキュメントを作成しました');
 };
 
 const createGoogleSheetAdapter: CapabilityAdapter = async (args, ctx) => {
   const token = await getGoogleAccessToken(ctx.orgId);
-  if (!token.ok) return AUTH_MISSING_GOOGLE;
+  if (!token.ok) {
+    return token.reason === 'TEMPORARY_FAILURE' ? GOOGLE_TEMPORARY_FAILURE : AUTH_MISSING_GOOGLE;
+  }
   const headers = Array.isArray(args.headers) ? (args.headers as unknown[]).map(String) : [];
   const rows = Array.isArray(args.rows)
     ? (args.rows as unknown[]).map((r) => (Array.isArray(r) ? (r as unknown[]).map(String) : [String(r)]))
@@ -129,7 +141,9 @@ const createGoogleSheetAdapter: CapabilityAdapter = async (args, ctx) => {
 
 const createGoogleSlidesAdapter: CapabilityAdapter = async (args, ctx) => {
   const token = await getGoogleAccessToken(ctx.orgId);
-  if (!token.ok) return AUTH_MISSING_GOOGLE;
+  if (!token.ok) {
+    return token.reason === 'TEMPORARY_FAILURE' ? GOOGLE_TEMPORARY_FAILURE : AUTH_MISSING_GOOGLE;
+  }
   const slides: SlideInput[] = Array.isArray(args.slides)
     ? (args.slides as unknown[]).map((s) => {
         const o = (s ?? {}) as Record<string, unknown>;

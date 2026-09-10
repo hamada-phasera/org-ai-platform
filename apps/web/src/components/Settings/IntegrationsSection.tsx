@@ -71,15 +71,23 @@ export function IntegrationsSection() {
   const [slackWarning, setSlackWarning] = useState<string | null>(null);
   const [oauthMessage, setOauthMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
-  /* OAuth から戻ってきたときの結果表示。読んだらクエリを消して再読み込みでも残らないようにする */
+  /* OAuth から戻ってきたときの処理。
+     callback はトークンをどの org にも紐づけずに返してくるので、ここで confirm を叩いて
+     「いまログインしているこの組織」に保存する（アカウント連結 CSRF を構造的に防ぐ設計）。 */
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const connected = params.get('connected');
+    const linkId = params.get('googleLink');
     const error = params.get('error');
-    if (!connected && !error) return;
-    if (connected === 'google') {
-      setOauthMessage({ kind: 'ok', text: 'Google を接続しました。' });
-    } else if (error) {
+    if (!linkId && !error) return;
+
+    // 読み終えたクエリは消す（再読み込みで二重に走らせない）
+    params.delete('googleLink');
+    params.delete('connected');
+    params.delete('error');
+    const rest = params.toString();
+    window.history.replaceState({}, '', `${window.location.pathname}${rest ? `?${rest}` : ''}`);
+
+    if (error) {
       const text =
         error === 'google_denied'
           ? 'Google の接続がキャンセルされました。'
@@ -87,13 +95,26 @@ export function IntegrationsSection() {
             ? '接続リンクの有効期限が切れました。もう一度お試しください。'
             : 'Google の接続に失敗しました。時間をおいて再度お試しください。';
       setOauthMessage({ kind: 'error', text });
+      return;
     }
-    params.delete('connected');
-    params.delete('error');
-    const rest = params.toString();
-    window.history.replaceState({}, '', `${window.location.pathname}${rest ? `?${rest}` : ''}`);
-    void qc.invalidateQueries({ queryKey: ['provider-connections'] });
-    void qc.invalidateQueries({ queryKey: ['capabilities'] });
+
+    void (async () => {
+      try {
+        await api.post('/oauth/google/confirm', { linkId });
+        setOauthMessage({ kind: 'ok', text: 'Google を接続しました。' });
+        void qc.invalidateQueries({ queryKey: ['provider-connections'] });
+        void qc.invalidateQueries({ queryKey: ['capabilities'] });
+      } catch (err) {
+        const message =
+          err instanceof AxiosError
+            ? (err.response?.data as { error?: { message?: string } } | undefined)?.error?.message
+            : undefined;
+        setOauthMessage({
+          kind: 'error',
+          text: message ?? 'Google の接続を完了できませんでした。もう一度お試しください。',
+        });
+      }
+    })();
   }, [qc]);
 
   const connectionsQ = useQuery({

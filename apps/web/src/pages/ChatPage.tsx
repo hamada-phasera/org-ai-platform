@@ -120,6 +120,13 @@ export default function ChatPage() {
     }
   }, [id, currentSessionId, setCurrentSession, setMessages]);
 
+  // 実行確認カードはセッションに属する。id が変わったら必ず捨てる。
+  // 残したまま別セッションで承認すると、前のセッションの内容で成果物が作られる。
+  useEffect(() => {
+    setPendingDeliverable(null);
+    setConfirmingDeliverable(false);
+  }, [id]);
+
   // Handle selected agent from dashboard
   useEffect(() => {
     if (selectedAgentId) {

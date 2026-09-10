@@ -195,6 +195,39 @@ describe('google-auth', () => {
     expect(updateData.status).toBe('NEEDS_RECONNECT');
   });
 
+  it('ネットワーク瞬断は TEMPORARY_FAILURE（接続状態は変えない）', async () => {
+    prismaMock.providerConnection.findUnique.mockResolvedValue({
+      id: 'pc1',
+      status: 'CONNECTED',
+      accessTokenEnc: sealSecret('old'),
+      refreshTokenEnc: sealSecret('rt'),
+      tokenExpiresAt: new Date(Date.now() - 60_000),
+    });
+    fetchMock.mockRejectedValue(new Error('fetch failed'));
+
+    const r = await getGoogleAccessToken('org-1');
+
+    expect(r).toEqual({ ok: false, reason: 'TEMPORARY_FAILURE' });
+    expect(prismaMock.providerConnection.update).not.toHaveBeenCalled();
+    expect(prismaMock.requiredCredential.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('Google 側 5xx も TEMPORARY_FAILURE（再接続を促さない）', async () => {
+    prismaMock.providerConnection.findUnique.mockResolvedValue({
+      id: 'pc1',
+      status: 'CONNECTED',
+      accessTokenEnc: sealSecret('old'),
+      refreshTokenEnc: sealSecret('rt'),
+      tokenExpiresAt: new Date(Date.now() - 60_000),
+    });
+    fetchMock.mockResolvedValue({ ok: false, status: 503, json: async () => ({ error: 'backend_error' }) });
+
+    const r = await getGoogleAccessToken('org-1');
+
+    expect(r).toEqual({ ok: false, reason: 'TEMPORARY_FAILURE' });
+    expect(prismaMock.providerConnection.update).not.toHaveBeenCalled();
+  });
+
   it('未接続は NOT_CONNECTED', async () => {
     prismaMock.providerConnection.findUnique.mockResolvedValue(null);
     expect(await getGoogleAccessToken('org-1')).toEqual({ ok: false, reason: 'NOT_CONNECTED' });
