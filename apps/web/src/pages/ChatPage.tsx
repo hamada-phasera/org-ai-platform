@@ -17,6 +17,8 @@ import { TaskProgressSidebar } from '../components/Chat/TaskProgressSidebar';
 import { AgentCtaCard, type AgentDraft } from '../components/Chat/AgentCtaCard';
 import { NodeCtaCard, type NodeDraft } from '../components/Chat/NodeCtaCard';
 import { looksLikeApiSpec } from '../utils/apiSpecDetect';
+import { isChatPhase, type ChatPhase } from '../utils/chatProgress';
+import { ChatProgress } from '../components/Chat/ChatProgress';
 import { DeliverableBar, type DeliverableKind } from '../components/Chat/DeliverableBar';
 import { RunPreviewRow } from '../components/exec-kernel/RunPreviewRow';
 import { MarkdownLite } from '../components/Chat/MarkdownLite';
@@ -108,6 +110,11 @@ export default function ChatPage() {
   const [nodeSuggestion, setNodeSuggestion] = useState<{ afterMessageId: string; draft: NodeDraft } | null>(null);
   const [creatingNode, setCreatingNode] = useState(false);
   const [nodeError, setNodeError] = useState<string | null>(null);
+  /* 回答は完成してから一括で出す。そのあいだ何をしているかを見せる */
+  const [phase, setPhase] = useState<ChatPhase | null>(null);
+  const [phaseChars, setPhaseChars] = useState<number | null>(null);
+  const [lastEventAt, setLastEventAt] = useState<number | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
   const isOwner = useAuthStore((s) => s.user?.role) === 'OWNER';
   /* ノードの表示名を引くためのレジストリ（設定>連携 と同じキャッシュを共有） */
   const capabilitiesQ = useQuery({
@@ -249,6 +256,10 @@ export default function ChatPage() {
     addMessage(tmpMsg);
     setStreamingContent('');
     setStreamingDepartment(null);
+    setPhase(null);
+    setPhaseChars(null);
+    setLastEventAt(Date.now());
+    setSendError(null);
 
     try {
       const token = useAuthStore.getState().token;
@@ -264,6 +275,8 @@ export default function ChatPage() {
           content: text,
           department: selectedDept ?? undefined,
           fileIds: fileIds.length > 0 ? fileIds : undefined,
+          // 生成が終わってから一括で受け取る（逐次表示にしない）
+          delivery: 'complete',
         }),
       });
 
@@ -276,6 +289,7 @@ export default function ChatPage() {
       let buffer = '';
       let finalAssistantMessage: Message | null = null;
       let realUserMessage: Message | null = null;
+      let streamError: string | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -291,15 +305,36 @@ export default function ChatPage() {
             const event = JSON.parse(line.slice(6));
             if (event.type === 'userMessage') {
               realUserMessage = event.data;
+            } else if (event.type === 'progress') {
+              /* 一括配信の本命。token は来ないので、ここで「いま何をしているか」を更新する */
+              if (isChatPhase(event.phase)) setPhase(event.phase);
+              setPhaseChars(typeof event.chars === 'number' ? event.chars : null);
+              setLastEventAt(Date.now());
             } else if (event.type === 'token') {
+              // delivery:'stream' に戻したときの経路（既定では来ない）
               appendStreamingContent(event.content);
+              setLastEventAt(Date.now());
             } else if (event.type === 'department') {
               setStreamingDepartment(event.department);
+            } else if (event.type === 'error') {
+              /* ⚠️ 以前はこの分岐が無く、エラーが握りつぶされていた。
+                 gateway は空メッセージを作って done を送るので、画面には
+                 空の吹き出しが増えるだけで再試行の導線も出なかった。 */
+              streamError = typeof event.message === 'string' ? event.message : 'エラーが発生しました';
             } else if (event.type === 'done') {
               finalAssistantMessage = event.data;
             }
           } catch { /* skip */ }
         }
+      }
+
+      /* ⚠️ エラーで終わった場合は、仮メッセージを消してエラーを出す。
+         以前は空の吹き出しが1つ増えるだけで、何が起きたか分からなかった。 */
+      if (streamError) {
+        setMessages(messages.filter((m) => !m.id.startsWith('tmp-')));
+        setSendError(streamError);
+        setInput(lastInputRef.current); // 打ち直させない
+        return;
       }
 
       // Replace temp messages with real ones
@@ -376,6 +411,9 @@ export default function ChatPage() {
       setSending(false);
       setStreamingContent(null);
       setStreamingDepartment(null);
+      setPhase(null);
+      setPhaseChars(null);
+      setLastEventAt(null);
     }
   };
 
@@ -1061,11 +1099,7 @@ export default function ChatPage() {
                         </div>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-1.5 pt-2">
-                        <div className="w-2 h-2 bg-accent rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                        <div className="w-2 h-2 bg-accent rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                        <div className="w-2 h-2 bg-accent rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                      </div>
+                      <ChatProgress phase={phase} chars={phaseChars} lastEventAt={lastEventAt} />
                     )}
                   </motion.div>
                 )}
@@ -1077,6 +1111,28 @@ export default function ChatPage() {
             {/* Input area - Claude style pill */}
             <div className="p-4 bg-transparent">
               <div className="max-w-3xl mx-auto">
+                {/* 生成が失敗したとき。以前は空の吹き出しが増えるだけで何も分からなかった */}
+                {sendError && !sending && (
+                  <div className="mb-2 flex items-center gap-2 rounded-md border border-danger/30 bg-danger/10 px-3 py-1.5">
+                    <p className="min-w-0 flex-1 text-xs text-danger">{sendError}</p>
+                    <button
+                      type="button"
+                      onClick={() => { setSendError(null); void sendMessage(); }}
+                      className="shrink-0 text-micro font-bold text-danger hover:underline"
+                    >
+                      もう一度送る
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSendError(null)}
+                      aria-label="エラーを閉じる"
+                      className="shrink-0 text-muted transition-colors hover:text-primary"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                )}
+
                 {/* エージェント修正モードの表示。新しい画面は作らず1行のチップだけ出す */}
                 {editingAgent && (
                   <div className="mb-2 flex items-center gap-2 rounded-md border border-accent-soft-border bg-accent-soft px-3 py-1.5">

@@ -69,6 +69,12 @@ const sendMessageSchema = z.object({
   department: z.string().optional(),
   // RAG: グラウンディング対象として明示されたアップロードファイル
   fileIds: z.array(z.string()).optional(),
+  /**
+   * 回答の届け方。
+   * 'complete'（既定）= 生成が終わってから一括で渡す。途中は進行状況だけ流す。
+   * 'stream'          = 従来どおり token を1つずつ流す（逐次表示に戻したいときの非常口）。
+   */
+  delivery: z.enum(['complete', 'stream']).optional(),
 });
 
 export async function chatRoutes(app: FastifyInstance): Promise<void> {
@@ -326,12 +332,43 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
     reply.raw.write(`data: ${JSON.stringify({ type: 'userMessage', data: userMessage })}\n\n`);
 
+    /**
+     * 進行状況の送出。
+     *
+     * ⚠️ フェーズは**実際に起きたイベントでしか進めない**。
+     *    「もうすぐ出力します」を推測で出すと、生成が長引いたときに画面が嘘をつく。
+     *    RECEIVED  = ユーザー発話を保存した
+     *    RETRIEVING= RAG の検索を始めた
+     *    GENERATING= ai-engine から最初のトークンが届いた
+     *    FINALIZING= ai-engine が done を送った（本文は完成済み・あとは保存だけ）
+     * chars は受信済みの文字数。進捗率ではないので「何%」とは言わない。
+     */
+    let lastProgressAt = 0;
+    const sendProgress = (phase: string, chars?: number, force = false) => {
+      const now = Date.now();
+      // 1秒に1回まで。トークンごとに送ると逐次表示をやめた意味が薄れる
+      if (!force && now - lastProgressAt < 1000) return;
+      lastProgressAt = now;
+      reply.raw.write(
+        `data: ${JSON.stringify({ type: 'progress', phase, ...(chars !== undefined ? { chars } : {}) })}\n\n`,
+      );
+    };
+    sendProgress('RECEIVED', undefined, true);
+
     const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://ai-engine:8000';
     let fullContent = '';
     let department = body.data.department ?? 'GENERAL';
+    /** 上流がエラーを送ってきたか。空メッセージを DB に作らないための旗 */
+    let upstreamError: string | null = null;
+    /**
+     * 完成してから一括で出す（既定）。
+     * token を1つずつ流す旧挙動に戻したいときだけ delivery:'stream' を送る。
+     */
+    const bufferedDelivery = body.data.delivery !== 'stream';
 
     // RAG: 関連するファイル/過去チャットを取得して根拠ブロックを作る（無効時/該当なしは undefined）
     let ragContext: string | undefined;
+    sendProgress('RETRIEVING', undefined, true);
     try {
       const retrieved = await retrieveContext({
         orgId: payload.orgId,
@@ -387,16 +424,32 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
             const event = JSON.parse(line.slice(6)) as { type: string; content?: string; department?: string; message?: string };
             if (event.type === 'token' && event.content) {
               fullContent += event.content;
-              reply.raw.write(`data: ${JSON.stringify({ type: 'token', content: event.content })}\n\n`);
+              if (bufferedDelivery) {
+                // ⚠️ ここで token を転送しない。完成文は最後の done で1回だけ渡す
+                sendProgress('GENERATING', fullContent.length);
+              } else {
+                reply.raw.write(`data: ${JSON.stringify({ type: 'token', content: event.content })}\n\n`);
+              }
             } else if (event.type === 'department' && event.department) {
               department = event.department;
               reply.raw.write(`data: ${JSON.stringify({ type: 'department', department: event.department })}\n\n`);
+            } else if (event.type === 'done') {
+              // 上流の生成が終わった。ここから先は保存だけなので「まもなく表示します」と言ってよい
+              sendProgress('FINALIZING', fullContent.length, true);
             } else if (event.type === 'error') {
-              reply.raw.write(`data: ${JSON.stringify({ type: 'error', message: event.message })}\n\n`);
+              /* ⚠️ 以前はこれを転送するだけで、fullContent が '' のまま先へ進み、
+                 空のメッセージを DB に作って done を送っていた。顧客の画面には
+                 空の吹き出しが増えるだけでエラーも再試行導線も出なかった。
+                 ここで記録し、下でフォールバックへ落とす。 */
+              upstreamError = event.message ?? 'AI エンジンでエラーが発生しました';
             }
           } catch { /* skip malformed JSON */ }
         }
       }
+      /* ⚠️ 上流がエラーを返した場合、ここまでで fullContent は空か途中までしかない。
+         そのまま進むと空メッセージを作って done を送ってしまうので、
+         例外にして下のフォールバック（n8n → 定型文）へ落とす。 */
+      if (upstreamError && !fullContent) throw new Error(upstreamError);
       console.log('[chat-stream] responded via ai-engine streaming');
     } catch (err) {
       console.error('[chat-stream] ai-engine stream failed, trying n8n fallback:', err);
@@ -413,11 +466,19 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       if (n8nResult) {
         fullContent = n8nResult.content;
         department = n8nResult.department;
-        reply.raw.write(`data: ${JSON.stringify({ type: 'token', content: fullContent })}\n\n`);
+        if (!bufferedDelivery) {
+          reply.raw.write(`data: ${JSON.stringify({ type: 'token', content: fullContent })}\n\n`);
+        }
         console.log('[chat-stream] responded via n8n fallback');
       } else {
-        fullContent = 'AIエンジンに接続できません。サービスが起動しているか確認してください。';
-        reply.raw.write(`data: ${JSON.stringify({ type: 'token', content: fullContent })}\n\n`);
+        /* n8n も落ちている。ここは「回答」ではなく障害なので、
+           空メッセージを残さず error として返し、画面に再試行を出させる。 */
+        const message = upstreamError
+          ? 'AI の応答中にエラーが発生しました。もう一度お試しください。'
+          : 'AI エンジンに接続できません。時間をおいて再度お試しください。';
+        reply.raw.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);
+        reply.raw.end();
+        return;
       }
     }
 
@@ -431,6 +492,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       { messageId: assistantMessage.id, role: 'assistant', content: fullContent },
     ]).catch(() => null);
 
+    /* 完成文は assistantMessage.content に入っている。バッファ配信ではこれが本文の唯一の到着点。 */
     reply.raw.write(`data: ${JSON.stringify({ type: 'done', data: assistantMessage })}\n\n`);
     reply.raw.end();
   });
