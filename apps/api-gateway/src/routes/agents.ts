@@ -43,17 +43,35 @@ const updateAgentSchema = z.object({
 
 const runAgentSchema = z.object({ input: z.string().optional() });
 
-/** AI Engine /plan/agent でチャット説明文からエージェント定義を推論する（best-effort）。 */
+const suggestAgentSchema = z.object({
+  /** 「〜して、そのあと〜して」「3番目を消して」など、自由記述の依頼 */
+  description: z.string().min(1).max(4000),
+  /** 指定すると既存エージェントの修正提案になる（保存はしない） */
+  agentId: z.string().optional(),
+});
+
+/** 既存エージェントを修正するときに planner へ渡す現状。 */
+interface CurrentAgentContext {
+  name: string;
+  instructions: string;
+  steps: { capabilityName: string; argTemplate?: Record<string, unknown> }[];
+}
+
+/** AI Engine /plan/agent でチャット説明文からエージェント定義を推論する（best-effort）。
+ *  currentAgent を渡すと「既存を土台に、依頼された変更だけを加えた完成形」が返る。 */
 async function inferAgentDefinition(
   description: string,
   orgId: string,
   plan: string,
+  currentAgent?: CurrentAgentContext,
 ): Promise<{
   name?: string;
   department?: string;
   instructions?: string;
   steps?: { capabilityName: string; argTemplate?: Record<string, string> }[];
   trigger?: 'MANUAL' | 'SCHEDULED';
+  reasoning?: string;
+  confidence?: number;
 } | null> {
   const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
   const capabilities = await prisma.capability.findMany({
@@ -64,7 +82,13 @@ async function inferAgentDefinition(
     const res = await fetch(`${aiEngineUrl}/plan/agent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description, org_id: orgId, plan, available_capabilities: capabilities }),
+      body: JSON.stringify({
+        description,
+        org_id: orgId,
+        plan,
+        available_capabilities: capabilities,
+        ...(currentAgent ? { current_agent: currentAgent } : {}),
+      }),
       signal: AbortSignal.timeout(20_000),
     });
     if (!res.ok) return null;
@@ -77,6 +101,8 @@ async function inferAgentDefinition(
         ? (j.steps as { capabilityName: string; argTemplate?: Record<string, string> }[])
         : undefined,
       trigger: j.trigger === 'SCHEDULED' ? 'SCHEDULED' : j.trigger === 'MANUAL' ? 'MANUAL' : undefined,
+      reasoning: typeof j.reasoning === 'string' ? j.reasoning : undefined,
+      confidence: typeof j.confidence === 'number' ? j.confidence : undefined,
     };
   } catch {
     return null;
@@ -198,6 +224,73 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
         .send({ success: false, error: { code: 'NOT_FOUND', message: 'エージェントが見つかりません' } });
     }
     return reply.send({ success: true, data: agent });
+  });
+
+  /**
+   * 手順の提案だけを返す（**保存しない**）。
+   *
+   * チャットが唯一の編集入口なので、「作る」も「直す」もここを通る。
+   * agentId を渡すと現状を土台にした修正提案になり、返る steps は差分ではなく
+   * **変更後の完成形**（適用が単純な置換になり、部分適用の失敗が起きない）。
+   */
+  app.post('/suggest', { preHandler: requireOwner }, async (request, reply) => {
+    const payload = request.user as { orgId: string };
+    const parsed = suggestAgentSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply
+        .code(400)
+        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+    }
+
+    let current: CurrentAgentContext | undefined;
+    if (parsed.data.agentId) {
+      const agent = await prisma.agent.findUnique({ where: { id: parsed.data.agentId } });
+      if (!agent || agent.orgId !== payload.orgId) {
+        return reply
+          .code(404)
+          .send({ success: false, error: { code: 'NOT_FOUND', message: 'エージェントが見つかりません' } });
+      }
+      current = {
+        name: agent.name,
+        instructions: agent.instructions,
+        steps:
+          (agent.steps as unknown as { capabilityName: string; argTemplate?: Record<string, unknown> }[] | null) ??
+          [],
+      };
+    }
+
+    const org = await prisma.organization.findUnique({
+      where: { id: payload.orgId },
+      select: { plan: true },
+    });
+    const inferred = await inferAgentDefinition(
+      parsed.data.description,
+      payload.orgId,
+      org?.plan ?? 'STARTER',
+      current,
+    );
+    if (!inferred) {
+      return reply.code(502).send({
+        success: false,
+        error: { code: 'AI_ENGINE_UNAVAILABLE', message: '提案を作れませんでした。時間をおいて再度お試しください。' },
+      });
+    }
+
+    return reply.send({
+      success: true,
+      data: {
+        agentId: parsed.data.agentId ?? null,
+        name: inferred.name ?? current?.name ?? null,
+        department: inferred.department ?? 'GENERAL',
+        instructions: inferred.instructions ?? current?.instructions ?? null,
+        steps: inferred.steps ?? [],
+        trigger: inferred.trigger ?? 'MANUAL',
+        reasoning: inferred.reasoning ?? '',
+        confidence: inferred.confidence ?? 0.5,
+        /* 修正モードでは「前」も返し、フロントが変更点を強調できるようにする */
+        previousSteps: current?.steps ?? null,
+      },
+    });
   });
 
   // 保存エージェント作成（任意で n8n 専用ワークフローを best-effort 生成）
@@ -386,15 +479,20 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
       },
     });
 
-    // 定義が変わったら n8n ワークフローを同期（best-effort）
+    // 定義が変わったら n8n ワークフローを同期（best-effort）。
+    // ⚠️ steps を入れ忘れると、キャンバス/チャットで手順を変えても n8n 側が古いままになる。
     const defChanged =
-      d.name !== undefined || d.department !== undefined || d.instructions !== undefined;
+      d.name !== undefined ||
+      d.department !== undefined ||
+      d.instructions !== undefined ||
+      d.steps !== undefined;
     if (defChanged && updated.n8nWorkflowId) {
       const ok = await syncAgentWorkflow(updated.n8nWorkflowId, {
         id: updated.id,
         name: updated.name,
         department: updated.department,
         instructions: updated.instructions,
+        steps: (updated.steps as unknown as { capabilityName: string }[] | null) ?? undefined,
       });
       if (!ok) {
         await prisma.agent.update({ where: { id: agentId }, data: { n8nStatus: 'PENDING' } });

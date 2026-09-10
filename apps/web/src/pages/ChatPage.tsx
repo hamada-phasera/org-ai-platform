@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Send, Plus, Bot, User as UserIcon, X, PanelLeftClose, PanelLeftOpen,
   Mic, MicOff, Loader2, Sparkles, Paperclip, File as FileIcon, ClipboardList,
 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { useChatStore } from '../store/chatStore';
@@ -18,7 +19,7 @@ import { DeliverableBar, type DeliverableKind } from '../components/Chat/Deliver
 import { RunPreviewRow } from '../components/exec-kernel/RunPreviewRow';
 import { MarkdownLite } from '../components/Chat/MarkdownLite';
 import { CreateAgentModal } from '../components/Agents/CreateAgentModal';
-import type { ChatSession, Message } from '@org-ai/shared-types';
+import type { AgentStepDef, ChatSession, Message } from '@org-ai/shared-types';
 import { DEPT_LABEL, DEPT_ACCENT, DEPARTMENTS, DEPT_CHARACTER } from '../constants/departments';
 
 interface InlineTask {
@@ -62,6 +63,11 @@ interface PendingDeliverable {
 export default function ChatPage() {
   const { id } = useParams<{ id?: string }>();
   const navigate = useNavigate();
+  /* エージェント詳細の「チャットで修正」から来たときの編集対象 */
+  const location = useLocation();
+  const editingFromNav = (location.state ?? null) as
+    | { editingAgentId?: string; agentName?: string }
+    | null;
   const {
     sessions, setSessions, currentSessionId, setCurrentSession,
     messages, setMessages, addMessage,
@@ -91,6 +97,23 @@ export default function ChatPage() {
   /* 実行前の確認待ち（RunPreviewRow で承認するまで作成しない） */
   const [pendingDeliverable, setPendingDeliverable] = useState<PendingDeliverable | null>(null);
   const [confirmingDeliverable, setConfirmingDeliverable] = useState(false);
+  /* エージェント修正モード。チャットが唯一の編集入口なので、対象をここで保持する */
+  const [editingAgent, setEditingAgent] = useState<{ id: string; name: string } | null>(
+    editingFromNav?.editingAgentId
+      ? { id: editingFromNav.editingAgentId, name: editingFromNav.agentName ?? 'エージェント' }
+      : null,
+  );
+  const [applyingSuggestion, setApplyingSuggestion] = useState(false);
+  /* ノードの表示名を引くためのレジストリ（設定>連携 と同じキャッシュを共有） */
+  const capabilitiesQ = useQuery({
+    queryKey: ['capabilities'],
+    queryFn: async () => {
+      const res = await api.get<{ success: boolean; data: { name: string; displayName: string; kind?: string | null }[] }>(
+        '/capabilities',
+      );
+      return res.data.data;
+    },
+  });
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastInputRef = useRef('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -273,8 +296,23 @@ export default function ChatPage() {
         //   会話の返答とは別に「タスク」が同じ質問を再度返す二重応答＝リピートの原因になっていたため廃止。
         //   成果物は下の「成果物を作成」バー（明示操作）から生成する。
 
+        // 修正モード: 対象エージェントの手順を作り直す提案を取りにいく（保存はしない）
+        if (editingAgent) {
+          const finalId = (finalAssistantMessage as Message).id;
+          api.post<{ success: boolean; data: AgentDraft & { steps?: AgentStepDef[] } }>(
+            '/agents/suggest',
+            { description: lastInputRef.current, agentId: editingAgent.id },
+          )
+            .then((r) => {
+              const d = r.data.data;
+              if (d?.steps?.length || d?.instructions) {
+                setAgentSuggestion({ afterMessageId: finalId, draft: d });
+              }
+            })
+            .catch(() => null);
+        }
         // 会話が定型業務に育ったらエージェント化を提案（既に提案中/却下済みならスキップ）
-        if (!agentSuggestion && !suggestDismissed) {
+        else if (!agentSuggestion && !suggestDismissed) {
           const finalId = (finalAssistantMessage as Message).id;
           api.post<{ success: boolean; data: { suggest: boolean; draft?: AgentDraft } }>(
             `/chat/sessions/${id}/suggest`,
@@ -475,6 +513,27 @@ export default function ChatPage() {
       return `この内容はまだ自動作成に対応していません。${o.reasoning ? `（${o.reasoning}）` : ''}`;
     }
     return '確認が必要です。';
+  };
+
+  /** 修正提案をエージェントへ反映する（チャットが唯一の編集入口なので確定もここ）。 */
+  const applySuggestionToAgent = async () => {
+    if (!editingAgent || !agentSuggestion || applyingSuggestion) return;
+    setApplyingSuggestion(true);
+    try {
+      const d = agentSuggestion.draft;
+      await api.patch(`/agents/${editingAgent.id}`, {
+        ...(d.steps ? { steps: d.steps } : {}),
+        ...(d.instructions ? { instructions: d.instructions } : {}),
+      });
+      setAgentSuggestion(null);
+      pushAssistantMessage(
+        `✅ 「${editingAgent.name}」の手順を更新しました。エージェント詳細で確認できます。`,
+      );
+    } catch (e) {
+      pushAssistantMessage(humanizeTaskManagerError(e));
+    } finally {
+      setApplyingSuggestion(false);
+    }
   };
 
   const pushAssistantMessage = (content: string) => {
@@ -859,7 +918,13 @@ export default function ChatPage() {
                       <div className="ml-11 mt-3">
                         <AgentCtaCard
                           draft={agentSuggestion.draft}
-                          onCreate={() => setSuggestModalOpen(true)}
+                          capabilities={capabilitiesQ.data ?? []}
+                          editing={!!editingAgent}
+                          busy={applyingSuggestion}
+                          onCreate={() => {
+                            if (editingAgent) void applySuggestionToAgent();
+                            else setSuggestModalOpen(true);
+                          }}
                           onDismiss={() => { setAgentSuggestion(null); setSuggestDismissed(true); }}
                         />
                       </div>
@@ -915,6 +980,30 @@ export default function ChatPage() {
             {/* Input area - Claude style pill */}
             <div className="p-4 bg-transparent">
               <div className="max-w-3xl mx-auto">
+                {/* エージェント修正モードの表示。新しい画面は作らず1行のチップだけ出す */}
+                {editingAgent && (
+                  <div className="mb-2 flex items-center gap-2 rounded-md border border-accent-soft-border bg-accent-soft px-3 py-1.5">
+                    <Bot size={13} className="shrink-0 text-accent" aria-hidden="true" />
+                    <p className="min-w-0 flex-1 truncate text-xs text-primary">
+                      <span className="font-bold">{editingAgent.name}</span> を編集中 — 変えたいことを書いてください
+                    </p>
+                    <Link
+                      to={`/agents/${editingAgent.id}`}
+                      className="shrink-0 text-micro font-bold text-action hover:underline"
+                    >
+                      詳細
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => { setEditingAgent(null); setAgentSuggestion(null); }}
+                      aria-label="編集モードを終了"
+                      className="shrink-0 text-text-muted transition-colors hover:text-secondary"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                )}
+
                 {/* 実行前の確認。ここで承認するまで成果物は作られない */}
                 {pendingDeliverable && (
                   <div className="mb-3">

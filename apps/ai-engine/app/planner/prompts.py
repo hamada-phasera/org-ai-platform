@@ -39,13 +39,67 @@ def build_planner_user_prompt(message: str) -> str:
 _DEPARTMENTS = ["SALES", "MARKETING", "ACCOUNTING", "ANALYTICS", "GENERAL"]
 
 
-def build_agent_planner_system_prompt(capabilities: list[dict[str, Any]]) -> str:
+def _format_params(input_schema: dict[str, Any] | None) -> str:
+    """inputSchema から 'title:string(必須), rows:array<array>(必須)' 形式の引数一覧を作る。
+
+    これを渡さないとモデルは「配列が必要な引数」の存在を知り得ず、
+    create_google_sheet / create_google_slides の argTemplate を必ず外す。
+    """
+    schema = input_schema or {}
+    props = schema.get("properties") or {}
+    required = set(schema.get("required") or [])
+    parts: list[str] = []
+    for key, spec in props.items():
+        spec = spec or {}
+        t = spec.get("type", "string")
+        if t == "array":
+            item_t = ((spec.get("items") or {}).get("type")) or "string"
+            t = f"array<{item_t}>"
+        parts.append(f"{key}:{t}{'(必須)' if key in required else ''}")
+    return ", ".join(parts) if parts else "なし"
+
+
+def _format_current_agent(current: dict[str, Any] | None) -> str:
+    """既存エージェントを修正するときの現状ブロック。無ければ空文字。"""
+    if not current:
+        return ""
+    steps = current.get("steps") or []
+    if steps:
+        lines = []
+        for i, st in enumerate(steps, start=1):
+            if not isinstance(st, dict):
+                continue
+            args = st.get("argTemplate") or {}
+            lines.append(f'  {i}. {st.get("capabilityName")}  引数: {json.dumps(args, ensure_ascii=False)}')
+        step_block = "\n".join(lines) if lines else "  (手順なし)"
+    else:
+        step_block = "  (手順なし)"
+    return (
+        "\n【修正モード】以下は既存エージェントの現状です。\n"
+        f"名前: {current.get('name') or '(未設定)'}\n"
+        f"指示: {(current.get('instructions') or '')[:400]}\n"
+        "現在の手順:\n"
+        f"{step_block}\n"
+        "\n⚠️ 修正モードの厳守事項:\n"
+        "- ユーザーが依頼した変更**だけ**を加え、それ以外の手順・引数は現状のまま残すこと。\n"
+        "- steps は差分ではなく**変更後の完成形を全て**返すこと（返さなかった手順は消える）。\n"
+        "- 手順の削除を頼まれたら、その要素を除いた残り全部を返す。\n"
+        "- 並べ替えを頼まれたら、並べ替え後の順序で全部を返す。\n"
+    )
+
+
+def build_agent_planner_system_prompt(
+    capabilities: list[dict[str, Any]],
+    current_agent: dict[str, Any] | None = None,
+) -> str:
     cap_lines = []
     for c in capabilities:
         cap_lines.append(
             f'- name: {c["name"]}  ({c.get("displayName", c["name"])}) — {c["description"]}'
         )
+        cap_lines.append(f'    引数: {_format_params(c.get("inputSchema"))}')
     cap_block = "\n".join(cap_lines) if cap_lines else "(登録ケイパビリティなし)"
+    current_block = _format_current_agent(current_agent)
 
     return (
         "あなたは中小企業向け『組織型AIエージェント基盤』の設計担当です。\n"
@@ -75,6 +129,10 @@ def build_agent_planner_system_prompt(capabilities: list[dict[str, Any]]) -> str
         '        {"capabilityName": "notify_slack", "argTemplate": {"channel": "#general", "text": "{{prev}}"}}]\n'
         "6. 定期実行を匂わせる表現(毎日/毎週/定期 等)があれば trigger=SCHEDULED、なければ MANUAL。\n"
         "7. department は要望内容に最も近い部署を選ぶ。判断が付かなければ GENERAL。\n"
+        "8. argTemplate に書けるキーは、そのケイパビリティの『引数』に列挙されたものだけ。必須引数は必ず埋める。\n"
+        "9. array 型の引数は JSON 配列リテラルの文字列で書いてよい"
+        '(例 "[[\\"日付\\",\\"売上\\"],[\\"4/1\\",100]]")。実行時に実体へ復元される。\n'
+        + current_block
     )
 
 

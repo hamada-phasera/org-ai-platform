@@ -95,10 +95,18 @@ async def plan_agent(
     org_id: str,
     plan: str,
     capabilities: list[dict[str, Any]],
+    current_agent: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """自由記述から再利用可能なエージェント定義 (name/department/instructions/steps/trigger) を推論する。"""
+    """自由記述から再利用可能なエージェント定義 (name/department/instructions/steps/trigger) を推論する。
+
+    current_agent を渡すと「既存を土台に、依頼された変更だけを加えた完成形」を返す
+    （差分ではなく steps 全体。適用が単純な置換になり、部分適用の失敗が起きない）。
+    """
     messages = [
-        ChatMessage(role="system", content=build_agent_planner_system_prompt(capabilities)),
+        ChatMessage(
+            role="system",
+            content=build_agent_planner_system_prompt(capabilities, current_agent),
+        ),
         ChatMessage(role="user", content=build_agent_planner_user_prompt(description)),
     ]
     try:

@@ -463,12 +463,24 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       '会話の目的・対象・手順を汲み取り、エージェントの名前・部署・指示(システムプロンプト)を日本語で提案してください。' +
       `\n\n[会話]\n${transcript}`;
 
+    // ⚠️ ここは以前 available_capabilities: [] を渡しており、planner が手順を組みようがなかった
+    //    （提案カードに名前しか出なかった原因）。org の capability を実際に渡す。
+    const capabilities = await prisma.capability.findMany({
+      where: { orgId: payload.orgId, status: { not: 'DISABLED' } },
+      select: { name: true, displayName: true, description: true, department: true, inputSchema: true },
+    });
+
     const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://ai-engine:8000';
     try {
       const res = await fetch(`${aiEngineUrl}/plan/agent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description, org_id: payload.orgId, plan, available_capabilities: [] }),
+        body: JSON.stringify({
+          description,
+          org_id: payload.orgId,
+          plan,
+          available_capabilities: capabilities,
+        }),
         signal: AbortSignal.timeout(25000),
       });
       if (!res.ok) return reply.send({ success: true, data: { suggest: false } });
@@ -476,6 +488,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         name?: string | null;
         department?: string;
         instructions?: string | null;
+        steps?: { capabilityName: string; argTemplate?: Record<string, unknown> }[];
         trigger?: string;
         confidence?: number;
         reasoning?: string;
@@ -491,6 +504,8 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
             name: draft.name,
             department: draft.department ?? 'GENERAL',
             instructions: draft.instructions,
+            /* 提案カードがこれをミニキャンバスとして描く。planner が登録済み名だけに絞っている */
+            steps: Array.isArray(draft.steps) ? draft.steps : [],
             trigger: draft.trigger === 'SCHEDULED' ? 'SCHEDULED' : 'MANUAL',
             reasoning: draft.reasoning ?? '',
           },

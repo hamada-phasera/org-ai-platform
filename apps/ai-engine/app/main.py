@@ -52,11 +52,21 @@ class PlanResponse(BaseModel):
     pii_types: list[str] = []
 
 
+class CurrentAgent(BaseModel):
+    """既存エージェントを修正するときに渡す現状。これがあると planner は
+    「土台にして、依頼された変更だけを加えた steps 全体」を返す（差分ではなく完成形）。"""
+
+    name: Optional[str] = None
+    instructions: Optional[str] = None
+    steps: list[dict[str, Any]] = []
+
+
 class PlanAgentRequest(BaseModel):
     description: str
     org_id: str
     plan: str = "STARTER"
     available_capabilities: list[PlanCapability] = []
+    current_agent: Optional[CurrentAgent] = None
 
 
 class AgentStep(BaseModel):
@@ -358,6 +368,7 @@ async def plan_agent_endpoint(request: PlanAgentRequest) -> PlanAgentResponse:
         org_id=request.org_id,
         plan=request.plan,
         capabilities=capabilities,
+        current_agent=request.current_agent.model_dump() if request.current_agent else None,
     )
     asyncio.create_task(log_llm_call(
         org_id=request.org_id,
