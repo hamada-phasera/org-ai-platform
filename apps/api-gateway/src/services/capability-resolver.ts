@@ -3,6 +3,7 @@ import addFormats from 'ajv-formats';
 import { prisma } from '../utils/prisma';
 import { executeCapability, type N8nEnvelope } from './capability-executor';
 import { nativeProviderFor } from './adapters/provider-map';
+import { httpMethodOf } from './http-node/template';
 
 // 型は capability-executor に移設済み。既存 import 互換のため re-export する。
 export type { ErrorType, N8nEnvelope } from './capability-executor';
@@ -97,7 +98,12 @@ export async function resolveAndExecute(input: {
   // 実行前確認ゲート: preview 指定は常に、rawInput 推論は確信度不足のときだけ止める。
   // 承認後は name + args を明示指定して呼び直す（→ このゲートを通らず確定実行）。
   const lowConfidence = inferredConfidence !== null && inferredConfidence < CONFIDENCE_THRESHOLD;
-  if (input.mode === 'preview' || lowConfidence) {
+  // チャット経路は step-runner を通らないため承認ゲートが効かない。書き込み系の
+  // カスタムノードを AI 推論で選んだ場合は、確信度によらず必ず人に確認させる
+  // （＝「AI が推論した宛先へ人の確認なしで POST」を成立させない）。
+  const isCustomWrite =
+    capability.kind === 'http' && (httpMethodOf(capability.httpConfig) ?? '') !== 'GET';
+  if (input.mode === 'preview' || lowConfidence || (isCustomWrite && inferredConfidence !== null)) {
     return {
       outcome: 'NEEDS_CONFIRMATION',
       capability: capability.name,
