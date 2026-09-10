@@ -9,12 +9,28 @@ import {
   syncAgentWorkflow,
   deleteAgentWorkflow,
 } from '../services/n8n-workflow-builder';
+import { scrubSecrets } from '../services/secret-scrubber';
 
 const DEPARTMENTS = ['SALES', 'MARKETING', 'ACCOUNTING', 'ANALYTICS', 'GENERAL', 'ASSISTANT'];
 
+/**
+ * argTemplate に入りうる値。planner は件数・真偽値・配列をそのまま返してくる。
+ * ここを string に狭めると PATCH /agents が 400 になり、チャットからの修正が通らない。
+ */
+type ArgValue = string | number | boolean | null | unknown[] | Record<string, unknown>;
+
 const stepSchema = z.object({
   capabilityName: z.string().min(1),
-  argTemplate: z.record(z.string()).optional(),
+  /**
+   * ⚠️ 値を string に限定しない。planner は件数や真偽値をそのまま返してくることがあり、
+   * z.record(z.string()) だと PATCH /agents が 400 になって「この内容に変更」が通らない。
+   * step-runner の renderArgTemplate は元から非文字列を前提に書かれている。
+   */
+  argTemplate: z
+    .record(
+      z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(z.unknown()), z.record(z.unknown())]),
+    )
+    .optional() as z.ZodType<Record<string, ArgValue> | undefined>,
 });
 
 const createAgentSchema = z.object({
@@ -68,22 +84,27 @@ async function inferAgentDefinition(
   name?: string;
   department?: string;
   instructions?: string;
-  steps?: { capabilityName: string; argTemplate?: Record<string, string> }[];
+  steps?: { capabilityName: string; argTemplate?: Record<string, ArgValue> }[];
   trigger?: 'MANUAL' | 'SCHEDULED';
   reasoning?: string;
   confidence?: number;
 } | null> {
   const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
   const capabilities = await prisma.capability.findMany({
-    where: { orgId },
+    // ⚠️ 停止中のノードを planner に見せない。提案に出ても実行時に UNSUPPORTED で弾かれ、
+    //    「提案どおり承認したのに動かない」ことになる（chat.ts 側と条件を揃える）。
+    where: { orgId, status: { not: 'DISABLED' } },
     select: { name: true, displayName: true, description: true, department: true, inputSchema: true },
   });
+  // ⚠️ 利用者は curl を丸ごと貼る。ここを素通しにすると実キーが ai-engine に届き、
+  //    AILog と LLM プロバイダの両方に残る。送る前に gateway で一段落とす。
+  const safeDescription = scrubSecrets(description).text;
   try {
     const res = await fetch(`${aiEngineUrl}/plan/agent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        description,
+        description: safeDescription,
         org_id: orgId,
         plan,
         available_capabilities: capabilities,
@@ -341,7 +362,8 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
           description: body.description ?? null,
           department: department ?? 'GENERAL',
           instructions,
-          steps: steps ?? undefined,
+          // zod で構造は検証済み。Prisma の InputJsonValue は unknown を受けないのでここで畳む
+          steps: (steps ?? undefined) as object[] | undefined,
           trigger: trigger ?? 'MANUAL',
           icon: body.icon ?? null,
           color: body.color ?? null,
@@ -471,7 +493,8 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
         ...(d.description !== undefined ? { description: d.description } : {}),
         ...(d.department !== undefined ? { department: d.department } : {}),
         ...(d.instructions !== undefined ? { instructions: d.instructions } : {}),
-        ...(d.steps !== undefined ? { steps: d.steps ?? undefined } : {}),
+        // zod で構造は検証済み。Prisma の InputJsonValue は ArgValue の union を受けない
+        ...(d.steps !== undefined ? { steps: (d.steps ?? undefined) as object[] | undefined } : {}),
         ...(d.trigger !== undefined ? { trigger: d.trigger } : {}),
         ...(d.enabled !== undefined ? { enabled: d.enabled } : {}),
         ...(d.icon !== undefined ? { icon: d.icon } : {}),

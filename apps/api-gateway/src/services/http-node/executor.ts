@@ -148,11 +148,18 @@ export async function executeHttpCapabilityDetailed(
     };
   }
 
+  // ⚠️ HTTP ヘッダ名は大文字小文字を区別しない。利用者が 'Content-Type' を定義していると
+  //    こちらが足す 'content-type' と両方送られ、相手によっては 400 になる。
+  //    小文字に正規化してからマージし、送信側の指定を後勝ちにする。
+  const normalizedHeaders: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) normalizedHeaders[k.toLowerCase()] = v;
+  if (body !== undefined) normalizedHeaders['content-type'] = 'application/json';
+
   const startedAt = Date.now();
   const res = await sendGuardedRequest({
     url,
     method: config.method,
-    headers: { ...headers, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
+    headers: normalizedHeaders,
     body,
     timeoutMs: config.timeoutMs,
   });
@@ -194,6 +201,12 @@ export async function executeHttpCapabilityDetailed(
         };
       case 'TIMEOUT':
         return { envelope: envelope('error', 'TIMEOUT', '外部APIがタイムアウトしました。'), authDead: false };
+      case 'NETWORK':
+        // ⚠️ res.message をそのまま返さない（内部の解決結果が滲む）
+        return {
+          envelope: envelope('error', 'NODE_FAILED', '外部APIに接続できませんでした。'),
+          authDead: false,
+        };
       case 'BLOCKED':
         return {
           envelope: envelope('error', 'VALIDATION_ERROR', '接続先として許可されていない URL です。'),
@@ -205,6 +218,21 @@ export async function executeHttpCapabilityDetailed(
           authDead: false,
         };
     }
+  }
+
+  if (res.body === null) {
+    // 204 No Content など、本文なしの成功。送信は届いている
+    if (config.outputPath) {
+      return {
+        envelope: envelope(
+          'error',
+          'NODE_FAILED',
+          `外部APIは成功しましたが本文を返しませんでした (HTTP ${res.statusCode})。出力の取り出し方（${config.outputPath}）を空にしてください。`,
+        ),
+        authDead: false,
+      };
+    }
+    return { envelope: envelope('success', null, '外部APIを呼び出しました', null), authDead: false };
   }
 
   const picked = pickOutput(res.body, config.outputPath);

@@ -24,17 +24,24 @@ const { resetRateLimits } = await import('../http-node/client');
 
 /** undici の request 返り値を作る。body は async iterable。 */
 function reply(statusCode: number, body: string, headers: Record<string, string> = {}) {
+  return rawReply(statusCode, body, { 'content-type': 'application/json', ...headers });
+}
+
+/** Content-Type を含む既定ヘッダを一切足さない版。204 など本文なしの応答を作るのに使う。 */
+function rawReply(statusCode: number, body: string, headers: Record<string, string> = {}) {
   const destroy = vi.fn();
+  const on = vi.fn();
   return {
     statusCode,
-    headers: { 'content-type': 'application/json', ...headers },
+    headers,
     body: Object.assign(
       (async function* () {
         yield Buffer.from(body);
       })(),
-      { destroy },
+      { destroy, on },
     ),
     __destroy: destroy,
+    __on: on,
   };
 }
 
@@ -100,7 +107,8 @@ describe('executeHttpCapabilityDetailed', () => {
     const r = await executeHttpCapabilityDetailed(CAP, { dealId: 'D-1' }, 'org-1');
 
     const sentHeaders = (requestMock.mock.calls[0][1] as { headers: Record<string, string> }).headers;
-    expect(sentHeaders.Authorization).toBe('Bearer sk-live-SECRET');
+    // ヘッダ名は送信前に小文字へ正規化される（Content-Type の二重送信を防ぐため）
+    expect(sentHeaders.authorization).toBe('Bearer sk-live-SECRET');
     const serialized = JSON.stringify(r.envelope);
     expect(serialized).not.toContain('sk-live-SECRET');
     expect(serialized).not.toContain('v1:');
@@ -181,6 +189,83 @@ describe('executeHttpCapabilityDetailed', () => {
     const r = await executeHttpCapabilityDetailed(CAP, { dealId: 'D-1' }, 'org-1');
     expect(r.envelope.status).toBe('error');
     expect(requestMock).not.toHaveBeenCalled();
+  });
+
+  it('204 No Content は成功として扱う（書き込み系ノードが全滅しない）', async () => {
+    // ⚠️ ここが失敗扱いだと、外部側の副作用は起きているのに Task が FAILED になり、
+    //    人が再実行して二重送信する
+    const cap = { ...CAP, httpConfig: { ...CAP.httpConfig, method: 'POST' as const, outputPath: '' } };
+    requestMock.mockResolvedValue(rawReply(204, '', {}));
+
+    const r = await executeHttpCapabilityDetailed(cap, { dealId: 'D-1' }, 'org-1');
+
+    expect(r.envelope.status).toBe('success');
+    expect(r.envelope.data).toBeNull();
+  });
+
+  it('Content-Type を返さない 201 も成功として扱う', async () => {
+    const cap = { ...CAP, httpConfig: { ...CAP.httpConfig, method: 'POST' as const, outputPath: '' } };
+    requestMock.mockResolvedValue(rawReply(201, '', { 'content-length': '0' }));
+
+    const r = await executeHttpCapabilityDetailed(cap, { dealId: 'D-1' }, 'org-1');
+
+    expect(r.envelope.status).toBe('success');
+  });
+
+  it('本文なしの成功で outputPath が設定されていたら、取り出し方を直すよう促す', async () => {
+    requestMock.mockResolvedValue(rawReply(204, '', {}));
+    const r = await executeHttpCapabilityDetailed(CAP, { dealId: 'D-1' }, 'org-1');
+    expect(r.envelope.status).toBe('error');
+    expect(r.envelope.message).toContain('本文を返しませんでした');
+  });
+
+  it('本文を捨てる前に error リスナを付ける（unhandled error でプロセスを落とさない）', async () => {
+    // ⚠️ destroy() だけだと Readable の 'error' が unhandled になり、
+    //    api-gateway のプロセスごと落ちる（＝全 API が止まる）
+    const res = rawReply(302, '', { location: 'https://example.org/' });
+    requestMock.mockResolvedValue(res);
+
+    await executeHttpCapabilityDetailed(CAP, { dealId: 'D-1' }, 'org-1');
+
+    expect(res.__on).toHaveBeenCalledWith('error', expect.any(Function));
+    expect(res.__destroy).toHaveBeenCalled();
+    // リスナは destroy より先に付いていること
+    expect(res.__on.mock.invocationCallOrder[0]).toBeLessThan(res.__destroy.mock.invocationCallOrder[0]);
+  });
+
+  it('undici のタイムアウトを TIMEOUT に畳む（name は TimeoutError ではない）', async () => {
+    requestMock.mockRejectedValue(
+      Object.assign(new Error('Headers Timeout Error'), {
+        name: 'HeadersTimeoutError',
+        code: 'UND_ERR_HEADERS_TIMEOUT',
+      }),
+    );
+
+    const r = await executeHttpCapabilityDetailed(CAP, { dealId: 'D-1' }, 'org-1');
+
+    expect(r.envelope.error_type).toBe('TIMEOUT');
+    expect(r.envelope.message).toContain('タイムアウト');
+  });
+
+  it('利用者が Content-Type を定義していても二重に送らない', async () => {
+    const cap = {
+      ...CAP,
+      httpConfig: {
+        ...CAP.httpConfig,
+        method: 'POST' as const,
+        headers: [{ name: 'Content-Type', value: 'application/json; charset=utf-8', secret: false }],
+        bodyTemplate: { id: '{{dealId}}' },
+        url: 'https://api.example.com/v1/deals',
+        outputPath: '',
+      },
+    };
+    requestMock.mockResolvedValue(reply(200, JSON.stringify({ ok: true })));
+
+    await executeHttpCapabilityDetailed(cap, { dealId: 'D-1' }, 'org-1');
+
+    const sent = (requestMock.mock.calls[0][1] as { headers: Record<string, string> }).headers;
+    const ctKeys = Object.keys(sent).filter((k) => k.toLowerCase() === 'content-type');
+    expect(ctKeys).toHaveLength(1);
   });
 
   it('ヘッダインジェクションを試みる値は送信前に落ちる', async () => {

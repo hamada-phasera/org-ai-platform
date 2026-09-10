@@ -180,6 +180,10 @@ async def orchestrate_stream(request: OrchestateRequest) -> StreamingResponse:
                 pii_types.extend(result.types)
                 messages[i] = ChatMessage(role=msg.role, content=result.text)
 
+    # ⚠️ AILog には **マスク後** だけを残す。request.message を直接記録すると、
+    #    LLM には送っていない生の資格情報・個人情報が DB に永久に残る。
+    logged_input = "\n".join(m.content for m in messages if m.role == "user")
+
     async def event_generator():
         start = time.monotonic()
         full_content = ""
@@ -207,7 +211,7 @@ async def orchestrate_stream(request: OrchestateRequest) -> StreamingResponse:
                 department=resolved_dept,
                 provider=stream_provider,
                 model=stream_model,
-                input_text=request.message,
+                input_text=logged_input,  # マスク後だけを記録する
                 output_text=full_content,
                 tokens=None,
                 latency_ms=latency_ms,
@@ -237,7 +241,9 @@ async def llm_chat(request: LLMRequest) -> LLMResponse:
     # 監査ログ: /llm/chat を直接叩く経路（ゲートウェイ /api/llm/chat・各部署の生成機能）も
     # 必ず AILog / RiskEvent に残す。CLAUDE.md「すべての AI 入出力を AILog に記録」・
     # integration-requests 営業#5（/plan・/orchestrate と同様に集中ロギング）。
-    input_text = "\n".join(m.content for m in request.messages if m.role == "user")
+    # ⚠️ router 側で LLM へ送る前にマスクしているが、ここで記録するのは request の生テキスト。
+    #    同じ screen() を通してからでないと、AILog にだけ平文が残る。
+    input_text = screen("\n".join(m.content for m in request.messages if m.role == "user")).text
     asyncio.create_task(log_llm_call(
         org_id=request.org_id,
         department=request.department,
@@ -270,7 +276,7 @@ async def plan(request: PlanRequest) -> PlanResponse:
         department="GENERAL",
         provider=plan_provider,
         model=plan_model,
-        input_text=request.message,
+        input_text=pii_result.text,  # マスク後だけを記録する
         output_text=json.dumps(result, ensure_ascii=False),
         tokens=None,
         latency_ms=None,
@@ -423,7 +429,7 @@ async def plan_agent_endpoint(request: PlanAgentRequest) -> PlanAgentResponse:
         department=result.get("department", "GENERAL"),
         provider="anthropic",
         model=AGENT_BUILD_MODEL,  # エージェント構築は全ユーザー Opus 固定（松竹梅の例外）
-        input_text=request.description,
+        input_text=pii_result.text,  # マスク後だけを記録する
         output_text=json.dumps(result, ensure_ascii=False),
         tokens=None,
         latency_ms=None,

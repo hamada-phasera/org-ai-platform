@@ -45,7 +45,12 @@ function getAgent(): Agent {
       },
       connections: 8,
       pipelining: 0,
-      headersTimeout: 10_000,
+      // ⚠️ Agent は使い回すので、ここはリクエスト毎の上限にできない。
+      //    10s のような短い固定値にすると、timeoutMs=30000 で保存したノードでも
+      //    ヘッダが 10s で切られ、しかも下の catch で NETWORK に化けて
+      //    「接続できませんでした」と出る（＝設定を疑い続けることになる）。
+      //    実際の打ち切りは AbortSignal.timeout(timeoutMs) に任せる。
+      headersTimeout: MAX_TIMEOUT_MS,
       bodyTimeout: MAX_TIMEOUT_MS,
     });
   }
@@ -81,6 +86,36 @@ function isAllowedContentType(contentType: string): boolean {
 }
 
 /**
+ * 応答本文を読まずに捨てる。
+ *
+ * ⚠️ `destroy()` を素で呼んではいけない。破棄で Readable が 'error' を出したとき、
+ *    リスナが1つも付いていないと Node は unhandled 'error' として
+ *    **プロセスごと落とす**。api-gateway は全 API の入口なので、
+ *    リダイレクトを1回踏まれるだけで全社が止まることになる。
+ *    先に握り潰しのリスナを付けてから破棄する。
+ */
+function discardBody(body: unknown): void {
+  const b = body as { on?: (ev: string, fn: () => void) => void; destroy?: () => void };
+  try {
+    if (typeof b?.on === 'function') b.on('error', () => {});
+    if (typeof b?.destroy === 'function') b.destroy();
+  } catch {
+    /* 破棄に失敗しても送信結果の判定は変えない */
+  }
+}
+
+/** ヘッダ値は重複すると配列で来る。先頭だけを見る（String() だとカンマ連結される）。 */
+function headerValue(v: string | string[] | undefined): string {
+  if (Array.isArray(v)) return v[0] ?? '';
+  return v ?? '';
+}
+
+/** 本文を持たないことが決まっている応答か（RFC 9110）。 */
+function isBodyless(statusCode: number, contentLength: string): boolean {
+  return statusCode === 204 || statusCode === 205 || statusCode === 304 || contentLength === '0';
+}
+
+/**
  * ガード付きの送信。リダイレクトを追わず、サイズと Content-Type を制限する。
  * ⚠️ 戻り値にヘッダを含めない（資格情報がそのまま返る経路を作らない）。
  */
@@ -100,14 +135,25 @@ export async function sendGuardedRequest(input: GuardedRequestInput): Promise<Gu
     });
 
     if (res.statusCode >= 300 && res.statusCode < 400) {
-      res.body.destroy();
+      discardBody(res.body);
       return { ok: false, kind: 'REDIRECT', statusCode: res.statusCode };
     }
 
-    const contentType = String(res.headers['content-type'] ?? '');
+    const contentType = headerValue(res.headers['content-type'] as string | string[] | undefined);
+    const contentLength = headerValue(res.headers['content-length'] as string | string[] | undefined);
+
+    // 204 No Content や Content-Type を返さない 201 は「本文なしの成功」。
+    // ここを Content-Type 判定に掛けると、**書き込み系ノードがほぼ全滅する**
+    // （DELETE→204 / POST→201 Content-Length:0 を返す API は珍しくない）。
+    // 外部側の副作用は既に起きているのに失敗表示になり、人が再実行して二重送信する。
+    if (res.statusCode < 400 && (isBodyless(res.statusCode, contentLength) || contentType === '')) {
+      discardBody(res.body);
+      return { ok: true, statusCode: res.statusCode, contentType, body: null, raw: '' };
+    }
+
     if (res.statusCode < 400 && !isAllowedContentType(contentType)) {
       // 画像やバイナリを {{prev}} と ExecutionLog に流し込まない
-      res.body.destroy();
+      discardBody(res.body);
       return { ok: false, kind: 'CONTENT_TYPE', contentType };
     }
 
@@ -120,7 +166,7 @@ export async function sendGuardedRequest(input: GuardedRequestInput): Promise<Gu
       size += buf.length;
       if (size > MAX_RESPONSE_BYTES) {
         tooLarge = true;
-        res.body.destroy();
+        discardBody(res.body);
         break;
       }
       chunks.push(buf);
@@ -135,7 +181,7 @@ export async function sendGuardedRequest(input: GuardedRequestInput): Promise<Gu
         kind: 'STATUS',
         statusCode: res.statusCode,
         snippet: raw.slice(0, 200),
-        retryAfter: (res.headers['retry-after'] as string) ?? null,
+        retryAfter: headerValue(res.headers['retry-after'] as string | string[] | undefined) || null,
       };
     }
 
@@ -151,7 +197,22 @@ export async function sendGuardedRequest(input: GuardedRequestInput): Promise<Gu
   } catch (e) {
     const err = e as { name?: string; code?: string; message?: string };
     if (err?.code === 'ERR_BLOCKED_DESTINATION') return { ok: false, kind: 'BLOCKED' };
-    if (err?.name === 'TimeoutError' || err?.name === 'AbortError') return { ok: false, kind: 'TIMEOUT' };
+    // ⚠️ undici が実際に投げるのは ConnectTimeoutError / HeadersTimeoutError /
+    //    BodyTimeoutError で、どれも name は 'TimeoutError' ではない。
+    //    名前だけで判定すると「無応答の遅い API」という一番多いケースが
+    //    NETWORK に落ち、「接続できませんでした」という誤った文言になる。
+    const TIMEOUT_CODES = [
+      'UND_ERR_CONNECT_TIMEOUT',
+      'UND_ERR_HEADERS_TIMEOUT',
+      'UND_ERR_BODY_TIMEOUT',
+    ];
+    if (
+      err?.name === 'TimeoutError' ||
+      err?.name === 'AbortError' ||
+      (err?.code !== undefined && TIMEOUT_CODES.includes(err.code))
+    ) {
+      return { ok: false, kind: 'TIMEOUT' };
+    }
     // ⚠️ message をそのまま利用者に返さない（呼び出し側で一般化した文言に変換する）
     return { ok: false, kind: 'NETWORK', message: err?.message ?? 'network error' };
   }

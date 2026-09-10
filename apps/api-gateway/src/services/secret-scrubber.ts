@@ -64,6 +64,26 @@ const RULES: Rule[] = [
     replacer: () => '[REDACTED_OPENAI_KEY]',
   },
   {
+    // Stripe: sk_live_… / sk_test_… / rk_live_…（アンダースコア区切りなので sk- 規則に当たらない）
+    // pk_ は公開可能キーなので伏せない（伏せると会話が読めなくなるだけで守る対象でもない）
+    kind: 'STRIPE_KEY',
+    re: /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}/g,
+    replacer: () => '[REDACTED_STRIPE_KEY]',
+  },
+  {
+    // SendGrid: SG.<id>.<secret>。ドット区切りなので汎用 base64 規則の lookbehind に弾かれる
+    kind: 'SENDGRID_KEY',
+    re: /\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}/g,
+    replacer: () => '[REDACTED_SENDGRID_KEY]',
+  },
+  {
+    // Twilio: AC<32hex>（Account SID）/ SK<32hex>（API Key SID）。
+    // 32 桁なので汎用 hex 規則（40 桁以上）では拾えない
+    kind: 'TWILIO_SID',
+    re: /\b(?:AC|SK)[0-9a-fA-F]{32}\b/g,
+    replacer: () => '[REDACTED_TWILIO_SID]',
+  },
+  {
     // Slack: xoxb- xoxp- xoxa- xoxr- xoxs- xoxe- / xapp-
     kind: 'SLACK_TOKEN',
     re: /\b(?:xox[abeprs]-[A-Za-z0-9-]{10,}|xapp-[A-Za-z0-9-]{10,})/g,
@@ -111,10 +131,40 @@ const RULES: Rule[] = [
     },
   },
 
+  {
+    // Authorization: Basic <base64>
+    kind: 'BASIC_AUTH',
+    re: /\b([Bb]asic)([ \t]+)([A-Za-z0-9+/]{8,}={0,2})/g,
+    replacer: (m) => {
+      const token = m[3];
+      // 「Basic authentication」のような普通の英文を壊さない。
+      // base64 なら数字か記号を含むか、大文字小文字が混ざる
+      const looksLikeBase64 =
+        /[0-9+/=]/.test(token) || (/[a-z]/.test(token) && /[A-Z]/.test(token));
+      if (!looksLikeBase64) return null;
+      return `${m[1]}${m[2]}[REDACTED_BASIC_AUTH]`;
+    },
+  },
+  {
+    // curl の -u / --user。Stripe も Twilio もこの形で貼られる。
+    // 利用者名は残してパスワード側だけ伏せる（何の認証情報かは分かったほうがよい）
+    kind: 'BASIC_AUTH_ARG',
+    re: /(--user|-u)([ \t]+)(["']?)([^\s:"']{1,120}):([^\s"']{1,200})/g,
+    replacer: (m) => `${m[1]}${m[2]}${m[3]}${m[4]}:[REDACTED_BASIC_AUTH]`,
+  },
+  {
+    // https://user:password@host
+    kind: 'URL_USERINFO',
+    re: /(\bhttps?:\/\/)([^\s/@:]{1,120}):([^\s/@]{1,200})@/gi,
+    replacer: (m) => `${m[1]}${m[2]}:[REDACTED_URL_PASSWORD]@`,
+  },
+
   // --- 汎用 key = value ---
   {
     kind: 'GENERIC_SECRET',
-    re: /(\b(?:api[-_ ]?key|apikey|access[-_ ]?token|auth[-_ ]?token|refresh[-_ ]?token|bearer[-_ ]?token|client[-_ ]?secret|secret[-_ ]?key|private[-_ ]?key|token|secret|password|passwd|pwd|credential)\s*["'`]?\s*[:=]\s*["'`]?)([A-Za-z0-9\-._~+/]{8,}=*)/gi,
+    // ⚠️ 先頭は \b ではなく「英数字の直後でない」。\b だと SENDGRID_API_KEY の
+    //    API_KEY 部分に境界が立たず（_ は語構成文字）、環境変数風の書き方を丸ごと取り逃す。
+    re: /((?<![A-Za-z0-9])(?:api[-_ ]?key|apikey|access[-_ ]?token|auth[-_ ]?token|refresh[-_ ]?token|bearer[-_ ]?token|client[-_ ]?secret|secret[-_ ]?key|private[-_ ]?key|token|secret|password|passwd|pwd|credential)\s*["'`]?\s*[:=]\s*["'`]?)([A-Za-z0-9\-._~+/]{8,}=*)/gi,
     replacer: (m) => {
       const value = m[2];
       if (NON_SECRET_VALUES.has(value.toLowerCase())) return null;
