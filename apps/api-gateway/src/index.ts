@@ -31,14 +31,23 @@ import { prisma } from './utils/prisma';
 const app = Fastify({ logger: true });
 
 async function start(): Promise<void> {
-  // 明示許可リスト (FRONTEND_URL, カンマ区切り) + localhost + 自アカウントの Vercel デプロイのみ許可。
+  // 明示許可リスト (FRONTEND_URL, カンマ区切り) + localhost + 自分のフロントのみ許可。
   // 以前は *.vercel.app 全許可 + credentials:true で、任意の Vercel ユーザーのサイトから
-  // 資格情報付きリクエストが可能だった（本番検証時の指摘）。プレビュー URL はデプロイ毎に
-  // 変わるため、アカウント固有のサフィックス（誰にも偽装できない）で許可する。
+  // 資格情報付きリクエストが可能だった（本番検証時の指摘）。
+  //
+  // Vercel のホスト名は 3 種類あるので取りこぼすとフロントが全滅する:
+  //   - 本番エイリアス: org-ai-platform.vercel.app（実際に公開されているのはこれ）
+  //   - プロジェクトエイリアス: flow-hamahiro1668s-projects.vercel.app
+  //   - デプロイ毎: flow-<hash>-hamahiro1668s-projects.vercel.app（毎回変わる）
+  // 末尾のアカウント固有サフィックスは他人が取得できないため、これだけワイルドカードにする。
   const explicitOrigins = (process.env.FRONTEND_URL ?? 'http://localhost:3000')
     .split(',')
     .map((s) => s.trim())
     .filter((s) => s && s !== '*');
+  const extraHosts = (process.env.ALLOWED_ORIGIN_HOSTS ?? 'org-ai-platform.vercel.app')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   const vercelSuffix = process.env.VERCEL_PREVIEW_SUFFIX ?? '-hamahiro1668s-projects.vercel.app';
   await app.register(cors, {
     origin: (origin, cb) => {
@@ -52,6 +61,7 @@ async function start(): Promise<void> {
       }
       const ok =
         explicitOrigins.includes(origin) ||
+        extraHosts.includes(host) ||
         host === 'localhost' ||
         host === '127.0.0.1' ||
         host.endsWith(vercelSuffix);
