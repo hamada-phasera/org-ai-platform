@@ -130,8 +130,9 @@ async def plan_agent(
         department = "GENERAL"
     instructions = parsed.get("instructions") if isinstance(parsed.get("instructions"), str) else None
 
-    # steps は登録済み name のみ許可
-    available_names = {c["name"] for c in capabilities}
+    # steps は登録済み name + 予約ステップ llm_transform（AI での中間変換）のみ許可。
+    # llm_transform は capability レジストリを持たず gateway の step-runner が直接実行する。
+    available_names = {c["name"] for c in capabilities} | {"llm_transform"}
     steps: list[dict[str, Any]] = []
     if isinstance(parsed.get("steps"), list):
         for s in parsed["steps"]:
