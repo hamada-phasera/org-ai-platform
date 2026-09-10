@@ -125,7 +125,9 @@ describe('processLineEvents', () => {
       webhookEventId: 'evt-img-u',
       sourceType: 'user',
       messageType: 'image',
-      status: 'RECEIVED',
+      // ⚠️ RECEIVED だと受信箱が「返信の下書きを生成中」と解釈し、
+      //    返信欄が出たまま永久に対応待ちに滞留する
+      status: 'CAPTURED',
     });
     // テキスト用の下書き生成には回さない
     expect(generateInboxDraftMock).not.toHaveBeenCalled();

@@ -86,6 +86,14 @@ describe('parseReplyBody', () => {
 });
 
 describe('assertTransition', () => {
+  it('CAPTURED（領収書）はどの操作も受け付けない — 領収書に LINE 返信を送らせない', () => {
+    // 画像は「返信する対象」ではない。次の操作は 経理 > 原価 での確定であって、
+    // 受信箱からの返信ではない
+    for (const action of ['regenerate', 'approve', 'reject'] as const) {
+      expect(assertTransition('CAPTURED', action)).toBe(false);
+    }
+  });
+
   it('regenerate: RECEIVED/DRAFTED/DRAFT_FAILED のみ許可', () => {
     expect(assertTransition('RECEIVED', 'regenerate')).toBe(true);
     expect(assertTransition('DRAFTED', 'regenerate')).toBe(true);

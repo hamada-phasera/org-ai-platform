@@ -46,7 +46,12 @@ interface CreateArgs {
   senderName: string | null;
   messageType: string;
   text: string | null;
-  status: 'RECEIVED' | 'SKIPPED';
+  /**
+   * RECEIVED = 返信の下書きを生成する対象
+   * SKIPPED  = 対応できない受信（スタンプ等）
+   * CAPTURED = 領収書として読み取り済み。返信するものではなく、次の操作は 経理 > 原価
+   */
+  status: 'RECEIVED' | 'SKIPPED' | 'CAPTURED';
 }
 
 /** InboundMessage を作成する。webhookEventId 重複 (P2002 = LINE 再送) は静かに skip して null。 */
@@ -99,6 +104,7 @@ async function captureReceipt(
       accessToken: openSecret(connection.accessTokenEnc),
       messageId,
     });
+    // status は作成時から CAPTURED。ここでは読み取り結果の本文だけを書き戻す
     await prisma.inboundMessage.update({
       where: { id: inboundMessageId },
       data: { text: result.summary },
@@ -168,7 +174,9 @@ export async function processLineEvents(
             senderName: null,
             messageType: 'image',
             text: null,
-            status: 'RECEIVED',
+            // ⚠️ RECEIVED にしてはいけない。受信箱は RECEIVED を「返信の下書きを生成中」と
+            //    解釈するので、返信欄が出たまま永久に対応待ちに滞留する（この画像に返信はしない）
+            status: 'CAPTURED',
           });
           if (created) {
             // 読み取りは完全非同期（webhook 応答にも取り込みループにも影響させない）。

@@ -26,7 +26,9 @@ type InboxStatus =
   | 'SENT'
   | 'REJECTED'
   | 'SEND_FAILED'
-  | 'SKIPPED';
+  | 'SKIPPED'
+  /** 領収書として読み取り済み。返信するものではなく、次の操作は 経理 > 原価 */
+  | 'CAPTURED';
 
 interface InboxMessage {
   id: string;
@@ -67,6 +69,7 @@ const STATUS_BADGE: Record<InboxStatus, { label: string; className: string }> = 
   REJECTED: { label: '却下', className: 'bg-sunken text-ink-decorative' },
   SEND_FAILED: { label: '送信失敗（再承認で再送）', className: 'bg-danger/10 text-danger' },
   SKIPPED: { label: 'テキスト以外', className: 'bg-sunken text-ink-decorative' },
+  CAPTURED: { label: '領収書', className: 'bg-info/10 text-info' },
 };
 
 async function fetchMessages(): Promise<InboxMessage[]> {
@@ -161,7 +164,8 @@ export default function InboxPage() {
 
   const all = messagesQ.data ?? [];
   const visible = all.filter((m) => {
-    if (m.status === 'SKIPPED') return view === 'ALL';
+    // 返信する対象ではないので対応待ちには積まない（次の操作は 経理 > 原価）
+    if (m.status === 'SKIPPED' || m.status === 'CAPTURED') return view === 'ALL';
     if (view === 'ALL') return true;
     if (view === 'PENDING') return PENDING_STATUSES.includes(m.status);
     return m.status === view;
