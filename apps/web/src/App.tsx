@@ -6,6 +6,7 @@ import InboxPage from './pages/InboxPage';
 import ChatPage from './pages/ChatPage';
 import HomePage from './pages/HomePage';
 import AgentsPage from './pages/AgentsPage';
+import AgentDetailPage from './pages/AgentDetailPage';
 import GovernancePage from './pages/GovernancePage';
 import TaskManagerPage from './pages/TaskManagerPage';
 import DeliverablesPage from './pages/DeliverablesPage';
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="chat/:id" element={<ChatPage />} />
         <Route path="inbox" element={<InboxPage />} />
         <Route path="agents" element={<AgentsPage />} />
+        <Route path="agents/:id" element={<AgentDetailPage />} />
         <Route path="governance" element={<GovernancePage />} />
         <Route path="tasks" element={<TaskManagerPage />} />
         <Route path="deliverables" element={<DeliverablesPage />} />

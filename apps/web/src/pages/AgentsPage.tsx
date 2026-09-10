@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Play, Trash2, Bot } from 'lucide-react';
@@ -100,10 +101,17 @@ export default function AgentsPage() {
             <motion.div key={agent.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
               <Card variant="regular" padding="none" className="p-4 h-full flex flex-col">
                 <div className="flex items-start justify-between gap-2 mb-2">
-                  <div className="flex items-center gap-2 min-w-0">
+                  {/* カード全体をリンクにすると下の実行/削除ボタンとクリックが衝突するので、
+                      見出しだけをリンクにする */}
+                  <Link
+                    to={`/agents/${agent.id}`}
+                    className="flex items-center gap-2 min-w-0 group"
+                  >
                     <span className="text-xl flex-shrink-0">{agent.icon ?? '🤖'}</span>
-                    <h3 className="text-sm font-semibold text-primary truncate">{agent.name}</h3>
-                  </div>
+                    <h3 className="text-sm font-semibold text-primary truncate group-hover:text-action group-hover:underline">
+                      {agent.name}
+                    </h3>
+                  </Link>
                   <Badge>{agent.n8nStatus === 'ACTIVE' ? '🟢' : '🟡'} {AGENT_N8N_STATUS_LABEL[agent.n8nStatus]}</Badge>
                 </div>
                 <p className="text-xs text-secondary line-clamp-2 mb-2 flex-1">

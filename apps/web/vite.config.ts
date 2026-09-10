@@ -25,6 +25,8 @@ export default defineConfig({
           motion: ['framer-motion'],
           query: ['@tanstack/react-query'],
           dnd: ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
+          // ワークフローキャンバス。エージェント詳細でしか使わないので独立させる
+          flow: ['@xyflow/react'],
         },
       },
     },

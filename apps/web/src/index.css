@@ -180,6 +180,38 @@ body {
   }
 }
 
+/* ================================================================
+ * ワークフローキャンバス（React Flow）のテーマ写像。
+ *
+ * base.css だけを読み込み、見た目は自前のノード部品で作る方針なので、
+ * ここで面倒を見るのはエッジ・ハンドル・コントロール等の共通パーツだけ。
+ * ノードの背景は自前カードが描くため透明にしておく。
+ * ================================================================ */
+.react-flow {
+  --xy-background-color-default: transparent;
+  --xy-edge-stroke-default: var(--border-strong);
+  --xy-edge-stroke-selected-default: var(--accent);
+  --xy-edge-stroke-width-default: 1.5;
+  --xy-connectionline-stroke-default: var(--accent);
+  --xy-node-background-color-default: transparent;
+  --xy-node-border-default: none;
+  --xy-node-boxshadow-hover-default: none;
+  --xy-node-boxshadow-selected-default: none;
+  --xy-handle-background-color-default: var(--border-strong);
+  --xy-handle-border-color-default: var(--surface);
+  --xy-controls-button-background-color-default: var(--surface);
+  --xy-controls-button-background-color-hover-default: var(--surface-2);
+  --xy-controls-button-color-default: var(--text-secondary);
+  --xy-controls-button-border-color-default: var(--border);
+  --xy-attribution-background-color-default: transparent;
+}
+
+/* 読み取り専用キャンバスではハンドル（接続点）は見せない。線は自前で引く。 */
+.workflow-canvas .react-flow__handle {
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* CSS アニメーションはここで止まるが、framer-motion の transform は止まらない。
  * JS 側は useReducedMotion() を見ること（components/motion/springs.ts）。 */
 @media (prefers-reduced-motion: reduce) {
