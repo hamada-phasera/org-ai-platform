@@ -15,6 +15,8 @@ import { AgentSuggestions } from '../components/Chat/AgentSuggestions';
 import { InlineChatResult } from '../components/Chat/InlineChatResult';
 import { TaskProgressSidebar } from '../components/Chat/TaskProgressSidebar';
 import { AgentCtaCard, type AgentDraft } from '../components/Chat/AgentCtaCard';
+import { NodeCtaCard, type NodeDraft } from '../components/Chat/NodeCtaCard';
+import { looksLikeApiSpec } from '../utils/apiSpecDetect';
 import { DeliverableBar, type DeliverableKind } from '../components/Chat/DeliverableBar';
 import { RunPreviewRow } from '../components/exec-kernel/RunPreviewRow';
 import { MarkdownLite } from '../components/Chat/MarkdownLite';
@@ -102,6 +104,11 @@ export default function ChatPage() {
      ⚠️ location.state に置くと、セッション作成で /chat → /chat/:id に遷移した時点で
      消えて編集フローが成立しない。古い遷移経路との互換のため state も拾う。 */
   const [applyingSuggestion, setApplyingSuggestion] = useState(false);
+  /* 外部API接続（カスタムノード）の提案。実キーはこのカードの入力欄からのみ渡す */
+  const [nodeSuggestion, setNodeSuggestion] = useState<{ afterMessageId: string; draft: NodeDraft } | null>(null);
+  const [creatingNode, setCreatingNode] = useState(false);
+  const [nodeError, setNodeError] = useState<string | null>(null);
+  const isOwner = useAuthStore((s) => s.user?.role) === 'OWNER';
   /* ノードの表示名を引くためのレジストリ（設定>連携 と同じキャッシュを共有） */
   const capabilitiesQ = useQuery({
     queryKey: ['capabilities'],
@@ -303,6 +310,24 @@ export default function ChatPage() {
         // ※ 以前はここでチャット送信ごとに自動でタスクを作成・実行していたが、
         //   会話の返答とは別に「タスク」が同じ質問を再度返す二重応答＝リピートの原因になっていたため廃止。
         //   成果物は下の「成果物を作成」バー（明示操作）から生成する。
+
+        // 外部APIの繋ぎ方が貼られたら、接続ノードの提案を取りにいく（保存はしない）。
+        // ⚠️ 送るのは lastInputRef の本文だが、gateway 側で scrubSecrets を通してから
+        //    ai-engine に渡るので、実キーは AI にも AILog にも届かない。
+        if (isOwner && looksLikeApiSpec(lastInputRef.current)) {
+          const finalId = (finalAssistantMessage as Message).id;
+          api.post<{ success: boolean; data: NodeDraft }>('/capabilities/suggest', {
+            source: lastInputRef.current,
+          })
+            .then((r) => {
+              const d = r.data.data;
+              if (d?.http?.url && d?.name) {
+                setNodeError(null);
+                setNodeSuggestion({ afterMessageId: finalId, draft: d });
+              }
+            })
+            .catch(() => null);
+        }
 
         // 修正モード: 対象エージェントの手順を作り直す提案を取りにいく（保存はしない）
         if (editingAgent) {
@@ -521,6 +546,43 @@ export default function ChatPage() {
       return `この内容はまだ自動作成に対応していません。${o.reasoning ? `（${o.reasoning}）` : ''}`;
     }
     return '確認が必要です。';
+  };
+
+  /**
+   * 提案された外部API接続を登録する。
+   *
+   * ⚠️ 実キーは**このリクエストだけ**に載せる。チャット本文にも、他の API にも渡さない。
+   *    gateway 側で sealSecret して暗号文で保存され、以降は復号して送信時にだけ使われる。
+   */
+  const createNodeFromSuggestion = async (secrets: Record<string, string>) => {
+    if (!nodeSuggestion || creatingNode) return;
+    setCreatingNode(true);
+    setNodeError(null);
+    try {
+      const d = nodeSuggestion.draft;
+      const headers = (d.http?.headers ?? []).map((h) =>
+        h.secret
+          ? { name: h.name, value: secrets[h.name] ?? '', secret: true }
+          : { name: h.name, value: h.value ?? '', secret: false },
+      );
+      await api.post('/capabilities', {
+        name: d.name,
+        displayName: d.displayName ?? d.name,
+        description: d.description ?? '',
+        department: d.department ?? 'GENERAL',
+        params: d.params ?? [],
+        http: { ...d.http, headers },
+      });
+      setNodeSuggestion(null);
+      pushAssistantMessage(
+        `✅ 「${d.displayName ?? d.name}」を登録しました。エージェントの手順に組み込めます（ガバナンス > 外部API接続 で確認・停止できます）。`,
+      );
+    } catch (e) {
+      const data = (e as { response?: { data?: { error?: { message?: string } } } }).response?.data;
+      setNodeError(data?.error?.message ?? '登録できませんでした');
+    } finally {
+      setCreatingNode(false);
+    }
   };
 
   /** 修正提案をエージェントへ反映する（チャットが唯一の編集入口なので確定もここ）。 */
@@ -939,6 +1001,20 @@ export default function ChatPage() {
                             else setSuggestModalOpen(true);
                           }}
                           onDismiss={() => { setAgentSuggestion(null); setSuggestDismissed(true); }}
+                        />
+                      </div>
+                    )}
+
+                    {/* 外部API接続の確認カード（curl / API ドキュメントを貼ったとき）。
+                        実キーの入口はここだけ — 会話にも AI にも渡らない */}
+                    {msg.role === 'assistant' && nodeSuggestion?.afterMessageId === msg.id && (
+                      <div className="ml-11 mt-3">
+                        <NodeCtaCard
+                          draft={nodeSuggestion.draft}
+                          busy={creatingNode}
+                          error={nodeError}
+                          onCreate={(secrets) => void createNodeFromSuggestion(secrets)}
+                          onDismiss={() => { setNodeSuggestion(null); setNodeError(null); }}
                         />
                       </div>
                     )}
