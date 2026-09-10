@@ -123,14 +123,29 @@ render.yaml の値へ戻される**ため、プランはコード側を正本に
 - usage-metrics-svc の独自 `schema.sql`（rollup テーブル）を prod DB に適用（未適用だと rollup worker が警告・raw read は動く）。
 - 復旧確認: `GET https://<api-gateway>/api/...`（401 が返れば起動OK）。
 
-### 2. フロント（Vercel `flow`）
+### 2. フロント（Vercel `flow`）— **prebuilt でしか通らない**
+
 ```bash
-cd <integration worktree>          # main と同一内容のツリー
+cd <repo root>                     # main と同一内容のツリー
 # .vercel/project.json が flow を指すこと（無ければ cp ルートの .vercel）
-vercel deploy            # ← Preview。URL で表示確認
-vercel deploy --prod     # ← 本番昇格（or vercel promote <preview-url>）
+vercel pull --yes --environment production
+vercel build --prod
+vercel deploy --prebuilt --prod --yes
 ```
-- `FRONTEND_URL`（Render api-gateway の CORS）に Vercel 本番ドメインを含める。
+
+⚠️ **`vercel deploy --prod` を素で叩くと `No Output Directory named "dist"` で必ず落ちる。**
+リポジトリ直下の `vercel.json` は turbo でビルドして `apps/web/dist` を出す前提だが、
+Vercel プロジェクト側の設定は rootDirectory=`apps/web` / outputDirectory=`dist` になっており、
+この2つが噛み合わない。ローカルでビルドして成果物ごと送る prebuilt なら、その食い違いを踏まない。
+（2026-09 のデプロイで実際にここで詰まった。設定を片方に寄せるのが本筋だが、
+現状の本番を壊さずに直す手順が要るので prebuilt を正とする。）
+
+- 公開しているフロントは **`org-ai-platform.vercel.app`**（200・認証なし）。
+  `flow-hamahiro1668s-projects.vercel.app` は Vercel の SSO 保護が掛かっていて外から見えない。
+  CORS の許可ホスト（`ALLOWED_ORIGIN_HOSTS`）は前者を入れること。
+- ⚠️ Render の `FRONTEND_URL` は現状 `*`（CORS 用のワイルドカード）。
+  **URL として使ってはいけない**（OAuth のリダイレクト先に使うと localhost に飛ぶ事故が起きた）。
+  URL が必要な箇所は `ALLOWED_ORIGIN_HOSTS` へフォールバックする実装になっている。
 - web の API 参照は本番 api-gateway URL（`VITE_API_URL` or プロキシ）を確認。
 
 ### 3. スモークテスト（本番）
