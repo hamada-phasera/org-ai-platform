@@ -35,6 +35,9 @@ model Organization {
   channelConnections  ChannelConnection[]
   inboundMessages     InboundMessage[]
   providerConnections ProviderConnection[]
+  projects            Project[]
+  costEntries         CostEntry[]
+  vendors             Vendor[]
   createdAt           DateTime             @default(now())
 }
 
@@ -312,6 +315,97 @@ model Agent {
 
   @@unique([orgId, name])
   @@index([orgId, enabled])
+}
+
+/// 建設業の「工事（現場）」。経理はすべてこの単位で回る。
+/// 一般の経費精算と違い、原価は材料費・労務費・外注費・経費の4分類で持つ
+/// （2025年12月全面施行の改正建設業法で、見積書への内訳記載が努力義務になった区分でもある）。
+/// 金額はすべて円単位の Int（小数を持ち込まない）。
+model Project {
+  id             String       @id @default(cuid())
+  orgId          String
+  org            Organization @relation(fields: [orgId], references: [id])
+  /// 社内の工事番号
+  code           String
+  name           String
+  /// 発注者（元請・施主）
+  client         String?
+  /// 請負金額（税抜・円）
+  contractAmount Int          @default(0)
+  startOn        DateTime?
+  dueOn          DateTime?
+  /// ESTIMATING | ORDERED | IN_PROGRESS | COMPLETED | BILLED | PAID
+  status         String       @default("ESTIMATING")
+  /// 実行予算の4分類（円）
+  budgetMaterial Int          @default(0)
+  budgetLabor    Int          @default(0)
+  budgetSubcon   Int          @default(0)
+  budgetOther    Int          @default(0)
+  /// 出来高（%）
+  progressRate   Int          @default(0)
+  note           String?
+  costEntries    CostEntry[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([orgId, code])
+  @@index([orgId, status])
+}
+
+/// 取引先。建設業では一人親方（SOLO）が多く、インボイス登録の有無が
+/// そのまま元請の控除額に効く（2026年10月に経過措置が80%→70%へ下がる）。
+/// 「外注費か給与か」は税務調査の重点項目なので kind を分けて持つ。
+model Vendor {
+  id                String       @id @default(cuid())
+  orgId             String
+  org               Organization @relation(fields: [orgId], references: [id])
+  name              String
+  /// SUBCON（下請）| SUPPLIER（資材）| SOLO（一人親方）| OTHER
+  kind              String       @default("SUBCON")
+  /// 適格請求書発行事業者として登録済みか
+  invoiceRegistered Boolean      @default(false)
+  /// 登録番号（T + 13桁）
+  invoiceNumber     String?
+  note              String?
+  costEntries       CostEntry[]
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@unique([orgId, name])
+  @@index([orgId, invoiceRegistered])
+}
+
+/// 工事にひもづく原価明細。
+/// source=LINE は現場から送られた領収書を AI が読み取ったもので、
+/// status=DRAFT のあいだは「AI が読んだが人が未確認」を意味する。
+model CostEntry {
+  id          String       @id @default(cuid())
+  orgId       String
+  org         Organization @relation(fields: [orgId], references: [id])
+  projectId   String
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  vendorId    String?
+  vendor      Vendor?      @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  incurredOn  DateTime
+  /// MATERIAL（材料費）| LABOR（労務費）| SUBCON（外注費）| OTHER（経費）
+  category    String
+  /// 本体価格（税抜・円）。請負金額も税抜なので、粗利は税抜どうしで引ける
+  amount      Int
+  /// 消費税額（円）。自社雇用の労務費など不課税なら 0。
+  /// 一律10%と仮定しないのは、労務費が大きい建設業で仮定すると
+  /// インボイスの負担試算が大きくずれるため
+  taxAmount   Int          @default(0)
+  description String?
+  /// MANUAL | CHAT | LINE
+  source      String       @default("MANUAL")
+  /// DRAFT（未確認）| CONFIRMED（確定）
+  status      String       @default("DRAFT")
+  createdBy   String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([orgId, projectId, incurredOn])
+  @@index([orgId, status])
 }
 
 /// 営業パイプラインの商談。従来は routes/sales/pipeline.ts のインメモリ Map（再起動で消える）だったが、

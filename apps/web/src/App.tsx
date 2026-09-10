@@ -14,6 +14,7 @@ import SettingsPage from './pages/SettingsPage';
 import SalesPage from './pages/SalesPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import SnsPage from './pages/SnsPage';
+import AccountingPage from './pages/AccountingPage';
 import TopPage from './pages/TopPage';
 import { AppShell } from './components/shell/AppShell';
 
@@ -48,6 +49,7 @@ export default function App() {
         <Route path="sales" element={<SalesPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="sns" element={<SnsPage />} />
+        <Route path="accounting" element={<AccountingPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

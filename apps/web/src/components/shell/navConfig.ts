@@ -46,6 +46,7 @@ export const WORK_PAGES: WorkPage[] = [
   { to: '/sales', label: '営業パイプライン', colorVar: 'var(--dept-sales)' },
   { to: '/analytics', label: 'データ分析', colorVar: 'var(--dept-analytics)' },
   { to: '/sns', label: 'SNS投稿', colorVar: 'var(--dept-marketing)' },
+  { to: '/accounting', label: '工事別 原価管理', colorVar: 'var(--dept-accounting)' },
 ];
 
 export const ADMIN_NAV: NavEntry[] = [
