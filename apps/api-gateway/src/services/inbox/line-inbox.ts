@@ -8,6 +8,7 @@ import { openSecret } from '../secret-box';
 import { getSenderProfile } from './line-client';
 import { generateInboxDraft } from './draft-generator';
 import type { LineMentionee, LineWebhookEvent } from './line-types';
+import { captureReceiptFromLine } from './receipt-capture';
 
 /** processLineEvents が必要とする最小形（Prisma の ChannelConnection 互換）。 */
 export interface InboxConnection {
@@ -77,6 +78,47 @@ async function createInboundMessage(args: CreateArgs): Promise<{ id: string } | 
 }
 
 /**
+ * 画像を領収書として読み取り、結果を受信メッセージの本文に書き戻す。
+ *
+ * 完全に best-effort。失敗しても受信そのものは残す（人が手入力できる状態を保つ）。
+ * ⚠️ 例外を上へ投げない。webhook の取り込みループを止めてはいけない。
+ */
+async function captureReceipt(
+  connection: InboxConnection,
+  messageId: string,
+  inboundMessageId: string,
+): Promise<void> {
+  try {
+    const org = await prisma.organization.findUnique({
+      where: { id: connection.orgId },
+      select: { plan: true },
+    });
+    const result = await captureReceiptFromLine({
+      orgId: connection.orgId,
+      plan: org?.plan ?? 'STARTER',
+      accessToken: openSecret(connection.accessTokenEnc),
+      messageId,
+    });
+    await prisma.inboundMessage.update({
+      where: { id: inboundMessageId },
+      data: { text: result.summary },
+    });
+  } catch (e) {
+    // ⚠️ e の中身をそのまま出さない（アクセストークンや messageId が混ざりうる）
+    console.error('[line-inbox] 領収書の読み取りに失敗しました');
+    if (process.env.NODE_ENV !== 'production') {
+      console.error(e instanceof Error ? e.message : e);
+    }
+    await prisma.inboundMessage
+      .update({
+        where: { id: inboundMessageId },
+        data: { text: '📷 領収書を受け取りましたが、読み取りに失敗しました。' },
+      })
+      .catch(() => null);
+  }
+}
+
+/**
  * webhook で受けたイベント列を InboundMessage に取り込み、テキストは下書き生成に回す。
  * - group / room: ボット宛メンション付きテキストのみ取り込む
  * - user (1:1): 全テキストを取り込む。非テキストは SKIPPED として記録
@@ -113,8 +155,30 @@ export async function processLineEvents(
       const lineUserId = source.userId ?? null;
 
       if (event.message.type !== 'text') {
+        if (sourceType === 'user' && event.message.type === 'image' && event.message.id) {
+          // 1:1 の画像は領収書として読み取る。現場から紙が来る問題に直接効く唯一の経路で、
+          // 「LINE に送るだけ＝入力項目ゼロ」がこの機能の価値そのもの。
+          // ⚠️ 画像は保存しない。読み取った値だけを残す。
+          const created = await createInboundMessage({
+            connection,
+            event,
+            sourceType,
+            groupId,
+            lineUserId,
+            senderName: null,
+            messageType: 'image',
+            text: null,
+            status: 'RECEIVED',
+          });
+          if (created) {
+            // 読み取りは完全非同期（webhook 応答にも取り込みループにも影響させない）。
+            // LINE は 1 分以内に 200 を返さないと再送してくるので、ここで待たない。
+            void captureReceipt(connection, event.message.id, created.id);
+          }
+          continue;
+        }
         if (sourceType === 'user') {
-          // 1:1 の非テキストは「対応できない受信があった」ことだけ記録する（下書き対象外）。
+          // 画像以外の 1:1 非テキストは「対応できない受信があった」ことだけ記録する。
           await createInboundMessage({
             connection,
             event,

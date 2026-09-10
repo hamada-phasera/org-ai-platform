@@ -5,7 +5,8 @@ process.env.JWT_SECRET = 'test-jwt-secret-that-is-at-least-32-chars';
 
 const prismaMock = {
   channelConnection: { update: vi.fn() },
-  inboundMessage: { create: vi.fn() },
+  inboundMessage: { create: vi.fn(), update: vi.fn() },
+  organization: { findUnique: vi.fn() },
 };
 vi.mock('../../utils/prisma', () => ({ prisma: prismaMock }));
 
@@ -14,6 +15,11 @@ vi.mock('../inbox/draft-generator', () => ({ generateInboxDraft: generateInboxDr
 
 const getSenderProfileMock = vi.fn();
 vi.mock('../inbox/line-client', () => ({ getSenderProfile: getSenderProfileMock }));
+
+const captureReceiptMock = vi.fn();
+vi.mock('../inbox/receipt-capture', () => ({
+  captureReceiptFromLine: (...args: unknown[]) => captureReceiptMock(...args),
+}));
 
 vi.mock('../secret-box', () => ({
   openSecret: vi.fn(() => 'decrypted-access-token'),
@@ -44,6 +50,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   prismaMock.channelConnection.update.mockResolvedValue({});
   prismaMock.inboundMessage.create.mockResolvedValue({ id: 'm1' });
+  prismaMock.inboundMessage.update.mockResolvedValue({});
+  prismaMock.organization.findUnique.mockResolvedValue({ plan: 'PRO' });
+  captureReceiptMock.mockResolvedValue({ summary: '📷 領収書', costEntryId: null });
   generateInboxDraftMock.mockResolvedValue(undefined);
   getSenderProfileMock.mockResolvedValue('田中');
 });
@@ -102,28 +111,64 @@ describe('processLineEvents', () => {
     expect(generateInboxDraftMock).not.toHaveBeenCalled();
   });
 
-  it('非テキスト: group は無視 / user は SKIPPED として記録', async () => {
-    const groupImage = groupTextEvent({
-      webhookEventId: 'evt-img-g',
-      message: { id: 'msg-3', type: 'image' },
-    });
+  it('1:1 の画像は領収書として取り込み、読み取りに回す', async () => {
+    // 現場から紙が来る問題に直接効く唯一の経路。捨てずに読む
     const userImage = groupTextEvent({
       webhookEventId: 'evt-img-u',
       source: { type: 'user', userId: 'U9' },
       message: { id: 'msg-4', type: 'image' },
     });
-    await processLineEvents(CONNECTION, [groupImage, userImage]);
+    await processLineEvents(CONNECTION, [userImage]);
 
-    expect(prismaMock.inboundMessage.create).toHaveBeenCalledTimes(1);
     const data = prismaMock.inboundMessage.create.mock.calls[0][0].data;
     expect(data).toMatchObject({
       webhookEventId: 'evt-img-u',
       sourceType: 'user',
       messageType: 'image',
-      text: null,
+      status: 'RECEIVED',
+    });
+    // テキスト用の下書き生成には回さない
+    expect(generateInboxDraftMock).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(captureReceiptMock).toHaveBeenCalledTimes(1));
+    expect(captureReceiptMock.mock.calls[0][0]).toMatchObject({ orgId: 'org1', messageId: 'msg-4' });
+  });
+
+  it('group の画像は無視する（@メンション判定ができないため）', async () => {
+    const groupImage = groupTextEvent({
+      webhookEventId: 'evt-img-g',
+      message: { id: 'msg-3', type: 'image' },
+    });
+    await processLineEvents(CONNECTION, [groupImage]);
+    expect(prismaMock.inboundMessage.create).not.toHaveBeenCalled();
+    expect(captureReceiptMock).not.toHaveBeenCalled();
+  });
+
+  it('画像以外の非テキスト（スタンプ等）は SKIPPED のまま', async () => {
+    const sticker = groupTextEvent({
+      webhookEventId: 'evt-sticker',
+      source: { type: 'user', userId: 'U9' },
+      message: { id: 'msg-5', type: 'sticker' },
+    });
+    await processLineEvents(CONNECTION, [sticker]);
+
+    expect(prismaMock.inboundMessage.create.mock.calls[0][0].data).toMatchObject({
+      messageType: 'sticker',
       status: 'SKIPPED',
     });
-    expect(generateInboxDraftMock).not.toHaveBeenCalled();
+    expect(captureReceiptMock).not.toHaveBeenCalled();
+  });
+
+  it('読み取りが失敗しても取り込みは残す（人が手入力できる状態を保つ）', async () => {
+    captureReceiptMock.mockRejectedValueOnce(new Error('vision down'));
+    const userImage = groupTextEvent({
+      webhookEventId: 'evt-img-fail',
+      source: { type: 'user', userId: 'U9' },
+      message: { id: 'msg-6', type: 'image' },
+    });
+
+    await expect(processLineEvents(CONNECTION, [userImage])).resolves.toBeUndefined();
+    await vi.waitFor(() => expect(prismaMock.inboundMessage.update).toHaveBeenCalled());
+    expect(prismaMock.inboundMessage.update.mock.calls[0][0].data.text).toContain('失敗');
   });
 
   it('leave イベント → InboundMessage を作らない', async () => {

@@ -113,6 +113,68 @@ class AnthropicProvider:
             pii_detected=False,
         )
 
+    @retry(
+        retry=retry_if_exception(_is_retryable),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+        reraise=True,
+    )
+    async def vision_json(
+        self,
+        *,
+        system: str,
+        prompt: str,
+        image_base64: str,
+        media_type: str,
+        model: str = MODEL_SONNET,
+    ) -> LLMResponse:
+        """画像から構造化データを読み取る（領収書の読み取り専用）。
+
+        ⚠️ 画像はここで一度使うだけで、こちらでもゲートウェイでも保存しない。
+        保管すると電子帳簿保存法の保管要件を背負うことになるため、v1 では持たない。
+
+        json_mode の指示は system 側に足す（chat() と同じ流儀）。
+        """
+        if not self.client:
+            raise RuntimeError("ANTHROPIC_API_KEY is not set")
+        start = time.monotonic()
+
+        response = await self.client.messages.create(
+            model=model,
+            max_tokens=MAX_TOKENS,
+            system=(system + JSON_MODE_HINT).strip(),
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": image_base64,
+                            },
+                        },
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+        )
+        latency_ms = int((time.monotonic() - start) * 1000)
+        content = ""
+        if response.content:
+            for block in response.content:
+                if getattr(block, "type", None) == "text":
+                    content += block.text
+        tokens = (response.usage.input_tokens + response.usage.output_tokens) if response.usage else 0
+        return LLMResponse(
+            content=content,
+            model=model,
+            tokens_used=tokens,
+            latency_ms=latency_ms,
+            pii_detected=False,
+        )
+
     async def chat_stream(
         self,
         messages: List[ChatMessage],

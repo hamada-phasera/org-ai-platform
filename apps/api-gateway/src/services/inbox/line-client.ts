@@ -129,3 +129,50 @@ export async function getQuotaConsumption(accessToken: string): Promise<number |
     return null;
   }
 }
+
+/** メッセージ本体（画像等）は api-data.line.me 側。api.line.me では取れない。 */
+const LINE_DATA_API_BASE = 'https://api-data.line.me';
+
+/** 領収書として扱う画像の上限。これを超えるものは読まずに捨てる。 */
+export const MAX_LINE_IMAGE_BYTES = 5 * 1024 * 1024;
+
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+
+export type LineContentResult =
+  | { ok: true; base64: string; mediaType: string; bytes: number }
+  | { ok: false; reason: 'FETCH_FAILED' | 'TOO_LARGE' | 'UNSUPPORTED_TYPE' };
+
+/**
+ * LINE に届いた画像の本体を取得する。
+ *
+ * ⚠️ 取得した画像は**保存しない**。呼び出し側でその場で読み取りに使って捨てる。
+ *    保管すると電子帳簿保存法の保管要件を背負うことになる。
+ * ⚠️ Content-Length を信用せず、実際に読んだバイト数でも上限を確認する
+ *    （ヘッダは相手が自由に付けられる）。
+ */
+export async function fetchLineMessageContent(
+  accessToken: string,
+  messageId: string,
+): Promise<LineContentResult> {
+  try {
+    const res = await fetch(`${LINE_DATA_API_BASE}/v2/bot/message/${encodeURIComponent(messageId)}/content`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) return { ok: false, reason: 'FETCH_FAILED' };
+
+    const mediaType = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+    if (!ALLOWED_IMAGE_TYPES.has(mediaType)) return { ok: false, reason: 'UNSUPPORTED_TYPE' };
+
+    const declared = Number(res.headers.get('content-length') ?? 0);
+    if (declared > MAX_LINE_IMAGE_BYTES) return { ok: false, reason: 'TOO_LARGE' };
+
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.byteLength > MAX_LINE_IMAGE_BYTES) return { ok: false, reason: 'TOO_LARGE' };
+
+    return { ok: true, base64: buf.toString('base64'), mediaType, bytes: buf.byteLength };
+  } catch {
+    // ⚠️ エラーの中身をログにも戻り値にも載せない（URL に messageId が含まれる）
+    return { ok: false, reason: 'FETCH_FAILED' };
+  }
+}

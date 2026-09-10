@@ -299,6 +299,96 @@ function AnalyticsPreview({ data }: { data: any }) {
   );
 }
 
+const CONSTRUCTION_CATEGORY_LABEL: Record<string, string> = {
+  MATERIAL: '材料費',
+  LABOR: '労務費',
+  SUBCON: '外注費',
+  OTHER: '経費',
+};
+
+/**
+ * 工事原価の読み取り結果。
+ *
+ * ⚠️ ここは**まだ台帳の数字ではない**。工事も取引先も AI の候補提示に留めてあり、
+ * 実際の紐付けと確定は 経理 > 原価 の画面で人が行う。
+ * その前提が伝わらないと「AI が勝手に記帳した」と受け取られるので、画面にも明示する。
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ConstructionCostPreview({ data }: { data: any }) {
+  const entries: any[] = Array.isArray(data.entries) ? data.entries : [];
+  const total = entries.reduce((s, e) => s + (Number(e.amountIncludingTax) || 0), 0);
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <FileText size={14} className="text-accent" />
+        <span className="text-xs font-semibold text-primary">工事原価の読み取り</span>
+      </div>
+      {entries.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-text-muted border-b border-border">
+                <th className="text-left py-1 pr-2">発生日</th>
+                <th className="text-left py-1 pr-2">工事（候補）</th>
+                <th className="text-left py-1 pr-2">費目</th>
+                <th className="text-left py-1 pr-2">取引先（候補）</th>
+                <th className="text-right py-1">金額（税込）</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e, i: number) => (
+                <tr key={i} className="border-b border-hairline">
+                  <td className="py-1 pr-2 text-text-muted">{e.incurredOn ?? '—'}</td>
+                  <td className="py-1 pr-2 text-primary">{e.projectHint ?? '—'}</td>
+                  <td className="py-1 pr-2 text-text-muted">
+                    {CONSTRUCTION_CATEGORY_LABEL[e.category] ?? e.category ?? '—'}
+                  </td>
+                  <td className="py-1 pr-2 text-text-muted">{e.vendorHint ?? '—'}</td>
+                  <td className="py-1 text-right text-primary font-medium">
+                    ¥{Number(e.amountIncludingTax ?? 0).toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="font-semibold">
+                <td colSpan={4} className="py-1.5 text-text-muted">合計</td>
+                <td className="py-1.5 text-right text-primary">¥{total.toLocaleString()}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+      {data.summary && <p className="text-xs text-text-muted">{data.summary}</p>}
+      <p className="text-micro text-text-muted">
+        工事と取引先は候補です。<b className="text-secondary">経理 &gt; 原価</b> で確認して確定すると台帳に載ります。
+      </p>
+    </div>
+  );
+}
+
+/** 現場別の収支要約。数字は会話で挙がったものだけを使う（AI に作らせない）。 */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ProjectPlPreview({ data }: { data: any }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <FileText size={14} className="text-accent" />
+        <span className="text-xs font-semibold text-primary">
+          現場別の収支{data.projectHint ? ` — ${data.projectHint}` : ''}
+        </span>
+      </div>
+      {data.content && (
+        <p className="text-xs text-secondary whitespace-pre-wrap leading-relaxed">{data.content}</p>
+      )}
+      {data.summary && <p className="text-xs text-text-muted italic">{data.summary}</p>}
+      <p className="text-micro text-text-muted">
+        会話に出た数字だけで作った概算です。確定値は 経理 &gt; 工事台帳 をご覧ください。
+      </p>
+    </div>
+  );
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function TaskResultPanel({ data, onAction }: { data: any; onAction?: (action: string) => void }) {
   const taskType = data?.taskType;
@@ -314,6 +404,8 @@ function TaskResultPanel({ data, onAction }: { data: any; onAction?: (action: st
     case 'receipt_summary':
     case 'expense_report':
     case 'invoice_check': return <ReceiptSummaryPreview data={data} />;
+    case 'construction_cost_entry': return <ConstructionCostPreview data={data} />;
+    case 'project_pl': return <ProjectPlPreview data={data} />;
     case 'market_analysis':
     case 'data_visualization': return <AnalyticsPreview data={data} />;
     default: return <DocumentPreview data={data} />;

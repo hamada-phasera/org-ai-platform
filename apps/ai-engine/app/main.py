@@ -384,6 +384,75 @@ class PlanHttpNodeResponse(BaseModel):
     reasoning: str = ""
 
 
+ALLOWED_RECEIPT_MEDIA_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+"""Anthropic の画像入力が受け付ける形式。それ以外は送らずに落とす。"""
+
+MAX_RECEIPT_IMAGE_BYTES = 5 * 1024 * 1024
+
+
+class ReadReceiptRequest(BaseModel):
+    """領収書画像の読み取り。
+
+    ⚠️ 画像はここで一度使うだけで、**どこにも保存しない**。
+    保管すると電子帳簿保存法の保管要件を背負うことになるため、v1 では抽出結果だけを持つ。
+    """
+
+    image_base64: str
+    media_type: str = "image/jpeg"
+    org_id: str
+    plan: str = "STARTER"
+
+
+class ReadReceiptResponse(BaseModel):
+    amountIncludingTax: Optional[int] = None
+    taxAmount: Optional[int] = None
+    incurredOn: Optional[str] = None
+    vendorHint: Optional[str] = None
+    category: Optional[str] = None
+    projectHint: Optional[str] = None
+    description: Optional[str] = None
+    confidence: float = 0.0
+    notes: Optional[str] = None
+
+
+@app.post("/vision/receipt", response_model=ReadReceiptResponse)
+async def read_receipt_endpoint(request: ReadReceiptRequest) -> ReadReceiptResponse:
+    """領収書の写真から工事原価の候補を読み取る（記帳はしない）。
+
+    返すのは候補だけ。工事・取引先の紐付けと確定は gateway 側で人が承認する。
+    """
+    from app.planner.receipt_vision import read_receipt
+
+    if request.media_type not in ALLOWED_RECEIPT_MEDIA_TYPES:
+        return ReadReceiptResponse(notes="対応していない画像形式です。写真で撮り直してください。")
+
+    # base64 の長さから元のバイト数を見積もる（デコードせずに弾く）
+    approx_bytes = (len(request.image_base64) * 3) // 4
+    if approx_bytes > MAX_RECEIPT_IMAGE_BYTES:
+        return ReadReceiptResponse(notes="画像が大きすぎます。もう少し小さいサイズで送ってください。")
+
+    try:
+        result = await read_receipt(request.image_base64, request.media_type)
+    except Exception as e:  # noqa: BLE001 — 読めなかったことを人に返す（例外で 500 にしない）
+        print(f"[vision/receipt] 読み取りに失敗: {e}")
+        return ReadReceiptResponse(notes="領収書を読み取れませんでした。手入力で登録してください。")
+
+    # ⚠️ AILog には画像も base64 も残さない。入力は「領収書画像」という事実だけ。
+    asyncio.create_task(log_llm_call(
+        org_id=request.org_id,
+        department="ACCOUNTING",
+        provider="anthropic",
+        model="claude-sonnet-4-6",
+        input_text="[領収書画像]",
+        output_text=json.dumps(result, ensure_ascii=False),
+        tokens=None,
+        latency_ms=None,
+        pii_detected=False,
+        pii_types=[],
+    ))
+    return ReadReceiptResponse(**result)
+
+
 @app.post("/plan/http-node", response_model=PlanHttpNodeResponse)
 async def plan_http_node_endpoint(request: PlanHttpNodeRequest) -> PlanHttpNodeResponse:
     """curl / API ドキュメントの断片からカスタムノードの設定を提案する（保存はしない）。
