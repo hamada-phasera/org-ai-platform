@@ -20,6 +20,7 @@ vi.stubGlobal('fetch', fetchMock);
 const {
   renderArgTemplate,
   coerceJsonLike,
+  looksLikeJsonTemplate,
   requiresApproval,
   initRunState,
   parseRunState,
@@ -121,6 +122,22 @@ describe('renderArgTemplate', () => {
     );
     expect(out.text).toBe('{"url":"https://doc"}');
     expect(out.rows).toBe('[["a",1]]');
+  });
+
+  it('リテラルの中に {{input}} を差し込む形なら実体に戻す', () => {
+    const out = renderArgTemplate({ rows: '[["{{input}}",1]]' }, { input: '1/1', prev: '' });
+    expect(out.rows).toEqual([['1/1', 1]]);
+  });
+});
+
+describe('looksLikeJsonTemplate', () => {
+  it('プレースホルダを除いた素の文字列で判定する（{{prev}} は本文であって JSON ではない）', () => {
+    expect(looksLikeJsonTemplate('{{prev}}')).toBe(false);
+    expect(looksLikeJsonTemplate('前: {{ prev }}')).toBe(false);
+    expect(looksLikeJsonTemplate('こんにちは')).toBe(false);
+    expect(looksLikeJsonTemplate('["a","b"]')).toBe(true);
+    expect(looksLikeJsonTemplate('[["{{input}}",1]]')).toBe(true);
+    expect(looksLikeJsonTemplate('{"a":1}')).toBe(true);
   });
 });
 

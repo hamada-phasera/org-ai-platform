@@ -19,6 +19,25 @@ const AI_ENGINE_URL = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
 
 // ── pure（vitest 対象） ────────────────────────────────────────────
 
+const PLACEHOLDER_RE = /\{\{\s*(input|prev)\s*\}\}/g;
+
+/**
+ * argTemplate の値が「JSON リテラルとして書かれている」か判定する。
+ *
+ * 判定はプレースホルダを取り除いた素の文字列で行う。`{{prev}}` は `{` で始まるが中身は
+ * 直前ステップの出力（capability の戻り値を JSON 文字列化したもの）なので、実体に戻すと
+ * Slack 本文やメール本文がオブジェクトへ化けて Ajv の type: string で必ず落ちる。
+ *   '{{prev}}'            → ''           → false（本文。文字列のまま）
+ *   '前: {{prev}}'        → '前: '       → false
+ *   '["日付","売上"]'      → 同左         → true （LLM が書いた配列リテラル）
+ *   '[["{{input}}",1]]'   → '[["",1]]'   → true （リテラルの中に差し込むケース）
+ *   '{{foo}}'             → '{{foo}}'    → true だが JSON.parse に失敗して元のまま
+ */
+export function looksLikeJsonTemplate(template: string): boolean {
+  const literal = template.replace(PLACEHOLDER_RE, '').trim();
+  return literal.startsWith('[') || literal.startsWith('{');
+}
+
 /**
  * 値が JSON らしき文字列（先頭が [ か {）なら実体に戻す。
  *
@@ -57,15 +76,13 @@ export function renderArgTemplate(
       out[key] = value;
       continue;
     }
-    const hasPlaceholder = /\{\{\s*(input|prev)\s*\}\}/.test(value);
-    const rendered = value.replace(/\{\{\s*(input|prev)\s*\}\}/g, (_, name: string) =>
+    const rendered = value.replace(PLACEHOLDER_RE, (_, name: string) =>
       name === 'input' ? ctx.input : ctx.prev,
     );
-    // JSON 復元はテンプレートに直接書かれたリテラルにだけ適用する。
-    // 置換後の値まで対象にすると、{{prev}} に前ステップの出力 JSON（例 {"url":"..."}）が
-    // 入ったときに本文がオブジェクトへ化けてしまう。Slack 本文やメール本文が
-    // 文字列でなくなると Ajv の type: string で必ず落ちるので、ここは分けること。
-    out[key] = hasPlaceholder ? rendered : coerceJsonLike(rendered);
+    // JSON 復元は「テンプレートが JSON リテラルとして書かれている」ときにだけ適用する。
+    // 置換後の値だけで判定すると、{{prev}} に前ステップの出力 JSON（例 {"url":"..."}）が
+    // 入ったときに本文がオブジェクトへ化けてしまう。判定と復元は必ず分けること。
+    out[key] = looksLikeJsonTemplate(value) ? coerceJsonLike(rendered) : rendered;
   }
   return out;
 }
@@ -380,12 +397,16 @@ export async function resumeAgentTask(
       return;
     }
 
-    // 編集を反映。以前は文字列以外を JSON.stringify していたが、それだと配列引数が
-    // 文字列のまま capability に渡って VALIDATION_ERROR になる。実体のまま通し、
-    // 承認 UI が文字列で返してきた JSON だけ coerceJsonLike で戻す。
+    // 編集を反映。以前は文字列以外を無条件に JSON.stringify していたが、それだと配列引数が
+    // 文字列のまま capability に渡って VALIDATION_ERROR になる。値は実体のまま通す。
+    // 例外は「元が配列/オブジェクトだったものを承認 UI が文字列にして返してきた」ケースだけ。
+    const original = step.args ?? {};
     const args: Record<string, unknown> = {};
-    const source = opts?.editedArgs && Object.keys(opts.editedArgs).length > 0 ? opts.editedArgs : (step.args ?? {});
-    for (const [k, v] of Object.entries(source)) args[k] = coerceJsonLike(v);
+    const source = opts?.editedArgs && Object.keys(opts.editedArgs).length > 0 ? opts.editedArgs : original;
+    for (const [k, v] of Object.entries(source)) {
+      const wasStructured = k in original && original[k] !== null && typeof original[k] !== 'string';
+      args[k] = wasStructured && typeof v === 'string' ? coerceJsonLike(v) : v;
+    }
 
     step.status = 'RUNNING';
     step.args = args;
