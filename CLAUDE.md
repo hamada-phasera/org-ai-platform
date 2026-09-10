@@ -63,8 +63,30 @@ AI_ENGINE_URL=http://localhost:8000
 N8N_CLOUD_URL=        # or N8N_URL。エージェント実行・ワークフロー生成の宛先
 N8N_API_KEY=          # n8n Public API キー。エージェント専用ワークフローの動的生成にも使用
 N8N_WEBHOOK_AUTH_TOKEN=org-ai-n8n-secret-token   # Webhook Header Auth
-CHANNEL_CREDENTIAL_ENC_KEY=   # LINE受信箱: チャネル資格情報の暗号化鍵(32byteをhex/base64)。未設定時はJWT_SECRETから導出
+# セルフサーブ連携 (設定 > 連携)
+CHANNEL_CREDENTIAL_ENC_KEY=   # 外部サービスの資格情報の暗号化鍵(32byteをhex/base64)。未設定時はJWT_SECRETから導出
+GOOGLE_OAUTH_CLIENT_ID=       # GCP の OAuth クライアント (ウェブアプリ)。docs/self-serve-integrations.md
+GOOGLE_OAUTH_CLIENT_SECRET=
+CAPABILITY_CONFIDENCE_THRESHOLD=0.7   # 推論の確信度がこれ未満なら実行せず確認を返す
+INTERNAL_SCHEDULER_ENABLED=true       # 定期実行の gateway 内 tick (5分間隔)
 ```
+
+## 自動化の実行モデル (2026-09 スプリント)
+
+- **連携はユーザーが自分で接続する**。Slack (Bot トークン貼付) と Google (OAuth) は
+  `ProviderConnection` に暗号化保存し、gateway の native adapter (`services/adapters/`) が
+  直接 API を叩く。n8n credential 非依存 = 顧客追加は DB 行の追加だけ。
+  Gmail / X / 既存シート読取は従来どおり n8n 側管理。
+- **複数ステップは gateway で順に実行する** (`services/step-runner.ts`)。`Agent.steps` を
+  上から実行し、状態は `Task.executionResult` に JSON で毎ステップ保存。
+  argTemplate に埋め込めるのは `{{input}}` と `{{prev}}` のみ。
+  `llm_transform` は capability を持たない予約ステップ (AI Engine `/llm/chat` 直呼び)。
+- **外部送信は必ず人が通す**。`APPROVAL_REQUIRED_CAPS` (send_email / notify_slack /
+  post_to_x / send_line_push) は実行前に `PENDING_APPROVAL` で停止し、受信ページの
+  「エージェント承認」タブに積まれる。承認 → `resumeAgentTask` で残りを継続。
+- **定期実行は `ScheduledTask.agentId`** で紐づく。発火は `services/schedule-dispatcher.ts` に
+  集約し、`lastRunAt` の条件付き updateMany による atomic claim で二重発火を防ぐ。
+  n8n の schedule-dispatcher と gateway 内 tick (5分) が併走しても安全。
 
 ## エージェント機能 (業務効率化エージェント)
 

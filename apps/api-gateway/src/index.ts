@@ -23,17 +23,33 @@ import { analyticsRoutes } from './routes/analytics';
 import { lineWebhookRoutes } from './routes/inbox/line-webhook';
 import { inboxMessagesRoutes } from './routes/inbox/messages';
 import { inboxConnectionsRoutes } from './routes/inbox/connections';
+import { integrationsRoutes } from './routes/integrations';
+import { oauthGoogleRoutes } from './routes/oauth-google';
+import { startInternalScheduler } from './services/schedule-dispatcher';
+import { recoverStaleRunningTasks } from './services/step-runner';
 import { prisma } from './utils/prisma';
 
 const app = Fastify({ logger: true });
 
 async function start(): Promise<void> {
-  // 明示許可リスト (FRONTEND_URL, カンマ区切り) + localhost + 任意の *.vercel.app を許可。
-  // Vercel のプレビュー URL はデプロイ毎に変わるため、env だけの完全一致では運用に耐えない。
+  // 明示許可リスト (FRONTEND_URL, カンマ区切り) + localhost + 自分のフロントのみ許可。
+  // 以前は *.vercel.app 全許可 + credentials:true で、任意の Vercel ユーザーのサイトから
+  // 資格情報付きリクエストが可能だった（本番検証時の指摘）。
+  //
+  // Vercel のホスト名は 3 種類あるので取りこぼすとフロントが全滅する:
+  //   - 本番エイリアス: org-ai-platform.vercel.app（実際に公開されているのはこれ）
+  //   - プロジェクトエイリアス: flow-hamahiro1668s-projects.vercel.app
+  //   - デプロイ毎: flow-<hash>-hamahiro1668s-projects.vercel.app（毎回変わる）
+  // 末尾のアカウント固有サフィックスは他人が取得できないため、これだけワイルドカードにする。
   const explicitOrigins = (process.env.FRONTEND_URL ?? 'http://localhost:3000')
     .split(',')
     .map((s) => s.trim())
     .filter((s) => s && s !== '*');
+  const extraHosts = (process.env.ALLOWED_ORIGIN_HOSTS ?? 'org-ai-platform.vercel.app')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const vercelSuffix = process.env.VERCEL_PREVIEW_SUFFIX ?? '-hamahiro1668s-projects.vercel.app';
   await app.register(cors, {
     origin: (origin, cb) => {
       // 同一オリジン / 非ブラウザ (origin 無し) は許可
@@ -46,9 +62,10 @@ async function start(): Promise<void> {
       }
       const ok =
         explicitOrigins.includes(origin) ||
+        extraHosts.includes(host) ||
         host === 'localhost' ||
         host === '127.0.0.1' ||
-        host.endsWith('.vercel.app');
+        host.endsWith(vercelSuffix);
       cb(null, ok);
     },
     credentials: true,
@@ -103,10 +120,24 @@ async function start(): Promise<void> {
   await app.register(lineWebhookRoutes, { prefix: '/api/webhooks/line' });
   await app.register(inboxMessagesRoutes, { prefix: '/api/inbox/messages' });
   await app.register(inboxConnectionsRoutes, { prefix: '/api/inbox/connections' });
+  await app.register(integrationsRoutes, { prefix: '/api/integrations' });
+  await app.register(oauthGoogleRoutes, { prefix: '/api/oauth/google' });
 
   const port = parseInt(process.env.PORT ?? '4000');
   await app.listen({ port, host: '0.0.0.0' });
   console.log(`API Gateway running on port ${port}`);
+
+  // デプロイ・再起動で RUNNING のまま取り残されたエージェント実行を回収する。
+  // 放置すると受信ページにも一覧にも「実行中」のまま永久に残るため、起動直後に一度だけ掃除する。
+  void recoverStaleRunningTasks()
+    .then((n) => {
+      if (n > 0) console.log(`[startup] 中断された実行 ${n} 件を回収しました`);
+    })
+    .catch((e) => console.error('[startup] stale task recovery failed:', e));
+
+  // 定期実行の gateway 内 tick（n8n schedule-dispatcher が未インポートでも定期実行が動く保険。
+  // 併走しても enqueue 側の atomic claim が二重発火を防ぐ）
+  startInternalScheduler();
 }
 
 start().catch((err) => {

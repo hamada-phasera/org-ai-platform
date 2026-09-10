@@ -5,6 +5,7 @@ const prismaMock = {
   requiredCredential: { findMany: vi.fn(), update: vi.fn() },
   capabilityGap: { findFirst: vi.fn(), update: vi.fn(), create: vi.fn() },
   executionLog: { create: vi.fn() },
+  providerConnection: { findUnique: vi.fn() },
 };
 
 vi.mock('../../utils/prisma', () => ({ prisma: prismaMock }));
@@ -154,5 +155,136 @@ describe('resolveAndExecute', () => {
       expect(r.envelope.status).toBe('error');
       expect(r.envelope.error_type).toBe('TIMEOUT');
     }
+  });
+});
+
+describe('実行前確認ゲート（confidence / preview）', () => {
+  it('preview モードは実行せず NEEDS_CONFIRMATION を返す', async () => {
+    prismaMock.capability.findUnique.mockResolvedValue(SAMPLE_CAP);
+
+    const r = await resolveAndExecute({
+      name: 'draft_email',
+      args: { recipientHint: 'x', purpose: 'y' },
+      userId: 'u1',
+      orgId: 'org-1',
+      mode: 'preview',
+    });
+
+    expect(r.outcome).toBe('NEEDS_CONFIRMATION');
+    if (r.outcome === 'NEEDS_CONFIRMATION') {
+      expect(r.capability).toBe('draft_email');
+      expect(r.displayName).toBe('メール下書き');
+      expect(r.args).toMatchObject({ recipientHint: 'x' });
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rawInput 推論の confidence が閾値未満なら実行せず確認を返す', async () => {
+    prismaMock.capability.findMany.mockResolvedValue([]);
+    prismaMock.capability.findUnique.mockResolvedValue(SAMPLE_CAP);
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes('/plan')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            capability_name: 'draft_email',
+            args: { recipientHint: 'x', purpose: 'y' },
+            confidence: 0.3,
+            reasoning: '自信なし',
+          }),
+        };
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    const r = await resolveAndExecute({ rawInput: 'メール書いて', userId: 'u1', orgId: 'org-1' });
+
+    expect(r.outcome).toBe('NEEDS_CONFIRMATION');
+    if (r.outcome === 'NEEDS_CONFIRMATION') expect(r.confidence).toBe(0.3);
+    // /plan は呼ぶが、capability の webhook は叩かない
+    expect(fetchMock.mock.calls.every((c) => String(c[0]).includes('/plan'))).toBe(true);
+  });
+
+  it('confidence が閾値以上なら確認なしで実行する', async () => {
+    prismaMock.capability.findMany.mockResolvedValue([]);
+    prismaMock.capability.findUnique.mockResolvedValue(SAMPLE_CAP);
+    prismaMock.requiredCredential.findMany.mockResolvedValue([]);
+    prismaMock.executionLog.create.mockResolvedValue({ id: 'log-c' });
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes('/plan')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            capability_name: 'draft_email',
+            args: { recipientHint: 'x', purpose: 'y' },
+            confidence: 0.95,
+            reasoning: '確信あり',
+          }),
+        };
+      }
+      return { ok: true, status: 200, text: async () => JSON.stringify({ status: 'success', data: {} }) };
+    });
+
+    const r = await resolveAndExecute({ rawInput: 'メール書いて', userId: 'u1', orgId: 'org-1' });
+
+    expect(r.outcome).toBe('EXECUTED');
+  });
+
+  it('name 明示指定はゲートを素通りする（承認後の確定実行・step-runner が無限ループしない）', async () => {
+    prismaMock.capability.findUnique.mockResolvedValue(SAMPLE_CAP);
+    prismaMock.requiredCredential.findMany.mockResolvedValue([]);
+    prismaMock.executionLog.create.mockResolvedValue({ id: 'log-d' });
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ status: 'success', error_type: null, message: '', data: {} }),
+    });
+
+    const r = await resolveAndExecute({
+      name: 'draft_email',
+      args: { recipientHint: 'x', purpose: 'y' },
+      userId: 'u1',
+      orgId: 'org-1',
+    });
+
+    expect(r.outcome).toBe('EXECUTED');
+  });
+});
+
+describe('セルフサーブ接続による credential 判定', () => {
+  const SLACK_CAP = {
+    ...SAMPLE_CAP,
+    id: 'cap-slack',
+    name: 'notify_slack',
+    displayName: 'Slack 投稿',
+    webhookPath: 'cap-notify_slack',
+    inputSchema: {
+      type: 'object',
+      required: ['channel', 'text'],
+      properties: { channel: { type: 'string' }, text: { type: 'string' } },
+      additionalProperties: false,
+    },
+  };
+
+  it('ProviderConnection が無ければ NEEDS_AUTH（n8n の credential 一覧は見ない）', async () => {
+    prismaMock.capability.findUnique.mockResolvedValue(SLACK_CAP);
+    prismaMock.requiredCredential.findMany.mockResolvedValue([
+      { id: 'cr-s', provider: 'slack', status: 'CONNECTED', lastCheckedAt: new Date(), capabilityId: 'cap-slack' },
+    ]);
+    prismaMock.providerConnection.findUnique.mockResolvedValue(null);
+    prismaMock.requiredCredential.update.mockResolvedValue({});
+
+    const r = await resolveAndExecute({
+      name: 'notify_slack',
+      args: { channel: '#g', text: 'hi' },
+      userId: 'u1',
+      orgId: 'org-1',
+    });
+
+    expect(r.outcome).toBe('NEEDS_AUTH');
+    // DB 上 CONNECTED でも、実際の接続が無ければ DISCONNECTED に矯正される
+    expect(prismaMock.requiredCredential.update).toHaveBeenCalled();
   });
 });

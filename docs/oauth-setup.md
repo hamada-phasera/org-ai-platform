@@ -1,5 +1,13 @@
 # 外部連携 OAuth セットアップ（Google Workspace / Slack）
 
+> ⚠️ **Google Docs/Sheets/Slides と Slack はセルフサーブ連携に移行しました。**
+> これらは顧客が **設定 > 連携** から自分で接続し、gateway が直接 API を叩きます
+> （n8n の credential は使いません）。手順は **[docs/self-serve-integrations.md](./self-serve-integrations.md)** を参照してください。
+>
+> このドキュメントで現役なのは **Gmail（send_email）/ X（post_to_x）/ 既存シート読取（summarize_sheet）** の
+> 3 つだけです。Google/Slack の節は旧方式の記録として残しています
+> （n8n の `cap-notify_slack` / `cap-create_google_*` ワークフローは非アクティブ化して構いません）。
+
 チャットで要件が固まると、AI が **Googleドキュメント / スプレッドシート / スライド / Slack投稿** を成果物として作れます（capability `create_google_doc` / `create_google_sheet` / `create_google_slides` / `notify_slack`）。
 これらは n8n のワークフロー経由で実行され、**各サービスの OAuth 接続を n8n に 1 回だけ登録**すれば有効になります。接続するまでは capability は `NEEDS_AUTH`（チャットでは「接続が必要です」と案内）になります。
 

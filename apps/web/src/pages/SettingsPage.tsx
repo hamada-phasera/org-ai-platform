@@ -47,7 +47,12 @@ export default function SettingsPage() {
   const qc = useQueryClient();
   const logout = useAuthStore((s) => s.logout);
   const storedUser = useAuthStore((s) => s.user);
-  const [view, setView] = useState<'general' | 'integrations'>('general');
+  // OAuth コールバックは ?tab=integrations で戻ってくるので、初期表示をクエリで決める
+  const [view, setView] = useState<'general' | 'integrations'>(() =>
+    new URLSearchParams(window.location.search).get('tab') === 'integrations'
+      ? 'integrations'
+      : 'general',
+  );
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<{ fileName: string; content: string } | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);

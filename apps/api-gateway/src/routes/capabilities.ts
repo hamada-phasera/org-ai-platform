@@ -9,6 +9,8 @@ const resolveSchema = z.object({
   name: z.string().nullable().optional(),
   args: z.record(z.unknown()).optional(),
   plan: z.string().optional(),
+  // preview = 実行せず内容確認（NEEDS_CONFIRMATION）を返す。承認後は name + args で確定実行する
+  mode: z.enum(['execute', 'preview']).optional(),
 });
 
 const patchSchema = z.object({
@@ -46,6 +48,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
       userId: payload.sub,
       orgId: payload.orgId,
       plan: parsed.data.plan,
+      mode: parsed.data.mode,
     });
     return reply.send({ success: true, data: result });
   });

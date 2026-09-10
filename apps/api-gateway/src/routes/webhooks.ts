@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma';
-import { dispatchQueuedTask } from '../services/task-executor';
+import { claimAndEnqueueScheduledTask, startOfCurrentHourUtc } from '../services/schedule-dispatcher';
 
 const WEBHOOK_AUTH_TOKEN = process.env.N8N_WEBHOOK_AUTH_TOKEN ?? 'org-ai-n8n-secret-token';
 
@@ -117,7 +117,13 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     const currentDayOfMonth = now.getUTCDate();
 
     const candidates = await prisma.scheduledTask.findMany({
-      where: { enabled: true, hourUtc: currentHourUtc },
+      where: {
+        enabled: true,
+        hourUtc: currentHourUtc,
+        // 当該時間帯に実行済みのものは返さない（dispatcher が 1 時間に 2 回走っても二重 enqueue しない。
+        // 最終防衛線は enqueue 側の atomic claim）
+        OR: [{ lastRunAt: null }, { lastRunAt: { lt: startOfCurrentHourUtc(now) } }],
+      },
       include: { org: { select: { plan: true, billingEmail: true } } },
     });
 
@@ -159,34 +165,25 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
         error: { code: 'VALIDATION_ERROR', message: result.error.message },
       });
     }
-    const st = await prisma.scheduledTask.findUnique({ where: { id: result.data.scheduledTaskId } });
-    if (!st || !st.enabled) {
-      return reply.code(404).send({
-        success: false,
-        error: { code: 'NOT_FOUND', message: '有効な定期タスクが見つかりません' },
+    // atomic claim（lastRunAt の条件付き更新）+ エージェント分岐は schedule-dispatcher に集約。
+    // 既に当該時間帯に走っていれば冪等 skip（success で返し、n8n 側の再送を止める）。
+    const outcome = await claimAndEnqueueScheduledTask(result.data.scheduledTaskId);
+    if (!outcome.enqueued) {
+      if (outcome.reason === 'not_found') {
+        return reply.code(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: '有効な定期タスクが見つかりません' },
+        });
+      }
+      return reply.send({
+        success: true,
+        data: { skipped: true, reason: outcome.reason, scheduledTaskId: result.data.scheduledTaskId },
       });
     }
-    // Task 作成（QUEUED で作成 → n8n が自動発火）
-    const task = await prisma.task.create({
-      data: {
-        orgId: st.orgId,
-        title: `[定期] ${st.title}`,
-        department: st.department,
-        input: st.input,
-        status: 'QUEUED',
-        taskType: st.taskType,
-      },
+    return reply.send({
+      success: true,
+      data: { taskId: outcome.taskId, scheduledTaskId: result.data.scheduledTaskId },
     });
-    await prisma.taskLog.create({
-      data: { taskId: task.id, message: `定期実行から起動 (scheduledTaskId=${st.id})`, level: 'INFO' },
-    });
-    await prisma.scheduledTask.update({
-      where: { id: st.id },
-      data: { lastRunAt: new Date() },
-    });
-    // n8n もしくは AI Engine で実行
-    void dispatchQueuedTask(task);
-    return reply.send({ success: true, data: { taskId: task.id, scheduledTaskId: st.id } });
   });
 
   // 定期ジョブ実行完了の callback（lastRunAt を更新）

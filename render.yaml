@@ -71,6 +71,16 @@ services:
       # （JWT_SECRET をローテすると既存の接続が復号不能になるため独立設定を推奨）。
       - key: CHANNEL_CREDENTIAL_ENC_KEY
         sync: false
+      # セルフサーブ Google 連携 (設定 > 連携)。GCP の OAuth クライアント (ウェブアプリ)。
+      # リダイレクト URI: https://org-ai-api-gateway.onrender.com/api/oauth/google/callback
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      # OAuth コールバック URL と LINE webhook URL 表示の組み立てに使う自分自身の公開 URL。
+      # 例: https://org-ai-api-gateway.onrender.com
+      - key: API_GATEWAY_URL
+        sync: false
 
   - type: web
     name: org-ai-ai-engine

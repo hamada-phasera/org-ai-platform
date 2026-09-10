@@ -21,20 +21,21 @@ model User {
 }
 
 model Organization {
-  id                 String              @id @default(cuid())
-  name               String
-  plan               String              @default("STARTER")
-  billingEmail       String?
-  users              User[]
-  sessions           ChatSession[]
-  tasks              Task[]
-  files              UploadedFile[]
-  scheduledTasks     ScheduledTask[]
-  agents             Agent[]
-  deals              Deal[]
-  channelConnections ChannelConnection[]
-  inboundMessages    InboundMessage[]
-  createdAt          DateTime            @default(now())
+  id                  String               @id @default(cuid())
+  name                String
+  plan                String               @default("STARTER")
+  billingEmail        String?
+  users               User[]
+  sessions            ChatSession[]
+  tasks               Task[]
+  files               UploadedFile[]
+  scheduledTasks      ScheduledTask[]
+  agents              Agent[]
+  deals               Deal[]
+  channelConnections  ChannelConnection[]
+  inboundMessages     InboundMessage[]
+  providerConnections ProviderConnection[]
+  createdAt           DateTime             @default(now())
 }
 
 model ChatSession {
@@ -179,10 +180,15 @@ model ScheduledTask {
   dayOfMonth     Int?
   enabled        Boolean      @default(true)
   lastRunAt      DateTime?
+  // 定期実行トリガー: 紐づく Agent。null なら従来どおり部署ワークフロー実行。
+  // Agent 削除時は SetNull（routes/agents.ts の DELETE が定期タスク自体も掃除する）。
+  agentId        String?
+  agent          Agent?       @relation(fields: [agentId], references: [id], onDelete: SetNull)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
   @@index([orgId, enabled])
+  @@index([agentId])
 }
 
 enum CapabilityStatus {
@@ -291,7 +297,8 @@ model Agent {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
-  tasks Task[]
+  tasks          Task[]
+  scheduledTasks ScheduledTask[]
 
   @@unique([orgId, name])
   @@index([orgId, enabled])
@@ -313,6 +320,32 @@ model Deal {
   updatedAt DateTime     @updatedAt
 
   @@index([orgId, stage])
+}
+
+/// 組織単位の外部プロバイダ接続（Slack Bot トークン / Google OAuth）。設定 > 連携から
+/// 顧客がセルフサーブで接続する。トークンは secret-box.ts の AES-256-GCM 暗号文のみ保存し、
+/// 平文は DB・ログ・レスポンスに出さない。capability 実行（native adapter）がここを参照する。
+/// ChannelConnection とは統合しない: あちらは @@unique([provider, channelId])（webhook の
+/// destination 逆引き＝全 org 横断で一意）、こちらは @@unique([orgId, provider])（1組織1接続）
+/// と unique の意味論が異なる。
+model ProviderConnection {
+  id                String       @id @default(cuid())
+  orgId             String
+  org               Organization @relation(fields: [orgId], references: [id])
+  provider          String // 'slack' | 'google'（shared-types の ProviderConnectionProvider で縛る）
+  accessTokenEnc    String // Slack: xoxb Bot token / Google: access_token（いずれも暗号文）
+  refreshTokenEnc   String? // Google のみ。access_token 失効時の自動リフレッシュに使う
+  tokenExpiresAt    DateTime? // Google access_token の期限。Slack は null（無期限）
+  scopes            String? // スペース区切り。Slack は auth.test の x-oauth-scopes ヘッダ値
+  externalAccountId String? // Slack: team_id / Google: アカウント email
+  displayName       String? // Slack: ワークスペース名 / Google: アカウント email
+  status            String       @default("CONNECTED") // 'CONNECTED' | 'NEEDS_RECONNECT' | 'DISABLED'
+  lastCheckedAt     DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@unique([orgId, provider])
+  @@index([orgId])
 }
 
 /// LINE 受信箱: テナント（org）と LINE 公式アカウントの接続情報。
