@@ -18,15 +18,24 @@ export interface ExtractOptions {
   maxChars?: number;
 }
 
+/**
+ * テキストを抽出する。
+ *
+ * source はファイルパスでもバッファでもよい。
+ * ⚠️ 保存先がオブジェクトストレージになるとローカルパスが存在しないので、
+ *    バッファを直接受けられないと RAG の索引づくりと解析が両方壊れる。
+ *    パスを渡す既存の呼び出しはそのまま動く。
+ */
 export async function extractText(
-  storagePath: string,
+  source: string | Buffer,
   mimeType: string,
   options: ExtractOptions = {},
 ): Promise<ExtractResult> {
   const maxChars = options.maxChars ?? MAX_EXTRACT_CHARS;
+  const load = async (): Promise<Buffer> => (typeof source === 'string' ? readFile(source) : source);
 
   if (mimeType === 'text/plain' || mimeType === 'text/csv') {
-    const buf = await readFile(storagePath);
+    const buf = await load();
     const text = buf.toString('utf-8');
     return trim(text, 'text', maxChars);
   }
@@ -36,7 +45,7 @@ export async function extractText(
       const mod = await optionalImport('pdf-parse');
       if (!mod) return unsupported('pdf-parse がインストールされていません (npm i pdf-parse)');
       const parser = mod.default ?? mod;
-      const buf = await readFile(storagePath);
+      const buf = await load();
       const out = await parser(buf);
       return trim(String(out.text ?? ''), 'pdf', maxChars);
     } catch (e) {
@@ -48,7 +57,9 @@ export async function extractText(
     try {
       const mod = await optionalImport('mammoth');
       if (!mod) return unsupported('mammoth がインストールされていません (npm i mammoth)');
-      const out = await mod.extractRawText({ path: storagePath });
+      const out = await mod.extractRawText(
+        typeof source === 'string' ? { path: source } : { buffer: source },
+      );
       return trim(String(out.value ?? ''), 'docx', maxChars);
     } catch (e) {
       return unsupported(`DOCX抽出に失敗しました: ${(e as Error).message}`);

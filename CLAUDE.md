@@ -17,7 +17,7 @@ AIガバナンス機能（ログ監視・リスク検知）を補助機能とし
 | LLM | Anthropic Claude + Google Gemini | 松竹梅ルーティング: 梅(STARTER)/竹(PRO)=Gemini無料枠、松(MAX)/admin=Claude。エージェント構築は全ユーザーOpus。LLMRouter経由（docs/llm-provider-tiers.md） |
 | ワークフロー | n8n (セルフホスト) | 部署/capability/エージェントの実行基盤。Webhook起動＋AI Engineフォールバック |
 | 認証 | JWT自前実装 (bcryptjs + @fastify/jwt) | シンプル認証 |
-| ファイル保存 | ローカルファイルシステム | ./data/files/ |
+| ファイル保存 | Supabase Storage（本番）/ ローカル（開発） | 非公開バケット `org-files`。未設定だとローカルに落ち、Render では再デプロイで消える |
 | インフラ | docker-compose | ローカル開発環境 |
 
 ## リポジトリ構成
@@ -69,6 +69,10 @@ GOOGLE_OAUTH_CLIENT_ID=       # GCP の OAuth クライアント (ウェブア�
 GOOGLE_OAUTH_CLIENT_SECRET=
 CAPABILITY_CONFIDENCE_THRESHOLD=0.7   # 推論の確信度がこれ未満なら実行せず確認を返す
 INTERNAL_SCHEDULER_ENABLED=true       # 定期実行の gateway 内 tick (5分間隔)
+# ファイル保存 (本番必須。未設定ならローカル保存＝Renderでは再デプロイで消える)
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=    # gateway だけが持つ。ブラウザに渡さない
+SUPABASE_STORAGE_BUCKET=org-files
 ```
 
 ## 自動化の実行モデル (2026-09 スプリント)
@@ -105,6 +109,18 @@ INTERNAL_SCHEDULER_ENABLED=true       # 定期実行の gateway 内 tick (5分�
 - **LINE で領収書を撮ると原価の下書きになる**。画像は保存せず、抽出結果だけを持つ
   （電子帳簿保存法の保管要件を背負わないため）。工事が1件に絞れないときは明細を作らず人に返す。
 - **税務判断はしない**。集計と期日の可視化までに留め、画面にもその旨を出す。
+
+## ファイル保存とプラン容量
+
+- **保存先は行ごとに記録する**（`UploadedFile.storageDriver`）。新規は Supabase、
+  移行前の行は `local` のまま残し、読むときは行の driver を使う。本体を失った行は消さずに
+  「再アップロードしてください」と出す（RAG の索引 `FileChunk` を守るため）。
+- **使用量の真実は `Organization.storageUsedBytes`**。保存と削除で、行の作成/削除と
+  **同じトランザクション**で増減する。毎回 `SUM(sizeBytes)` はしない。
+- **容量 = プランの無料枠 + 追加容量**（`storageAddonUnits` × 1GB）。判定は
+  `canUpload()`（shared-types）1か所だけ。追加容量は課金開始後に購入できるようにする。
+- ⚠️ service_role キーは RLS を貫通する。**組織の切り分けはアプリ側**
+  （キーの先頭が orgId、触る前に `keyBelongsToOrg` で確認）。
 
 ## エージェント機能 (業務効率化エージェント)
 

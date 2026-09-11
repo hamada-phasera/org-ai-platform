@@ -1,4 +1,7 @@
 export type Plan = 'STARTER' | 'PRO' | 'MAX';
+
+/** 容量の単位。1000 ではなく 1024 で数える（OS の表示と揃える） */
+const MB = 1024 * 1024;
 export type PlanTier = Plan;
 
 /**
@@ -14,24 +17,89 @@ export type PlanTier = Plan;
  */
 export const PLAN_LIMITS: Record<
   Plan,
-  { aiCallsPerMonth: number; model: string; modelLabel: string }
+  {
+    aiCallsPerMonth: number;
+    model: string;
+    modelLabel: string;
+    /** 込みのストレージ容量（バイト）。超えた分は追加課金で増やす */
+    storageBytes: number;
+    /** 1ファイルの上限（バイト） */
+    maxFileBytes: number;
+    /** 組織に入れられる人数の上限 */
+    memberLimit: number;
+  }
 > = {
   STARTER: {
     aiCallsPerMonth: 3000,
     model: 'gemini-2.5-flash-lite',
     modelLabel: 'Gemini 2.5 Flash-Lite',
+    storageBytes: 100 * MB,
+    maxFileBytes: 10 * MB,
+    memberLimit: 5,
   },
   PRO: {
     aiCallsPerMonth: 8000,
     model: 'gemini-2.5-flash',
     modelLabel: 'Gemini 2.5 Flash',
+    storageBytes: 300 * MB,
+    maxFileBytes: 20 * MB,
+    memberLimit: 20,
   },
   MAX: {
     aiCallsPerMonth: 20000,
     model: 'claude-opus-4-7',
     modelLabel: 'Claude Opus 4.7',
+    storageBytes: 1024 * MB,
+    maxFileBytes: 50 * MB,
+    memberLimit: 100,
   },
 };
+
+/**
+ * 追加ストレージ。込みの容量を超えたぶんを 1GB 単位で増やせる。
+ * ⚠️ 金額はここに書かない。Stripe の price ID を環境変数で指すこと
+ *    （コードに金額を直書きすると、値上げのたびにデプロイが要る）。
+ */
+export const STORAGE_ADDON_UNIT_BYTES = 1024 * MB;
+
+/** 使用量の警告を出す割合。ここを超えたら画面に出す。 */
+export const STORAGE_WARN_RATIO = 0.8;
+
+/** 容量の表示（1.5GB / 240MB など）。 */
+export function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * MB) {
+    const gb = bytes / (1024 * MB);
+    return `${Number.isInteger(gb) ? gb : gb.toFixed(1)}GB`;
+  }
+  // 1MB 未満を 0MB と出すと「保存されていない」と読めてしまうので KB で出す
+  if (bytes >= MB || bytes <= 0) return `${Math.max(0, Math.round(bytes / MB))}MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))}KB`;
+}
+
+/**
+ * その組織がいま使える容量（込み + 追加購入分）。
+ * 純粋関数にしてあるので、上限の判定は必ずここを通すこと。
+ */
+export function storageQuotaBytes(plan: Plan, addonUnits = 0): number {
+  return PLAN_LIMITS[plan].storageBytes + Math.max(0, addonUnits) * STORAGE_ADDON_UNIT_BYTES;
+}
+
+/** アップロードを受け付けてよいか。超過分は受け付けないが、既存ファイルは読める。 */
+export function canUpload(
+  plan: Plan,
+  usedBytes: number,
+  incomingBytes: number,
+  addonUnits = 0,
+): { ok: boolean; reason?: 'FILE_TOO_LARGE' | 'QUOTA_EXCEEDED'; quota: number } {
+  const quota = storageQuotaBytes(plan, addonUnits);
+  if (incomingBytes > PLAN_LIMITS[plan].maxFileBytes) {
+    return { ok: false, reason: 'FILE_TOO_LARGE', quota };
+  }
+  if (usedBytes + incomingBytes > quota) {
+    return { ok: false, reason: 'QUOTA_EXCEEDED', quota };
+  }
+  return { ok: true, quota };
+}
 /**
  * 組織内の役割。DB は String カラムで運用し、値域はこの型で縛る。
  *
@@ -214,6 +282,14 @@ export interface OrganizationUsage {
   aiCallsThisMonth: number;
   planLimit: number;
   resetAt: string;
+  /** 使用中の保存容量。Organization.storageUsedBytes（アップロード/削除で増減するカウンタ） */
+  storageUsedBytes: number;
+  /** プランの無料枠 + 追加容量 */
+  storageQuotaBytes: number;
+  /** 追加購入した容量の口数（1口 = STORAGE_ADDON_UNIT_BYTES） */
+  storageAddonUnits: number;
+  /** 1ファイルの上限 */
+  maxFileBytes: number;
 }
 
 export interface ChatSession {
@@ -307,6 +383,8 @@ export interface UploadedFile {
   mimeType: string;
   sizeBytes: number;
   createdAt: string;
+  /** 保存場所の移行で本体を失っている。行（とRAGの索引）は残してあり、再アップロードで直る */
+  needsReupload?: boolean;
 }
 
 export interface APIResponse<T> {

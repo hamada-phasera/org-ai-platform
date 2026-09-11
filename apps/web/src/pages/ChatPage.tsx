@@ -92,6 +92,8 @@ export default function ChatPage() {
   const [isListening, setIsListening] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<{ id: string; name: string; mimeType: string }[]>([]);
   const [uploading, setUploading] = useState(false);
+  // アップロードの失敗（容量超過・サイズ超過など）。以前は握りつぶしていて「添付したのに付いていない」になっていた
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [showTaskSidebar, setShowTaskSidebar] = useState(false);
   // 会話が定型業務に育ったときのエージェント化提案
   const [agentSuggestion, setAgentSuggestion] = useState<{ afterMessageId: string; draft: AgentDraft } | null>(null);
@@ -535,8 +537,9 @@ export default function ChatPage() {
     const files = e.target.files;
     if (!files || files.length === 0) return;
     setUploading(true);
-    try {
-      for (const file of Array.from(files)) {
+    setUploadError(null);
+    for (const file of Array.from(files)) {
+      try {
         const formData = new FormData();
         formData.append('file', file);
         const res = await api.post<{ success: boolean; data: { id: string; originalName: string; mimeType: string } }>('/files/upload', formData, {
@@ -545,8 +548,12 @@ export default function ChatPage() {
         if (res.data.success) {
           setAttachedFiles((prev) => [...prev, { id: res.data.data.id, name: res.data.data.originalName, mimeType: res.data.data.mimeType }]);
         }
+      } catch (e: unknown) {
+        // サーバの文言には上限値が入っている（「1ファイルの上限は 10MB です。」など）ので、そのまま出す
+        const err = e as { response?: { data?: { error?: { message?: string } } } };
+        setUploadError(`${file.name}：${err.response?.data?.error?.message ?? 'アップロードに失敗しました'}`);
       }
-    } catch { /* skip */ }
+    }
     setUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -1126,6 +1133,19 @@ export default function ChatPage() {
                       type="button"
                       onClick={() => setSendError(null)}
                       aria-label="エラーを閉じる"
+                      className="shrink-0 text-muted transition-colors hover:text-primary"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                )}
+                {uploadError && (
+                  <div className="mb-2 flex items-center gap-2 rounded-md border border-danger/30 bg-danger/10 px-3 py-1.5">
+                    <p className="min-w-0 flex-1 text-xs text-danger">{uploadError}</p>
+                    <button
+                      type="button"
+                      onClick={() => setUploadError(null)}
+                      aria-label="アップロードのエラーを閉じる"
                       className="shrink-0 text-muted transition-colors hover:text-primary"
                     >
                       <X size={12} />

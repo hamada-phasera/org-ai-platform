@@ -57,6 +57,14 @@ services:
       # 未設定なら送らず、ai-engine 側も素通しするので、片方だけのデプロイでは落ちない。
       - key: INTERNAL_API_TOKEN
         sync: false
+      # ファイルの保存先。⚠️ 未設定だとローカルディスクに書き、次のデプロイで実体が消える。
+      # バケット（既定 org-files）は非公開で作っておくこと。service_role キーはここにだけ置く。
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        value: org-files
       # RAG: 埋め込みプロバイダ。キーが無ければ RAG は no-op（チャットは従来通り）。
       # 既定は gemini＝LLM 用の GEMINI_API_KEY を流用できるので追加契約が不要。
       # gemini-embedding-001 は outputDimensionality=1024 に対応し DB の vector(1024) と一致する。

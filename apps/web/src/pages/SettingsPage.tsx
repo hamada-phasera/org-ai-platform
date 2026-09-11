@@ -13,7 +13,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import type { User, UploadedFile, Plan, OrganizationUsage, PlanTier } from '@org-ai/shared-types';
-import { PLAN_LIMITS } from '@org-ai/shared-types';
+import { PLAN_LIMITS, formatBytes } from '@org-ai/shared-types';
 import {
   Card,
   Surface,
@@ -218,13 +218,26 @@ export default function SettingsPage() {
             action={{ label: 'チャットへ', onClick: () => navigate('/chat') }}
           />
         ) : (
+          <>
+          {(files ?? []).some((f) => f.needsReupload) && (
+            <p className="mb-3 text-xs text-warning">
+              保存場所の移行で本体が失われたファイルがあります。お手数ですが、チャットからもう一度アップロードしてください。
+            </p>
+          )}
           <ul className="divide-y divide-hairline">
             {(files ?? []).map((f) => (
               <li key={f.id} className="flex items-center gap-3 py-3">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-primary truncate">{f.originalName}</p>
+                  <p className="text-sm text-primary flex items-center gap-2 min-w-0">
+                    <span className="truncate">{f.originalName}</span>
+                    {f.needsReupload && (
+                      <span className="flex-shrink-0 text-xs px-2 py-0.5 rounded-full bg-warning/10 border border-warning/30 text-warning">
+                        再アップロードが必要
+                      </span>
+                    )}
+                  </p>
                   <p className="text-xs text-muted tabular">
-                    {f.mimeType} · {(f.sizeBytes / 1024).toFixed(1)} KB ·{' '}
+                    {f.mimeType} · {formatBytes(f.sizeBytes)} ·{' '}
                     {new Date(f.createdAt).toLocaleDateString('ja-JP')}
                   </p>
                 </div>
@@ -232,7 +245,7 @@ export default function SettingsPage() {
                   size="xs"
                   variant="ghost"
                   onClick={() => handleAnalyze(f)}
-                  disabled={analyzingId === f.id}
+                  disabled={analyzingId === f.id || !!f.needsReupload}
                   loading={analyzingId === f.id}
                   icon={<Sparkles size={12} />}
                 >
@@ -241,6 +254,7 @@ export default function SettingsPage() {
               </li>
             ))}
           </ul>
+          </>
         )}
 
         {analysisError && (

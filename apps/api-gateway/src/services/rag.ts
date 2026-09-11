@@ -48,11 +48,12 @@ function toVectorLiteral(v: number[]): string {
 export async function indexFile(
   fileId: string,
   orgId: string,
-  storagePath: string,
+  /** ファイルパスかバッファ。オブジェクトストレージではローカルパスが無いのでバッファを渡す */
+  source: string | Buffer,
   mimeType: string,
 ): Promise<void> {
   if (!isEmbeddingEnabled()) return;
-  const extracted = await extractText(storagePath, mimeType, { maxChars: MAX_INDEX_CHARS });
+  const extracted = await extractText(source, mimeType, { maxChars: MAX_INDEX_CHARS });
   if (extracted.extractor === 'unsupported' || !extracted.text.trim()) return;
 
   const chunks = chunkText(extracted.text);

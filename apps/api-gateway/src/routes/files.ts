@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import { createWriteStream, createReadStream, existsSync } from 'fs';
-import { mkdir, unlink } from 'fs/promises';
-import { join, resolve, basename } from 'path';
-import { pipeline } from 'stream/promises';
+import { basename } from 'path';
+import { PLAN_LIMITS, canUpload, formatBytes, type Plan } from '@org-ai/shared-types';
 import { prisma } from '../utils/prisma';
+import { keyBelongsToOrg, storageKey } from '../services/storage';
+import { currentDriverName, readDriver, writeDriver } from '../services/storage/driver';
 import { requireAuth } from '../middleware/auth';
 import { extractText } from '../utils/fileExtractor';
 import { indexFile } from '../services/rag';
@@ -22,12 +22,67 @@ const ALLOWED_MIME_TYPES = new Set([
   'image/jpeg',
 ]);
 
-const FILES_BASE = resolve(process.env.FILES_DIR ?? join(process.cwd(), '../../data/files'));
+/**
+ * 移行前のファイルか。
+ * ⚠️ 本番がオブジェクトストレージに切り替わったあと、driver='local' の行は
+ *    Render の再デプロイで実体を失っている。行は残してあるので（RAG の索引を守るため）、
+ *    画面で再アップロードを案内するための判定。
+ */
+const needsReupload = (driver: string): boolean => driver === 'local' && currentDriverName() === 'supabase';
+
+/** 実体を失った行を見せるときの文言。削除ではなく再アップロードを促す。 */
+const MISSING_MESSAGE =
+  'このファイルの本体は保存場所の移行で失われています。お手数ですが、もう一度アップロードしてください。';
+
+/**
+ * 行に記録された保存先から本体を読む。
+ * ⚠️ オブジェクトストレージのキーは、所有する組織の区切りの下にあることを確認してから触る
+ *    （行の orgId は既に照合済みだが、キーの取り違えに対する二重の防御）。
+ */
+async function loadBody(file: { storagePath: string; storageDriver: string; orgId: string }): Promise<Buffer | null> {
+  if (file.storageDriver === 'supabase' && !keyBelongsToOrg(file.storagePath, file.orgId)) return null;
+  try {
+    return await readDriver(file.storageDriver).get(file.storagePath);
+  } catch (e) {
+    console.error('[files] 本体の取得に失敗:', e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+/** 同時アップロードで、判定の後に容量が埋まった。 */
+class QuotaRaceError extends Error {}
 
 export async function fileRoutes(app: FastifyInstance): Promise<void> {
   app.post('/upload', { preHandler: requireAuth }, async (request, reply) => {
     const payload = request.user as { sub: string; orgId: string };
-    const data = await request.file();
+
+    // プランを先に引く。1ファイルの上限はプランごとに違い、読み取りの上限に使う
+    const org = await prisma.organization.findUnique({
+      where: { id: payload.orgId },
+      select: { plan: true, storageUsedBytes: true, storageAddonUnits: true },
+    });
+    const plan: Plan = org?.plan && org.plan in PLAN_LIMITS ? (org.plan as Plan) : 'STARTER';
+    const used = Number(org?.storageUsedBytes ?? 0);
+    const addonUnits = org?.storageAddonUnits ?? 0;
+    const maxFileBytes = PLAN_LIMITS[plan].maxFileBytes;
+
+    const tooLarge = () =>
+      reply.code(413).send({
+        success: false,
+        error: { code: 'FILE_TOO_LARGE', message: `1ファイルの上限は ${formatBytes(maxFileBytes)} です。` },
+      });
+    const quotaExceeded = (quota: number) =>
+      reply.code(413).send({
+        success: false,
+        error: {
+          code: 'QUOTA_EXCEEDED',
+          message: `保存容量の上限（${formatBytes(quota)}）に達しています。不要なファイルを削除すると、また保存できます。`,
+        },
+      });
+
+    /* ⚠️ 上限は読み取りの時点で効かせる。読み切ってから判定すると、上限を大きく超える
+       ファイルでも一度メモリに載る（Render の starter は RAM が小さい）。 */
+    const data = await request.file({ limits: { fileSize: maxFileBytes } });
     if (!data) {
       return reply.code(400).send({ success: false, error: { code: 'NO_FILE', message: 'ファイルが選択されていません' } });
     }
@@ -36,40 +91,71 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ success: false, error: { code: 'INVALID_MIME', message: 'このファイル形式は許可されていません' } });
     }
 
-    const orgDir = join(FILES_BASE, payload.orgId);
-    await mkdir(orgDir, { recursive: true });
-
-    const fileId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const safeName = basename(data.filename).replace(/[^a-zA-Z0-9._-]/g, '_');
-    const storagePath = join(orgDir, `${fileId}_${safeName}`);
-
-    // パストラバーサル対策
-    if (!resolve(storagePath).startsWith(resolve(FILES_BASE))) {
-      return reply.code(400).send({ success: false, error: { code: 'INVALID_PATH', message: '無効なファイルパスです' } });
+    let body: Buffer;
+    try {
+      body = await data.toBuffer();
+    } catch (e) {
+      if ((e as { code?: string }).code === 'FST_REQ_FILE_TOO_LARGE') return tooLarge();
+      throw e;
     }
 
-    await pipeline(data.file, createWriteStream(storagePath));
+    // 保存先へ送る前に弾く。確定の判定は下のトランザクションで行う
+    const verdict = canUpload(plan, used, body.byteLength, addonUnits);
+    if (!verdict.ok) {
+      return verdict.reason === 'FILE_TOO_LARGE' ? tooLarge() : quotaExceeded(verdict.quota);
+    }
 
-    const { size } = await import('fs').then((fs) => new Promise<{ size: number }>((ok, fail) =>
-      fs.stat(storagePath, (err, s) => err ? fail(err) : ok(s))
-    ));
+    const fileId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const key = storageKey(payload.orgId, fileId, basename(data.filename));
+    const driver = writeDriver();
 
-    const file = await prisma.uploadedFile.create({
-      data: {
-        orgId: payload.orgId,
-        uploadedBy: payload.sub,
-        originalName: data.filename,
-        storagePath,
-        mimeType: data.mimetype,
-        sizeBytes: size,
-      },
-    });
+    try {
+      await driver.put(key, body, data.mimetype);
+    } catch (e) {
+      console.error('[files] 保存に失敗:', e instanceof Error ? e.message : e);
+      return reply
+        .code(502)
+        .send({ success: false, error: { code: 'STORAGE_FAILED', message: 'ファイルを保存できませんでした。時間をおいて再度お試しください。' } });
+    }
+
+    /* ⚠️ 使用量の加算と行の作成は同じトランザクションで。別々にすると
+       「保存したのに使用量が増えていない」行ができ、上限が効かなくなる。
+       ⚠️ 加算は「加算後も上限以内」を条件にした updateMany で行う。
+       上の canUpload は読んだ時点の値で判定しているので、同時に2件アップロードされると
+       両方が通って上限を超える。条件付き更新なら DB が1件ずつ判定する。 */
+    const size = body.byteLength;
+    const quota = verdict.quota;
+    let file;
+    try {
+      file = await prisma.$transaction(async (tx) => {
+        const claimed = await tx.organization.updateMany({
+          where: { id: payload.orgId, storageUsedBytes: { lte: BigInt(quota - size) } },
+          data: { storageUsedBytes: { increment: BigInt(size) } },
+        });
+        if (claimed.count === 0) throw new QuotaRaceError();
+        return tx.uploadedFile.create({
+          data: {
+            orgId: payload.orgId,
+            uploadedBy: payload.sub,
+            originalName: data.filename,
+            storagePath: key,
+            storageDriver: driver.name,
+            mimeType: data.mimetype,
+            sizeBytes: size,
+          },
+        });
+      });
+    } catch (e) {
+      // 行が作れなかったので、保存した本体を片付ける（残すと使用量に数えられない孤児になる）
+      await driver.delete(key).catch(() => null);
+      if (e instanceof QuotaRaceError) return quotaExceeded(quota);
+      throw e;
+    }
 
     // RAG: アップロード応答はブロックせず、バックグラウンドで抽出→チャンク→埋め込み→索引
     // 応答後に走る索引づくり。失っても再アップロードで直るので、終了時は待つだけ
-    tracked('file-index', file.id, () =>
-      indexFile(file.id, file.orgId, file.storagePath, file.mimeType),
-    );
+    // 手元にあるバッファで索引を作る。保存先から取り直すと往復が1回無駄になる
+    tracked('file-index', file.id, () => indexFile(file.id, file.orgId, body, file.mimeType));
 
     return reply.code(201).send({ success: true, data: { id: file.id, originalName: file.originalName, mimeType: file.mimeType, sizeBytes: file.sizeBytes } });
   });
@@ -78,10 +164,13 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     const payload = request.user as { orgId: string };
     const files = await prisma.uploadedFile.findMany({
       where: { orgId: payload.orgId },
-      select: { id: true, originalName: true, mimeType: true, sizeBytes: true, createdAt: true },
+      select: { id: true, originalName: true, mimeType: true, sizeBytes: true, createdAt: true, storageDriver: true },
       orderBy: { createdAt: 'desc' },
     });
-    return reply.send({ success: true, data: files });
+    return reply.send({
+      success: true,
+      data: files.map(({ storageDriver, ...f }) => ({ ...f, needsReupload: needsReupload(storageDriver) })),
+    });
   });
 
   app.get('/:fileId', { preHandler: requireAuth }, async (request, reply) => {
@@ -93,13 +182,14 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'ファイルが見つかりません' } });
     }
 
-    if (!existsSync(file.storagePath)) {
-      return reply.code(404).send({ success: false, error: { code: 'FILE_MISSING', message: 'ファイルが見つかりません' } });
+    const content = await loadBody(file);
+    if (!content) {
+      return reply.code(404).send({ success: false, error: { code: 'FILE_MISSING', message: MISSING_MESSAGE } });
     }
 
     reply.header('Content-Disposition', `attachment; filename="${encodeURIComponent(file.originalName)}"`);
     reply.header('Content-Type', file.mimeType);
-    return reply.send(createReadStream(file.storagePath));
+    return reply.send(content);
   });
 
   app.post('/:fileId/analyze', { preHandler: requireAuth }, async (request, reply) => {
@@ -112,15 +202,12 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'ファイルが見つかりません' } });
     }
 
-    if (!existsSync(file.storagePath)) {
-      return reply.code(404).send({ success: false, error: { code: 'FILE_MISSING', message: 'ファイル本体が見つかりません' } });
+    const content = await loadBody(file);
+    if (!content) {
+      return reply.code(404).send({ success: false, error: { code: 'FILE_MISSING', message: MISSING_MESSAGE } });
     }
 
-    if (!resolve(file.storagePath).startsWith(resolve(FILES_BASE))) {
-      return reply.code(400).send({ success: false, error: { code: 'INVALID_PATH', message: '無効なファイルパスです' } });
-    }
-
-    const extracted = await extractText(file.storagePath, file.mimeType);
+    const extracted = await extractText(content, file.mimeType);
     if (extracted.extractor === 'unsupported') {
       return reply.code(415).send({
         success: false,
@@ -207,8 +294,33 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'ファイルが見つかりません' } });
     }
 
-    await unlink(file.storagePath).catch(() => null);
-    await prisma.uploadedFile.delete({ where: { id: fileId } });
+    /* 本体を先に消す。消せなかったら行を残して失敗を返す（行だけ消すと、
+       使用量から外れた本体がバケットに残り続け、誰にも見えない保管料になる）。
+       無いものを消すのは成功扱い（driver 側で冪等）。
+       ローカルは再デプロイで消える前提の置き場なので、失敗しても行の削除は止めない。 */
+    if (file.storageDriver === 'supabase' && !keyBelongsToOrg(file.storagePath, file.orgId)) {
+      // 他組織の区切りを指す行。本体には触らず、行だけ片付ける
+      console.error('[files] 組織の区切り外を指す行を検出したため、本体の削除を見送りました:', file.id);
+    } else {
+      try {
+        await readDriver(file.storageDriver).delete(file.storagePath);
+      } catch (e) {
+        console.error('[files] 本体の削除に失敗:', e instanceof Error ? e.message : e);
+        if (file.storageDriver !== 'local') {
+          return reply
+            .code(502)
+            .send({ success: false, error: { code: 'STORAGE_FAILED', message: 'ファイルを削除できませんでした。時間をおいて再度お試しください。' } });
+        }
+      }
+    }
+
+    /* ⚠️ 行の削除と使用量の減算は同じトランザクションで。
+       減算は GREATEST で 0 に張り付ける（移行前の行はカウンタに加算されていないので、
+       そのまま引くと負になる）。読んでから書くと同時削除で競合するので1文で行う。 */
+    await prisma.$transaction(async (tx) => {
+      await tx.uploadedFile.delete({ where: { id: fileId } });
+      await tx.$executeRaw`UPDATE "Organization" SET "storageUsedBytes" = GREATEST("storageUsedBytes" - ${BigInt(file.sizeBytes)}, 0) WHERE "id" = ${payload.orgId}`;
+    });
     return reply.send({ success: true, data: { deleted: true } });
   });
 }

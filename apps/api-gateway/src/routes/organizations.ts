@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma';
 import { requireAuth } from '../middleware/auth';
-import { PLAN_LIMITS, type Plan } from '@org-ai/shared-types';
+import { PLAN_LIMITS, storageQuotaBytes, type Plan } from '@org-ai/shared-types';
 
 const updateOrgSchema = z.object({
   name: z.string().min(1).max(120).optional(),
@@ -80,9 +80,10 @@ export async function organizationRoutes(app: FastifyInstance): Promise<void> {
     const payload = request.user as { orgId: string };
     const org = await prisma.organization.findUnique({
       where: { id: payload.orgId },
-      select: { plan: true },
+      select: { plan: true, storageUsedBytes: true, storageAddonUnits: true },
     });
     const plan = (org?.plan ?? 'STARTER') as Plan;
+    const addonUnits = org?.storageAddonUnits ?? 0;
     const planLimit = PLAN_LIMITS[plan]?.aiCallsPerMonth ?? PLAN_LIMITS.STARTER.aiCallsPerMonth;
 
     const aiCallsThisMonth = await prisma.aILog.count({
@@ -95,6 +96,11 @@ export async function organizationRoutes(app: FastifyInstance): Promise<void> {
         aiCallsThisMonth,
         planLimit,
         resetAt: startOfNextMonthUTC().toISOString(),
+        // BigInt は JSON にできない。容量は数GB規模なので Number で精度は落ちない
+        storageUsedBytes: Number(org?.storageUsedBytes ?? 0),
+        storageQuotaBytes: storageQuotaBytes(plan, addonUnits),
+        storageAddonUnits: addonUnits,
+        maxFileBytes: (PLAN_LIMITS[plan] ?? PLAN_LIMITS.STARTER).maxFileBytes,
       },
     });
   });

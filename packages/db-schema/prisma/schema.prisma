@@ -69,6 +69,8 @@ model Organization {
   /// UploadedFile の SUM は復旧時の再計算にだけ使う
   /// （毎回 SUM すると一覧のたびに全表走査になる）
   storageUsedBytes    BigInt               @default(0)
+  /// 追加購入したストレージの単位数（1単位 = 1GB）。課金開始後に増やせる
+  storageAddonUnits   Int                  @default(0)
   users               User[]
   invitations         Invitation[]
   sessions            ChatSession[]
@@ -175,7 +177,10 @@ model UploadedFile {
   org          Organization @relation(fields: [orgId], references: [id])
   uploadedBy   String
   originalName String
+  /// 保存先のキー。driver='local' なら絶対パス、'supabase' なら "{orgId}/{fileId}_{name}"
   storagePath  String
+  /// 'local' | 'supabase'。既存行は 'local'（実体は再デプロイで失われている）
+  storageDriver String      @default("local")
   mimeType     String
   sizeBytes    Int
   createdAt    DateTime     @default(now())

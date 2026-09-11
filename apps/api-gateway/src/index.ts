@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
+import { PLAN_LIMITS } from '@org-ai/shared-types';
 import websocket from '@fastify/websocket';
 import { authRoutes } from './routes/auth';
 import { chatRoutes } from './routes/chat';
@@ -80,7 +81,11 @@ async function start(): Promise<void> {
   }
   await app.register(jwt, { secret: jwtSecret });
 
-  await app.register(multipart, { limits: { fileSize: 20 * 1024 * 1024 } }); // 20MB
+  // 1ファイルの上限はプランごとに違い、files.ts が request.file() の limits で個別に絞る。
+  // ここは全プランの最大値。プランの上限を上げたときに直し忘れないよう、表から計算する
+  await app.register(multipart, {
+    limits: { fileSize: Math.max(...Object.values(PLAN_LIMITS).map((l) => l.maxFileBytes)) },
+  });
   await app.register(websocket);
 
   app.get('/health', async () => ({
