@@ -26,7 +26,7 @@ from app.llm.router import (
 from app.governance.audit_logger import log_llm_call
 from app.governance.pii_screener import screen
 from app.planner import plan_capability, plan_agent
-from app.planner.planner import plan_http_node
+from app.planner.planner import plan_http_node, screen_agent
 
 
 class PlanCapability(BaseModel):
@@ -70,6 +70,10 @@ class PlanAgentRequest(BaseModel):
     plan: str = "STARTER"
     available_capabilities: list[PlanCapability] = []
     current_agent: Optional[CurrentAgent] = None
+    # 受動的な提案（会話から勝手に拾う経路）だけ True。
+    # 明示的に依頼された設計（/agents/suggest・チャットでの修正）では判定を挟まない。
+    screen_first: bool = False
+
 
 
 class AgentStep(BaseModel):
@@ -527,8 +531,23 @@ async def plan_http_node_endpoint(request: PlanHttpNodeRequest) -> PlanHttpNodeR
 
 @app.post("/plan/agent", response_model=PlanAgentResponse)
 async def plan_agent_endpoint(request: PlanAgentRequest) -> PlanAgentResponse:
-    """自由記述から再利用可能なエージェント定義を推論する (opt-in)。"""
+    """自由記述から再利用可能なエージェント定義を推論する (opt-in)。
+
+    screen_first=True のときは、先に安いモデルで「そもそも定型業務か」を判定し、
+    通らなければ設計せずに confidence 0 で返す。
+    ⚠️ 受動的な提案（会話から勝手に拾う経路）は、大半が定型業務ではない。
+       判定を挟まないと、捨てる前提の設計を毎回 Opus で回すことになる。
+    """
     pii_result = screen(request.description)
+
+    if request.screen_first:
+        verdict = await screen_agent(pii_result.text, request.org_id, request.plan)
+        if not verdict["repeatable"] or verdict["confidence"] < 0.6:
+            return PlanAgentResponse(
+                confidence=0.0,
+                reasoning=verdict.get("reason") or "繰り返し使える業務とは判断しませんでした",
+            )
+
     capabilities = [c.model_dump() for c in request.available_capabilities]
     result = await plan_agent(
         description=pii_result.text,

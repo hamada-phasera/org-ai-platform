@@ -568,6 +568,10 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
           org_id: payload.orgId,
           plan,
           available_capabilities: capabilities,
+          /* ⚠️ 会話から勝手に拾う受動的な経路。大半は定型業務ではないので、
+             先に安いモデルで判定させる。これが無いと、捨てる前提の設計を
+             毎ターン Opus で回すことになる（原価の大半がこれだった）。 */
+          screen_first: true,
         }),
         signal: AbortSignal.timeout(25000),
       });

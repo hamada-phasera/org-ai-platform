@@ -1,0 +1,52 @@
+{
+  "_comment": [
+    "プランとタスクごとに、実際に動くモデルを1か所で宣言する。",
+    "packages/shared-types の PLAN_LIMITS（画面に出す表示名）と、",
+    "apps/ai-engine の router.py（実際にAPIを叩く決定点）の両方がこれに対して検証される。",
+    "",
+    "⚠️ 以前この2つは食い違っていた。画面は梅に「Claude Haiku 4.5」と表示していたが、",
+    "   router は Gemini flash-lite に流しており、3プラン中2つで顧客が受け取っていない",
+    "   モデル名を出していた。価格をつけて売る前に必ず揃える必要がある。",
+    "",
+    "モデルを変えるときは、まずこのファイルを直すこと。片側だけ変えると、",
+    "もう片側のテストが落ちて気づける。"
+  ],
+  "plans": {
+    "STARTER": {
+      "provider": "gemini",
+      "model": "gemini-2.5-flash-lite",
+      "label": "Gemini 2.5 Flash-Lite"
+    },
+    "PRO": {
+      "provider": "gemini",
+      "model": "gemini-2.5-flash",
+      "label": "Gemini 2.5 Flash"
+    },
+    "MAX": {
+      "provider": "anthropic",
+      "model": "claude-opus-4-7",
+      "label": "Claude Opus 4.7"
+    }
+  },
+  "tasks": {
+    "_comment": [
+      "本文生成(CHAT)以外はプランに関係なく共通。",
+      "安いプランだと領収書を読み違える、といった値段では説明できない差を作らないため。"
+    ],
+    "SCREEN": {
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
+      "why": "はい/いいえの判定に深い推論は要らない。回数が多いので最安に固定する"
+    },
+    "DESIGN": {
+      "provider": "anthropic",
+      "model": "claude-opus-4-7",
+      "why": "エージェント・外部APIノードの設計。頻度が低く、1回の質が資産として残る"
+    },
+    "EXTRACT": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6",
+      "why": "領収書の金額・日付を読む。読み違いがトークン代より高くつく"
+    }
+  }
+}

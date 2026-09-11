@@ -3,8 +3,10 @@ import json
 import logging
 from typing import Any
 from app.models.llm import ChatMessage
-from app.llm.router import llm_router, AGENT_BUILD_MODEL
+from app.llm.router import llm_router, TaskKind
 from app.planner.prompts import (
+    AGENT_SCREEN_SYSTEM,
+    build_agent_screen_user_prompt,
     build_http_node_system_prompt,
     build_http_node_user_prompt,
     build_planner_system_prompt,
@@ -92,6 +94,47 @@ async def plan_capability(
     }
 
 
+async def screen_agent(description: str, org_id: str, plan: str) -> dict[str, Any]:
+    """「この会話は繰り返し使える定型業務か」だけを安いモデルで判定する。
+
+    ⚠️ 設計はしない。通ったものだけ plan_agent（Opus）へ回す。
+    以前は判定と設計を一度に Opus でやっており、確信度が低い大半のケースで
+    設計結果を捨てていた。チャット1往復の原価の大半がこれだった。
+
+    判定に失敗したときは False を返す（提案を出さない側に倒す）。
+    誤って出すより出さないほうが害が小さい。
+    """
+    messages = [
+        ChatMessage(role="system", content=AGENT_SCREEN_SYSTEM),
+        ChatMessage(role="user", content=build_agent_screen_user_prompt(description)),
+    ]
+    try:
+        response, _pii, _types = await llm_router.chat(
+            messages=messages,
+            department="GENERAL",
+            org_id=org_id,
+            plan=plan,
+            json_mode=True,
+            task=TaskKind.SCREEN,
+        )
+    except Exception as e:
+        logger.warning("agent screen failed, skipping suggestion: %s", type(e).__name__)
+        return {"repeatable": False, "confidence": 0.0, "reason": "判定に失敗しました"}
+
+    parsed = _safe_parse_json((response.content or "").strip())
+    if not isinstance(parsed, dict):
+        return {"repeatable": False, "confidence": 0.0, "reason": "判定を読み取れませんでした"}
+
+    repeatable = parsed.get("repeatable")
+    confidence = parsed.get("confidence")
+    return {
+        # ⚠️ bool 以外は False に倒す。文字列の "false" を真と解釈しない
+        "repeatable": repeatable is True,
+        "confidence": float(confidence) if isinstance(confidence, (int, float)) and not isinstance(confidence, bool) else 0.0,
+        "reason": parsed.get("reason") if isinstance(parsed.get("reason"), str) else None,
+    }
+
+
 async def plan_agent(
     description: str,
     org_id: str,
@@ -120,7 +163,7 @@ async def plan_agent(
             org_id=org_id,
             plan=plan,
             json_mode=True,
-            force_anthropic_model=AGENT_BUILD_MODEL,
+            task=TaskKind.DESIGN,
         )
     except Exception as e:
         logger.exception("agent planner LLM call failed")
@@ -203,7 +246,7 @@ async def plan_http_node(source: str, org_id: str, plan: str) -> dict[str, Any]:
             org_id=org_id,
             plan=plan,
             json_mode=True,
-            force_anthropic_model=AGENT_BUILD_MODEL,
+            task=TaskKind.DESIGN,
         )
     except Exception as e:
         logger.exception("http node planner LLM call failed")

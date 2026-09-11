@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 import os
+from enum import Enum
 from typing import AsyncIterator, List, Optional, Tuple
 from app.models.llm import ChatMessage, LLMResponse
 from app.governance.pii_screener import screen
@@ -42,8 +43,61 @@ _PLAN_GEMINI_MODEL = {
     "PRO": GEMINI_TAKE,
 }
 
+# ──────────────────────────────────────────────────────────────
+# タスクの性質によるモデル選択
+#
+# 「プランで決める」だけだと、判定のような安く済む処理まで高いモデルで回ってしまう。
+# 実際、エージェント化提案は「この会話は定型業務か」の判定と「エージェントの設計」を
+# 一度に Opus でやっていて、確信度が低い大半のケースでは設計結果を捨てていた。
+# 何をさせるかで段を分ける。ここが唯一の決定点。
+# ──────────────────────────────────────────────────────────────
+
+
+class TaskKind(str, Enum):
+    """LLM に何をさせるか。"""
+
+    CHAT = "chat"
+    """本文生成。顧客に見える品質なのでプランに従う。"""
+
+    SCREEN = "screen"
+    """判定・分類。はい/いいえに深い推論は要らないので最安で足りる。"""
+
+    DESIGN = "design"
+    """エージェント・外部APIノードの設計。頻度が低く、1回の質が資産として残る。"""
+
+    EXTRACT = "extract"
+    """画像・文書からの値の抽出。読み違いがトークン代より高くつくので中位を使う。"""
+
+
 # エージェント構築は頻度が低く 1 回の品質が資産になるため、全ユーザー Opus 固定。
 AGENT_BUILD_MODEL = MODEL_OPUS
+
+# 判定は品質差が出にくく、回数が多い。全プラン最安固定。
+SCREEN_MODEL = MODEL_HAIKU
+
+# 抽出は金額・日付を読むので、安すぎるモデルにしない。全プラン固定。
+EXTRACT_MODEL = MODEL_SONNET
+
+
+def resolve_for_task(
+    kind: "TaskKind",
+    plan: str,
+    user_email: Optional[str] = None,
+    json_mode: bool = False,
+) -> Tuple[str, str]:
+    """タスクの性質からプロバイダとモデルを決める。
+
+    CHAT だけがプランに従い、ほかは全プラン共通。
+    共通にしているのは、判定・設計・抽出の品質を顧客のプランで変えると
+    「安いプランだと領収書を読み違える」ような、値段では説明できない差になるため。
+    """
+    if kind is TaskKind.SCREEN:
+        return "anthropic", SCREEN_MODEL
+    if kind is TaskKind.DESIGN:
+        return "anthropic", AGENT_BUILD_MODEL
+    if kind is TaskKind.EXTRACT:
+        return "anthropic", EXTRACT_MODEL
+    return resolve_provider_model(plan, user_email, json_mode)
 
 _anthropic: AnthropicProvider | None = None
 _gemini: GeminiProvider | None = None
@@ -137,18 +191,24 @@ class LLMRouter:
         json_mode: bool = False,
         user_email: Optional[str] = None,
         force_anthropic_model: Optional[str] = None,
+        task: Optional[TaskKind] = None,
     ) -> Tuple[LLMResponse, bool, List[str]]:
         screened_messages, pii_detected, pii_types = _screen_user_messages(messages)
 
         if force_anthropic_model:
             # エージェント構築など「全ユーザーで Claude 品質」を明示する経路
             provider_name, model = "anthropic", force_anthropic_model
+        elif task is not None:
+            provider_name, model = resolve_for_task(task, plan, user_email, json_mode)
         else:
             provider_name, model = resolve_provider_model(plan, user_email, json_mode)
 
         provider = _get_gemini() if provider_name == "gemini" else _get_anthropic()
         response = await provider.chat(screened_messages, model=model, json_mode=json_mode)
-        logger.info(f"[LLMRouter] plan={plan} admin={_is_admin(user_email)} -> {provider_name} ({response.model})")
+        logger.info(
+            f"[LLMRouter] task={task.value if task else '-'} plan={plan} "
+            f"admin={_is_admin(user_email)} -> {provider_name} ({response.model})"
+        )
         response.pii_detected = pii_detected
         return response, pii_detected, pii_types
 

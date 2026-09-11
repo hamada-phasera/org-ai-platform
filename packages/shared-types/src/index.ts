@@ -1,21 +1,33 @@
 export type Plan = 'STARTER' | 'PRO' | 'MAX';
 export type PlanTier = Plan;
 
-// プラン別の Claude モデル ID と利用量上限。
-// 全プラン Anthropic Claude を使用し、モデル品質と月間 AI コール数で差別化する。
-export const PLAN_LIMITS: Record<Plan, { aiCallsPerMonth: number; model: string; modelLabel: string }> = {
+/**
+ * プランごとの上限と、**実際に動くモデル**。
+ *
+ * ⚠️ modelLabel は画面に出る。ai-engine の router.py が実際に選ぶモデルと必ず揃えること。
+ *    以前ここは全プラン Claude の名前を書いていたが、router は梅・竹を Gemini に流しており、
+ *    3プラン中2つで顧客が受け取っていないモデル名を表示していた。
+ *
+ * ⚠️ この表が「本文生成」のモデルを決める。判定・設計・抽出は
+ *    プランに関係なく共通（router.py の TaskKind を参照）。安いプランだと
+ *    領収書を読み違える、といった値段で説明できない差を作らないため。
+ */
+export const PLAN_LIMITS: Record<
+  Plan,
+  { aiCallsPerMonth: number; model: string; modelLabel: string }
+> = {
   STARTER: {
-    aiCallsPerMonth: 100,
-    model: 'claude-haiku-4-5-20251001',
-    modelLabel: 'Claude Haiku 4.5',
+    aiCallsPerMonth: 3000,
+    model: 'gemini-2.5-flash-lite',
+    modelLabel: 'Gemini 2.5 Flash-Lite',
   },
   PRO: {
-    aiCallsPerMonth: 1000,
-    model: 'claude-sonnet-4-6',
-    modelLabel: 'Claude Sonnet 4.6',
+    aiCallsPerMonth: 8000,
+    model: 'gemini-2.5-flash',
+    modelLabel: 'Gemini 2.5 Flash',
   },
   MAX: {
-    aiCallsPerMonth: 10000,
+    aiCallsPerMonth: 20000,
     model: 'claude-opus-4-7',
     modelLabel: 'Claude Opus 4.7',
   },
