@@ -14,6 +14,8 @@ export type PlanTier = Plan;
  * ⚠️ この表が「本文生成」のモデルを決める。判定・設計・抽出は
  *    プランに関係なく共通（router.py の TaskKind を参照）。安いプランだと
  *    領収書を読み違える、といった値段で説明できない差を作らないため。
+ *
+ * 人数の上限は持たない。全プランでユーザー数は無制限（人数で課金しない。2026-09-11 の価格決定）。
  */
 export const PLAN_LIMITS: Record<
   Plan,
@@ -25,8 +27,6 @@ export const PLAN_LIMITS: Record<
     storageBytes: number;
     /** 1ファイルの上限（バイト） */
     maxFileBytes: number;
-    /** 組織に入れられる人数の上限 */
-    memberLimit: number;
   }
 > = {
   STARTER: {
@@ -35,7 +35,6 @@ export const PLAN_LIMITS: Record<
     modelLabel: 'Gemini 2.5 Flash-Lite',
     storageBytes: 100 * MB,
     maxFileBytes: 10 * MB,
-    memberLimit: 5,
   },
   PRO: {
     aiCallsPerMonth: 8000,
@@ -43,7 +42,6 @@ export const PLAN_LIMITS: Record<
     modelLabel: 'Gemini 2.5 Flash',
     storageBytes: 300 * MB,
     maxFileBytes: 20 * MB,
-    memberLimit: 20,
   },
   MAX: {
     aiCallsPerMonth: 20000,
@@ -51,7 +49,6 @@ export const PLAN_LIMITS: Record<
     modelLabel: 'Claude Opus 4.7',
     storageBytes: 1024 * MB,
     maxFileBytes: 50 * MB,
-    memberLimit: 100,
   },
 };
 
@@ -290,6 +287,60 @@ export interface OrganizationUsage {
   storageAddonUnits: number;
   /** 1ファイルの上限 */
   maxFileBytes: number;
+}
+
+export type BillingInterval = 'month' | 'year';
+
+/** Stripe のサブスクリプション状態のミラー。null は「一度も決済を繋いでいない」 */
+export type SubscriptionStatus =
+  | 'trialing'
+  | 'active'
+  | 'past_due'
+  | 'canceled'
+  | 'unpaid'
+  | 'incomplete'
+  | 'incomplete_expired'
+  | 'paused';
+
+/**
+ * プランの上限を使える状態。
+ * past_due を含めるのは、Stripe がカードの再請求を続けている猶予期間だから
+ * （その間に上限を下げると、支払いを直した瞬間まで業務が止まる）。
+ */
+export const ENTITLED_STATUSES: readonly SubscriptionStatus[] = ['trialing', 'active', 'past_due'];
+
+export interface BillingPrice {
+  plan: Plan;
+  interval: BillingInterval;
+  /** 税抜の金額（円）。Stripe から取れなかったら null */
+  amount: number | null;
+}
+
+export interface BillingOverview {
+  /** 決済が設定されているか。false なら画面は案内だけを出す */
+  configured: boolean;
+  plan: Plan;
+  subscriptionStatus: SubscriptionStatus | null;
+  billingInterval: BillingInterval | null;
+  currentPeriodEnd: string | null;
+  trialEndsAt: string | null;
+  cancelAtPeriodEnd: boolean;
+  /** まだ無料トライアルを使っていない */
+  trialAvailable: boolean;
+  trialDays: number;
+  /** お支払い画面（Stripe のカスタマーポータル）を開けるか */
+  hasCustomer: boolean;
+  prices: BillingPrice[];
+  storageAddon: {
+    /** 追加容量の price が設定されているか */
+    available: boolean;
+    /** 課金が始まっている（active）ので、いま買い増せる */
+    purchasable: boolean;
+    units: number;
+    unitBytes: number;
+    /** 1口あたりの月額（税抜・円）。取れなければ null */
+    unitAmount: number | null;
+  };
 }
 
 export interface ChatSession {

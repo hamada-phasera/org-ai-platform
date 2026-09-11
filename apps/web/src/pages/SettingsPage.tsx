@@ -26,6 +26,7 @@ import UsageCard from '../components/Settings/UsageCard';
 import IntegrationsSection from '../components/Settings/IntegrationsSection';
 import { LiquidTabs } from '../components/motion/LiquidTabs';
 import { MembersSection } from '../components/Settings/MembersSection';
+import { BillingSection } from '../components/Settings/BillingSection';
 
 interface OrganizationView {
   id: string;
@@ -49,11 +50,13 @@ export default function SettingsPage() {
   const logout = useAuthStore((s) => s.logout);
   const storedUser = useAuthStore((s) => s.user);
   // OAuth コールバックは ?tab=integrations で戻ってくるので、初期表示をクエリで決める
-  const [view, setView] = useState<'general' | 'members' | 'integrations'>(() => {
+  const [view, setView] = useState<'general' | 'members' | 'integrations' | 'billing'>(() => {
     const tab = new URLSearchParams(window.location.search).get('tab');
     // OAuth コールバックは ?tab=integrations で戻ってくる
     if (tab === 'integrations') return 'integrations';
     if (tab === 'members') return 'members';
+    // Stripe の Checkout・ポータルは ?tab=billing で戻ってくる
+    if (tab === 'billing') return 'billing';
     return 'general';
   });
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
@@ -134,7 +137,7 @@ export default function SettingsPage() {
       <PageHeader
         eyebrow="Settings"
         title="設定"
-        description="プロフィール・組織情報・ファイル管理をここで確認します。"
+        description="プロフィール・組織・メンバー・連携・プランをここで管理します。"
         actions={
           <div className="w-10 h-10 rounded-2xl flex items-center justify-center bg-accent-soft text-accent">
             <SettingsIcon size={18} />
@@ -143,7 +146,7 @@ export default function SettingsPage() {
       />
 
       <div className="mb-5">
-        <LiquidTabs<'general' | 'members' | 'integrations'>
+        <LiquidTabs<'general' | 'members' | 'integrations' | 'billing'>
           id="settings-tab"
           size="sm"
           label="設定の切り替え"
@@ -151,13 +154,16 @@ export default function SettingsPage() {
             { value: 'general', label: '基本' },
             { value: 'members', label: 'メンバー' },
             { value: 'integrations', label: '連携' },
+            { value: 'billing', label: 'プラン' },
           ]}
           value={view}
           onChange={setView}
         />
       </div>
 
-      {view === 'members' ? (
+      {view === 'billing' ? (
+        <BillingSection />
+      ) : view === 'members' ? (
         <MembersSection />
       ) : view === 'integrations' ? (
         <IntegrationsSection />

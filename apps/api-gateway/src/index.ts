@@ -28,6 +28,8 @@ import { integrationsRoutes } from './routes/integrations';
 import { oauthGoogleRoutes } from './routes/oauth-google';
 import { accountingRoutes } from './routes/accounting';
 import { memberRoutes } from './routes/members';
+import { billingRoutes } from './routes/billing';
+import { stripeWebhookRoutes } from './routes/billing-webhook';
 import { installShutdownHandlers } from './services/lifecycle';
 import { startInternalScheduler } from './services/schedule-dispatcher';
 import { recoverStaleRunningTasks } from './services/step-runner';
@@ -132,6 +134,8 @@ async function start(): Promise<void> {
   await app.register(oauthGoogleRoutes, { prefix: '/api/oauth/google' });
   await app.register(accountingRoutes, { prefix: '/api/accounting' });
   await app.register(memberRoutes, { prefix: '/api/members' });
+  await app.register(billingRoutes, { prefix: '/api/billing' });
+  await app.register(stripeWebhookRoutes, { prefix: '/api/webhooks/stripe' });
 
   const port = parseInt(process.env.PORT ?? '4000');
   await app.listen({ port, host: '0.0.0.0' });

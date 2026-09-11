@@ -73,6 +73,9 @@ INTERNAL_SCHEDULER_ENABLED=true       # 定期実行の gateway 内 tick (5分�
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=    # gateway だけが持つ。ブラウザに渡さない
 SUPABASE_STORAGE_BUCKET=org-files
+# 決済 (未設定なら「準備中」表示のみ。docs/billing.md)
+STRIPE_SECRET_KEY= / STRIPE_WEBHOOK_SECRET= / STRIPE_PRICE_{STARTER,PRO,MAX}_{MONTHLY,YEARLY}=
+STRIPE_PRICE_STORAGE_ADDON= / STRIPE_TAX_RATE_ID= / BILLING_TRIAL_DAYS=30 / APP_BASE_URL=
 ```
 
 ## 自動化の実行モデル (2026-09 スプリント)
@@ -121,6 +124,18 @@ SUPABASE_STORAGE_BUCKET=org-files
   `canUpload()`（shared-types）1か所だけ。追加容量は課金開始後に購入できるようにする。
 - ⚠️ service_role キーは RLS を貫通する。**組織の切り分けはアプリ側**
   （キーの先頭が orgId、触る前に `keyBelongsToOrg` で確認）。
+
+## 決済 (Stripe)
+
+- **金額はコードに持たない**。Stripe の price ID を環境変数で指す。表示する金額も Stripe から取る。
+- **新規契約は Checkout、支払い方法・請求書・解約はカスタマーポータル**。カード情報をこのサーバに通さない。
+- **プラン変更と追加容量はアプリ内**（設定 > プラン）。ポータルは複数商品のサブスクリプションを更新できない
+  （追加ストレージを買うと明細が2本になる）ので、ポータル側のプラン変更は無効にしておく。
+- **組織への写し込みは webhook が正本**。イベントは順不同で届くので、本文の状態を書かずに
+  毎回サブスクリプションを取り直して写す（`services/billing/sync.ts`）。処理済みの印は**成功してから**書く。
+- 権利があるのは trialing / active / past_due。それ以外は梅の上限に戻す（データは消さない）。
+- トライアルは組織ごとに1回（`trialEndsAt` が一度でも入ったら使用済み）。
+- SDK は入れない（LINE・Supabase と同じ）。シークレットと Stripe のエラー文言は利用者に返さない。
 
 ## エージェント機能 (業務効率化エージェント)
 

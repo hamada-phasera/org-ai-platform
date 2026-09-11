@@ -65,6 +65,32 @@ services:
         sync: false
       - key: SUPABASE_STORAGE_BUCKET
         value: org-files
+      # 決済（Stripe）。未設定なら設定 > プラン は「準備中」を出すだけで、他の機能には影響しない。docs/billing.md
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_STARTER_MONTHLY
+        sync: false
+      - key: STRIPE_PRICE_STARTER_YEARLY
+        sync: false
+      - key: STRIPE_PRICE_PRO_MONTHLY
+        sync: false
+      - key: STRIPE_PRICE_PRO_YEARLY
+        sync: false
+      - key: STRIPE_PRICE_MAX_MONTHLY
+        sync: false
+      - key: STRIPE_PRICE_MAX_YEARLY
+        sync: false
+      - key: STRIPE_PRICE_STORAGE_ADDON
+        sync: false
+      - key: STRIPE_TAX_RATE_ID
+        sync: false
+      - key: BILLING_TRIAL_DAYS
+        value: "30"
+      # Checkout・ポータルから戻る先（フロントの公開 URL）
+      - key: APP_BASE_URL
+        value: https://org-ai-platform.vercel.app
       # RAG: 埋め込みプロバイダ。キーが無ければ RAG は no-op（チャットは従来通り）。
       # 既定は gemini＝LLM 用の GEMINI_API_KEY を流用できるので追加契約が不要。
       # gemini-embedding-001 は outputDimensionality=1024 に対応し DB の vector(1024) と一致する。

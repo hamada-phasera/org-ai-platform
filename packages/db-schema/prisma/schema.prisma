@@ -60,17 +60,31 @@ model Organization {
   id                  String               @id @default(cuid())
   name                String
   /// 'STARTER' | 'PRO' | 'MAX'。**プランの真実の源はここ**。
-  /// Subscription.plan は Stripe 側の申告のミラーで、食い違いは検知対象。
+  /// Stripe の状態は webhook のたびにサブスクリプションを取り直して写す（services/billing/sync.ts）。
   plan                String               @default("STARTER")
   billingEmail        String?
-  /// Stripe の顧客ID。決済を繋いだ組織にだけ入る
-  stripeCustomerId    String?
+  /// Stripe の顧客ID。決済を繋いだ組織にだけ入る。webhook で組織を引くので一意
+  stripeCustomerId    String?              @unique
   /// 使用中のストレージ量（バイト）。**使用量の正本はこのカウンタ**で、
   /// UploadedFile の SUM は復旧時の再計算にだけ使う
   /// （毎回 SUM すると一覧のたびに全表走査になる）
   storageUsedBytes    BigInt               @default(0)
   /// 追加購入したストレージの単位数（1単位 = 1GB）。課金開始後に増やせる
+  /// ⚠️ 直接書き換えない。Stripe のサブスクリプションの数量から写す
   storageAddonUnits   Int                  @default(0)
+  /// Stripe のサブスクリプションID。解約後も最後のものを残す（遅れて届く古いイベントの判定に使う）
+  stripeSubscriptionId String?             @unique
+  /// Stripe の状態のミラー: trialing | active | past_due | canceled | unpaid | incomplete | incomplete_expired | paused。
+  /// null = 一度も決済を繋いでいない
+  subscriptionStatus  String?
+  /// 'month' | 'year'
+  billingInterval     String?
+  /// 次回の更新日（トライアル中はトライアル終了日と同じになる）
+  currentPeriodEnd    DateTime?
+  /// トライアルの終了日。**一度でも入ったらトライアルは使用済み**（2回目の無料期間を出さない）
+  trialEndsAt         DateTime?
+  /// 期間の終わりで解約する予約が入っている
+  cancelAtPeriodEnd   Boolean              @default(false)
   users               User[]
   invitations         Invitation[]
   sessions            ChatSession[]
@@ -562,4 +576,16 @@ model InboundMessage {
   @@unique([provider, webhookEventId])
   @@index([orgId, status, createdAt])
   @@index([connectionId, groupId, createdAt])
+}
+
+/// Stripe webhook の処理済み記録。同じイベントの再送を二度処理しないための印。
+/// ⚠️ 処理が**成功してから**書く。先に書くと、処理が落ちたイベントを Stripe が再送しても捨ててしまう。
+model BillingEvent {
+  /// Stripe の event.id（evt_...）
+  id        String   @id
+  type      String
+  orgId     String?
+  createdAt DateTime @default(now())
+
+  @@index([orgId, createdAt])
 }
