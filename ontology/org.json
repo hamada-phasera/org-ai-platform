@@ -1,6 +1,6 @@
 {
   "id": "https://org-ai-platform.local/ontology",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "source": {
     "schema": "packages/db-schema/prisma/schema.prisma",
     "measuredAt": "2026-09-13",
@@ -13,7 +13,10 @@
       "boundTo": [
         "Task.department",
         "Agent.department",
-        "AILog.department"
+        "AILog.department",
+        "Capability.department",
+        "ScheduledTask.department",
+        "Message.department"
       ],
       "coverage": [
         {
@@ -26,7 +29,7 @@
           "from": "Task.department",
           "by": "AILog.department",
           "severity": "warn",
-          "note": "AI 実行は部署つきで監査ログに残るべき（/llm/chat 経由は書かれない既知の穴）"
+          "note": "AI 実行は部署つきで監査ログに残るべき。SALES が無いのは、集中ロギングを入れる前の古い行が2件残っているだけ（/llm/chat は department つきで記録する。2026-09-13 にゲートウェイ側の二重記録も解消）"
         }
       ],
       "concepts": [
@@ -70,6 +73,13 @@
           "status": "active"
         },
         {
+          "id": "ANALYTICS",
+          "prefLabel": "分析",
+          "altLabel": [],
+          "status": "active",
+          "note": "実データ（Capability.department）に存在し、コードの許可リストにもある。語彙側が漏れていた"
+        },
+        {
           "id": "SNS",
           "prefLabel": "SNS運用",
           "altLabel": [
@@ -78,12 +88,16 @@
           "status": "planned",
           "note": "UI の選択肢にはあるが実データに存在しない。実装されたら active にする"
         }
-      ]
+      ],
+      "nullable": true,
+      "sparseThreshold": 0.6,
+      "_nullNote": "Message.department と Capability.department は null を取る（部署を選ばない会話・全社共通の capability）"
     },
     "role": {
       "label": "役割",
       "boundTo": [
-        "User.role"
+        "User.role",
+        "Invitation.role"
       ],
       "concepts": [
         {
@@ -106,7 +120,8 @@
           "status": "active",
           "note": "schema の default。fail-closed の意図だが実データに存在しない"
         }
-      ]
+      ],
+      "_note": "Invitation.role に OWNER は入らない（招待でオーナーは渡さない）"
     },
     "taskState": {
       "label": "タスク状態",
@@ -163,7 +178,8 @@
     "taskType": {
       "label": "タスク種別",
       "boundTo": [
-        "Task.taskType"
+        "Task.taskType",
+        "ScheduledTask.taskType"
       ],
       "nullable": true,
       "sparseThreshold": 0.5,
@@ -171,6 +187,560 @@
         {
           "id": "agent",
           "prefLabel": "エージェント実行",
+          "altLabel": [],
+          "status": "active"
+        }
+      ]
+    },
+    "messageRole": {
+      "label": "会話の発話者",
+      "boundTo": [
+        "Message.role"
+      ],
+      "_note": "⚠️ User.role とは別概念。列名が同じ role でも束ねない",
+      "concepts": [
+        {
+          "id": "user",
+          "prefLabel": "利用者",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "assistant",
+          "prefLabel": "AI",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "system",
+          "prefLabel": "システム",
+          "altLabel": [],
+          "status": "planned",
+          "note": "型では許すが実データに無い"
+        }
+      ]
+    },
+    "userState": {
+      "label": "利用者の状態",
+      "boundTo": [
+        "User.status"
+      ],
+      "concepts": [
+        {
+          "id": "ACTIVE",
+          "prefLabel": "有効",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "DISABLED",
+          "prefLabel": "無効",
+          "altLabel": [],
+          "status": "active",
+          "note": "退職者は物理削除せずこちら"
+        }
+      ]
+    },
+    "plan": {
+      "label": "料金プラン",
+      "boundTo": [
+        "Organization.plan"
+      ],
+      "_note": "金額は持たない（Stripe の price が真実の源）",
+      "concepts": [
+        {
+          "id": "STARTER",
+          "prefLabel": "梅",
+          "altLabel": [
+            "Starter"
+          ],
+          "status": "active"
+        },
+        {
+          "id": "PRO",
+          "prefLabel": "竹",
+          "altLabel": [
+            "Pro"
+          ],
+          "status": "active"
+        },
+        {
+          "id": "MAX",
+          "prefLabel": "松",
+          "altLabel": [
+            "Max"
+          ],
+          "status": "active"
+        }
+      ]
+    },
+    "subscriptionState": {
+      "label": "契約の状態",
+      "boundTo": [
+        "Organization.subscriptionStatus"
+      ],
+      "nullable": true,
+      "_note": "Stripe のミラー。null は一度も決済を繋いでいない組織",
+      "concepts": [
+        {
+          "id": "trialing",
+          "prefLabel": "無料トライアル中",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "active",
+          "prefLabel": "契約中",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "past_due",
+          "prefLabel": "支払い遅延",
+          "altLabel": [],
+          "status": "active",
+          "note": "Stripe が再請求している猶予期間。プランの上限は下げない"
+        },
+        {
+          "id": "canceled",
+          "prefLabel": "解約済み",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "unpaid",
+          "prefLabel": "未払い",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "incomplete",
+          "prefLabel": "手続き未完了",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "incomplete_expired",
+          "prefLabel": "手続き未完了のまま期限切れ",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "paused",
+          "prefLabel": "一時停止",
+          "altLabel": [],
+          "status": "active"
+        }
+      ]
+    },
+    "billingInterval": {
+      "label": "支払い間隔",
+      "boundTo": [
+        "Organization.billingInterval"
+      ],
+      "nullable": true,
+      "concepts": [
+        {
+          "id": "month",
+          "prefLabel": "月払い",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "year",
+          "prefLabel": "年払い",
+          "altLabel": [],
+          "status": "active"
+        }
+      ]
+    },
+    "storageDriver": {
+      "label": "ファイルの保存先",
+      "boundTo": [
+        "UploadedFile.storageDriver"
+      ],
+      "concepts": [
+        {
+          "id": "local",
+          "prefLabel": "ローカルディスク",
+          "altLabel": [],
+          "status": "active",
+          "note": "移行前の行。本体は再デプロイで失われている"
+        },
+        {
+          "id": "supabase",
+          "prefLabel": "Supabase Storage",
+          "altLabel": [],
+          "status": "active"
+        }
+      ]
+    },
+    "capabilityKind": {
+      "label": "capability の種類",
+      "boundTo": [
+        "Capability.kind"
+      ],
+      "concepts": [
+        {
+          "id": "n8n",
+          "prefLabel": "n8n ワークフロー",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "http",
+          "prefLabel": "カスタム HTTP ノード",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "native",
+          "prefLabel": "ネイティブアダプタ",
+          "altLabel": [],
+          "status": "deprecated",
+          "note": "DB には保存しない派生表示値。ここにあるのは名前の予約だけ"
+        }
+      ]
+    },
+    "channelState": {
+      "label": "受信チャネルの状態",
+      "boundTo": [
+        "ChannelConnection.status"
+      ],
+      "concepts": [
+        {
+          "id": "ACTIVE",
+          "prefLabel": "有効",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "DISABLED",
+          "prefLabel": "無効",
+          "altLabel": [],
+          "status": "active"
+        }
+      ]
+    },
+    "providerConnectionState": {
+      "label": "外部サービス接続の状態",
+      "boundTo": [
+        "ProviderConnection.status"
+      ],
+      "_note": "⚠️ ChannelConnection.status とは値が違う（ACTIVE ではなく CONNECTED）。同じ語彙に束ねない",
+      "concepts": [
+        {
+          "id": "CONNECTED",
+          "prefLabel": "接続済み",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "NEEDS_RECONNECT",
+          "prefLabel": "再接続が必要",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "DISABLED",
+          "prefLabel": "無効",
+          "altLabel": [],
+          "status": "active"
+        }
+      ]
+    },
+    "inboundState": {
+      "label": "受信メッセージの状態",
+      "boundTo": [
+        "InboundMessage.status"
+      ],
+      "concepts": [
+        {
+          "id": "RECEIVED",
+          "prefLabel": "受信",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "DRAFTED",
+          "prefLabel": "下書き生成済み",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "DRAFT_FAILED",
+          "prefLabel": "下書き失敗",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "SENT",
+          "prefLabel": "返信済み",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "REJECTED",
+          "prefLabel": "却下",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "SEND_FAILED",
+          "prefLabel": "送信失敗",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "SKIPPED",
+          "prefLabel": "対象外",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "CAPTURED",
+          "prefLabel": "領収書として読み取り済み",
+          "altLabel": [],
+          "status": "active",
+          "note": "schema のコメントに無いが line-inbox が書く。コメント側が古い"
+        }
+      ]
+    },
+    "executionState": {
+      "label": "capability 実行の結果",
+      "boundTo": [
+        "ExecutionLog.status"
+      ],
+      "_note": "⚠️ 小文字。他の状態語彙（大文字）と表記が揃っていない",
+      "concepts": [
+        {
+          "id": "success",
+          "prefLabel": "成功",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "error",
+          "prefLabel": "失敗",
+          "altLabel": [],
+          "status": "active"
+        }
+      ]
+    },
+    "riskSeverity": {
+      "label": "リスクの重さ",
+      "boundTo": [
+        "RiskEvent.severity"
+      ],
+      "concepts": [
+        {
+          "id": "HIGH",
+          "prefLabel": "高",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "MEDIUM",
+          "prefLabel": "中",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "LOW",
+          "prefLabel": "低",
+          "altLabel": [],
+          "status": "planned",
+          "note": "コードは HIGH/MEDIUM しか書かない"
+        }
+      ]
+    },
+    "riskType": {
+      "label": "リスクの種類",
+      "boundTo": [
+        "RiskEvent.type"
+      ],
+      "concepts": [
+        {
+          "id": "PII_DETECTED",
+          "prefLabel": "個人情報の検出",
+          "altLabel": [],
+          "status": "active"
+        }
+      ]
+    },
+    "llmProvider": {
+      "label": "LLM の提供元",
+      "boundTo": [
+        "AILog.provider"
+      ],
+      "nullable": true,
+      "concepts": [
+        {
+          "id": "anthropic",
+          "prefLabel": "Anthropic Claude",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "gemini",
+          "prefLabel": "Google Gemini",
+          "altLabel": [],
+          "status": "active"
+        }
+      ]
+    },
+    "costCategory": {
+      "label": "原価の4分類",
+      "boundTo": [
+        "CostEntry.category"
+      ],
+      "_note": "建設業会計の標準。改正建設業法の見積内訳もこの区分",
+      "concepts": [
+        {
+          "id": "MATERIAL",
+          "prefLabel": "材料費",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "LABOR",
+          "prefLabel": "労務費",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "SUBCON",
+          "prefLabel": "外注費",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "OTHER",
+          "prefLabel": "経費",
+          "altLabel": [],
+          "status": "active"
+        }
+      ]
+    },
+    "costState": {
+      "label": "原価明細の状態",
+      "boundTo": [
+        "CostEntry.status"
+      ],
+      "concepts": [
+        {
+          "id": "DRAFT",
+          "prefLabel": "未確認",
+          "altLabel": [],
+          "status": "active",
+          "note": "AI が読み取った下書き。台帳の数字にはしない"
+        },
+        {
+          "id": "CONFIRMED",
+          "prefLabel": "確定",
+          "altLabel": [],
+          "status": "active"
+        }
+      ]
+    },
+    "costSource": {
+      "label": "原価明細の入力経路",
+      "boundTo": [
+        "CostEntry.source"
+      ],
+      "concepts": [
+        {
+          "id": "MANUAL",
+          "prefLabel": "手入力",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "CHAT",
+          "prefLabel": "チャット",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "LINE",
+          "prefLabel": "LINE",
+          "altLabel": [],
+          "status": "active"
+        }
+      ]
+    },
+    "projectState": {
+      "label": "工事の状態",
+      "boundTo": [
+        "Project.status"
+      ],
+      "concepts": [
+        {
+          "id": "ESTIMATING",
+          "prefLabel": "見積中",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "ORDERED",
+          "prefLabel": "受注",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "IN_PROGRESS",
+          "prefLabel": "施工中",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "COMPLETED",
+          "prefLabel": "完成",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "BILLED",
+          "prefLabel": "請求済み",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "PAID",
+          "prefLabel": "入金済み",
+          "altLabel": [],
+          "status": "active"
+        }
+      ]
+    },
+    "vendorKind": {
+      "label": "取引先の種類",
+      "boundTo": [
+        "Vendor.kind"
+      ],
+      "concepts": [
+        {
+          "id": "SUBCON",
+          "prefLabel": "下請",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "SUPPLIER",
+          "prefLabel": "資材",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "SOLO",
+          "prefLabel": "一人親方",
+          "altLabel": [],
+          "status": "active",
+          "note": "外注費か給与かが税務調査の重点なので区別する"
+        },
+        {
+          "id": "OTHER",
+          "prefLabel": "その他",
           "altLabel": [],
           "status": "active"
         }

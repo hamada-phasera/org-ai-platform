@@ -48,6 +48,7 @@ const usage = new Map()
 const nulls = new Map()
 const totals = new Map()
 const unknownByScheme = new Map()
+const unboundFields = new Set()
 
 for (const row of observed) {
   const { field, value } = row
@@ -55,7 +56,11 @@ for (const row of observed) {
   const schemeName = fieldScheme.get(field)
   totals.set(field, (totals.get(field) ?? 0) + n)
   if (!schemeName) {
-    add('info', 'UNBOUND_FIELD', field, '語彙に紐づいていない列。boundTo に足すか、対象外と決める')
+    // ⚠️ 列ごとに1件だけ出す。値の数だけ出すと、値が多い列が報告を埋め尽くす
+    if (!unboundFields.has(field)) {
+      unboundFields.add(field)
+      add('info', 'UNBOUND_FIELD', field, '語彙に紐づいていない列。boundTo に足すか、対象外と決める')
+    }
     continue
   }
   if (value === NULL_TOKEN || value === null) {
@@ -118,6 +123,9 @@ for (const [name, s] of Object.entries(ont.schemes)) {
     const total = totals.get(f) ?? 0
     const nullN = nulls.get(f) ?? 0
     const ratio = total ? nullN / total : 0
+    // ⚠️ SPARSE_FIELD は母数が小さいと意味を持たない（1行中1行が null でも「100%」になる）。
+    // DEAD_TERM と同じ閾値で抑える。赤くしすぎると警告そのものが信用されなくなる
+    if (total < (s.minSamples ?? ont.minSamples ?? DEFAULT_MIN_SAMPLES)) continue
     if (ratio > (s.sparseThreshold ?? 0.5)) {
       add('warn', 'SPARSE_FIELD', f,
         `${nullN}/${total} (${Math.round(ratio * 100)}%) が null。概念として機能していない`)
