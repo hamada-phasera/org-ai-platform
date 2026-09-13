@@ -20,7 +20,9 @@
     "render:deploy": "node scripts/render-deploy.mjs deploy",
     "render:verify": "node scripts/render-deploy.mjs verify",
     "supabase:check": "node scripts/supabase-setup.mjs",
-    "supabase:setup": "node scripts/supabase-setup.mjs --apply"
+    "supabase:setup": "node scripts/supabase-setup.mjs --apply",
+    "ontology:check": "node scripts/ontology-drift.mjs ontology/org.json ontology/observed.json --out ontology/out",
+    "ontology:ttl": "mkdir -p ontology/out && node scripts/ontology-export-ttl.mjs ontology/org.json > ontology/out/org.ttl"
   },
   "devDependencies": {
     "concurrently": "^8.0.0",

@@ -1,0 +1,75 @@
+# 語彙（ontology/org.json）と観測結果（ontology/observed.json）のズレを検査する。
+#
+# 何を守っているか:
+#   department / role / status / taskType は DB enum ではなく String で持っている。
+#   値の集合は shared-types と schema.prisma のコメントにしかなく、DB も TypeScript も
+#   Task / Agent / AILog の 3 者が同じ語彙を使っていることを保証しない。
+#   ここが唯一の機械的な歯止めになる。CLAUDE.md の「すべての AI 入出力を AILog に記録する」も
+#   Task.department → AILog.department のカバレッジ検査として、このジョブが見ている。
+#
+# ⚠️ このジョブは DB に接続しない。
+#   検査するのはコミットされた observed.json であって、本番の今の値ではない。そうしている理由:
+#     - CI に DB の接続情報を置かなくて済む
+#     - 同じ observed.json なら何度流しても同じ結果になる。本番のデータが動いただけで CI が赤くならない
+#     - PR ごとに本番 DB を叩かない
+#
+# observed.json の更新は人がやる（月 1 回程度で足りる）:
+#   本番は Supabase。ontology/observe.sql を Supabase MCP で実行し、
+#   返ってきた配列を ontology/observed.json に保存してコミットする。
+#   ⚠️ 旧 Neon プロジェクトは 2026-07-08 で更新が止まっている。こちらを測らないこと。
+#      CLAUDE.md / .env.example / DEPLOYMENT_RUNBOOK.md は Neon 前提のまま更新されていない（2026-09-13 時点）。
+#
+# 依存のインストールはしない:
+#   scripts/ontology-*.mjs は依存ゼロで動くので npm ci は不要。1 分かからず終わる。
+#
+# 落ちる条件は error のみ。warn では落とさない（2026-09-13 時点で warn 1 / info 5）。
+#   warn まで落とすと、直せない既知のズレでマージが止まり、すぐ無視されるようになる。
+
+name: ontology-check
+
+on:
+  pull_request:
+    paths:
+      - 'ontology/**'
+      - 'scripts/ontology-*.mjs'
+      - 'package.json'
+      - '.github/workflows/ontology-check.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'ontology/**'
+      - 'scripts/ontology-*.mjs'
+      - 'package.json'
+      - '.github/workflows/ontology-check.yml'
+  workflow_dispatch: {} # 語彙をいじっていないときに手で流したい場合用
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22' # スクリプトの要件は Node 18 以上
+
+      - name: Check ontology drift
+        run: npm run ontology:check
+
+      - name: Write summary
+        if: always() # error で落ちたときこそ中身を見たい
+        run: |
+          if [ -f ontology/out/violations.md ]; then
+            cat ontology/out/violations.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '検査が出力前に落ちました。ログを確認してください。' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ontology-report
+          path: ontology/out/ # violations.md / graph.json / graph.html
+          retention-days: 14
+          if-no-files-found: warn

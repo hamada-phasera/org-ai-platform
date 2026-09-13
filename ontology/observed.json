@@ -1,0 +1,10 @@
+[
+  {"field":"Task.department","value":"SALES","n":3},
+  {"field":"Task.department","value":"GENERAL","n":2},
+  {"field":"Agent.department","value":"SALES","n":2},
+  {"field":"Agent.department","value":"GENERAL","n":1},
+  {"field":"AILog.department","value":"GENERAL","n":2},
+  {"field":"Task.status","value":"DONE","n":5},
+  {"field":"Task.taskType","value":"agent","n":5},
+  {"field":"User.role","value":"OWNER","n":1}
+]

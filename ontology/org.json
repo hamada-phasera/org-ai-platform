@@ -1,0 +1,181 @@
+{
+  "id": "https://org-ai-platform.local/ontology",
+  "version": "0.1.0",
+  "source": {
+    "schema": "packages/db-schema/prisma/schema.prisma",
+    "measuredAt": "2026-09-13",
+    "database": "Supabase (prod)",
+    "_note": "本番は Supabase。Neon は 2026-07 で止まった旧 DB で、参照しないこと"
+  },
+  "schemes": {
+    "department": {
+      "label": "部署",
+      "boundTo": [
+        "Task.department",
+        "Agent.department",
+        "AILog.department"
+      ],
+      "coverage": [
+        {
+          "from": "Task.department",
+          "by": "Agent.department",
+          "severity": "warn",
+          "note": "タスクが発生する部署には、担当エージェントが存在するべき"
+        },
+        {
+          "from": "Task.department",
+          "by": "AILog.department",
+          "severity": "warn",
+          "note": "AI 実行は部署つきで監査ログに残るべき（/llm/chat 経由は書かれない既知の穴）"
+        }
+      ],
+      "concepts": [
+        {
+          "id": "GENERAL",
+          "prefLabel": "全社共通",
+          "altLabel": [
+            "共通",
+            "その他",
+            "未分類"
+          ],
+          "status": "active"
+        },
+        {
+          "id": "SALES",
+          "prefLabel": "営業",
+          "altLabel": [
+            "セールス",
+            "営業部",
+            "Sales"
+          ],
+          "status": "active"
+        },
+        {
+          "id": "MARKETING",
+          "prefLabel": "マーケティング",
+          "altLabel": [
+            "マーケ",
+            "販促"
+          ],
+          "status": "active"
+        },
+        {
+          "id": "ACCOUNTING",
+          "prefLabel": "経理",
+          "altLabel": [
+            "会計",
+            "経理部",
+            "財務"
+          ],
+          "status": "active"
+        },
+        {
+          "id": "SNS",
+          "prefLabel": "SNS運用",
+          "altLabel": [
+            "ソーシャル"
+          ],
+          "status": "planned",
+          "note": "UI の選択肢にはあるが実データに存在しない。実装されたら active にする"
+        }
+      ]
+    },
+    "role": {
+      "label": "役割",
+      "boundTo": [
+        "User.role"
+      ],
+      "concepts": [
+        {
+          "id": "OWNER",
+          "prefLabel": "オーナー",
+          "altLabel": [],
+          "status": "active",
+          "note": "本来は 1 org に 1 人。実測では 33/33 が OWNER"
+        },
+        {
+          "id": "ADMIN",
+          "prefLabel": "管理者",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "MEMBER",
+          "prefLabel": "メンバー",
+          "altLabel": [],
+          "status": "active",
+          "note": "schema の default。fail-closed の意図だが実データに存在しない"
+        }
+      ]
+    },
+    "taskState": {
+      "label": "タスク状態",
+      "boundTo": [
+        "Task.status"
+      ],
+      "terminal": [
+        "DONE",
+        "FAILED"
+      ],
+      "transitions": [
+        [
+          "QUEUED",
+          "DONE"
+        ],
+        [
+          "QUEUED",
+          "FAILED"
+        ],
+        [
+          "FAILED",
+          "QUEUED"
+        ]
+      ],
+      "concepts": [
+        {
+          "id": "PENDING",
+          "prefLabel": "未着手",
+          "altLabel": [],
+          "status": "deprecated",
+          "note": "schema の default だが実データに 0 件。既定値と実際の初期状態がずれている"
+        },
+        {
+          "id": "QUEUED",
+          "prefLabel": "待機中",
+          "altLabel": [],
+          "status": "active"
+        },
+        {
+          "id": "DONE",
+          "prefLabel": "完了",
+          "altLabel": [],
+          "status": "active",
+          "note": "成果物はこの状態の Task を指す。専用テーブルは存在しない"
+        },
+        {
+          "id": "FAILED",
+          "prefLabel": "失敗",
+          "altLabel": [],
+          "status": "active"
+        }
+      ]
+    },
+    "taskType": {
+      "label": "タスク種別",
+      "boundTo": [
+        "Task.taskType"
+      ],
+      "nullable": true,
+      "sparseThreshold": 0.5,
+      "concepts": [
+        {
+          "id": "agent",
+          "prefLabel": "エージェント実行",
+          "altLabel": [],
+          "status": "active"
+        }
+      ]
+    }
+  },
+  "minSamples": 20
+}

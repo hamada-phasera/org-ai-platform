@@ -19,3 +19,6 @@ __pycache__/
 .env*.local
 .env.*
 !.env.example
+
+# オントロジー検査の生成物
+ontology/out/
