@@ -213,6 +213,12 @@ export function BillingSection() {
         {billing.configured && !isOwner && (
           <p className="mt-3 text-xs text-muted">プランのお申し込み・変更はオーナーのみ行えます。</p>
         )}
+        {billing.subscriptionStatus && !entitled && (
+          <p className="mt-3 text-xs text-warning">
+            現在は閲覧のみです。台帳・ファイル・過去のやり取りはそのまま見られますが、新しい実行と保存はできません。
+            プランを再開すると元に戻ります。
+          </p>
+        )}
       </Card>
 
       {billing.configured && (

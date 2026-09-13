@@ -1,13 +1,15 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { hasRoleAtLeast, type UserRole } from '@org-ai/shared-types';
 import { prisma } from '../utils/prisma';
+import { READ_ONLY_MESSAGE, entitlementOf, needsEntitlementCheck } from '../services/entitlement';
 
 /**
  * 認証と権限。
  *
  * 二段構えにしている理由:
- *   requireAuth  … JWT を検証するだけで DB を引かない。チャット・タスク・受信・WebSocket など
- *                  すべてのリクエストが通るので、ここに1クエリ足すと全体に効いてしまう。
+ *   requireAuth  … JWT を検証する。読み取りでは DB を引かない（すべてのリクエストが通るので、
+ *                  ここに1クエリ足すと全体に効いてしまう）。書き込みのときだけ契約を確認し、
+ *                  解約済みの組織を「閲覧のみ」にする。
  *   requireRole  … 危険な操作の前でだけ DB を引く。低頻度なので +1 クエリは無視でき、
  *                  **降格と無効化が即座に効く**。昇格が遅れるのは無害だが、
  *                  降格が効かないのは事故なので、効かせるべきはこちら。
@@ -24,6 +26,23 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply):
     reply.code(401).send({
       success: false,
       error: { code: 'AUTH_REQUIRED', message: '認証が必要です' },
+    });
+    return;
+  }
+
+  /* 契約が切れた組織は書き込みだけ止める（閲覧と書き出しは通す）。
+     ⚠️ 決済と認証の経路は必ず通す。ここを止めると再開する手段が無くなる。 */
+  if (!needsEntitlementCheck(request.method, request.url)) return;
+  const { orgId } = (request.user ?? {}) as { orgId?: string };
+  if (!orgId) return;
+  const org = await prisma.organization.findUnique({
+    where: { id: orgId },
+    select: { subscriptionStatus: true },
+  });
+  if (org && entitlementOf(org.subscriptionStatus) === 'read_only') {
+    reply.code(402).send({
+      success: false,
+      error: { code: 'SUBSCRIPTION_REQUIRED', message: READ_ONLY_MESSAGE },
     });
   }
 }

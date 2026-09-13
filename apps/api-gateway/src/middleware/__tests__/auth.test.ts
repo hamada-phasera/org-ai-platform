@@ -1,13 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const prismaMock = { user: { findUnique: vi.fn() } };
+const prismaMock = { user: { findUnique: vi.fn() }, organization: { findUnique: vi.fn() } };
 vi.mock('../../utils/prisma', () => ({ prisma: prismaMock }));
 
 const { requireRole, requireAdmin, requireOwner } = await import('../auth');
 
-/** jwtVerify が成功した状態の request を作る */
-function makeReq(sub = 'u-1') {
-  return { user: { sub, orgId: 'org-JWT', role: 'OWNER' }, jwtVerify: vi.fn(async () => {}) } as never;
+/** jwtVerify が成功した状態の request を作る（書き込み要求として扱う） */
+function makeReq(sub = 'u-1', method = 'POST', url = '/api/members/invitations') {
+  return {
+    user: { sub, orgId: 'org-JWT', role: 'OWNER' },
+    method,
+    url,
+    jwtVerify: vi.fn(async () => {}),
+  } as never;
 }
 
 function makeReply() {
@@ -28,7 +33,11 @@ function makeReply() {
   return r;
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  // 既定は「まだ決済を繋いでいない組織」＝契約チェックは通る
+  prismaMock.organization.findUnique.mockResolvedValue({ subscriptionStatus: null });
+});
 
 describe('requireRole', () => {
   it('DB の role を見る（JWT の role は信用しない）', async () => {
@@ -130,5 +139,36 @@ describe('requireRole', () => {
     await requireAdmin(req, reply as never);
     expect(reply.statusCode).toBe(401);
     expect(prismaMock.user.findUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe('契約が切れた組織', () => {
+  it('書き込みは 402 で止まり、role の判定まで進まない', async () => {
+    prismaMock.organization.findUnique.mockResolvedValue({ subscriptionStatus: 'canceled' });
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: 'u-1', role: 'OWNER', status: 'ACTIVE', orgId: 'org-1', email: 'a@b.c',
+    });
+    const req = makeReq();
+    const reply = makeReply();
+
+    await requireOwner(req, reply as never);
+
+    expect(reply.statusCode).toBe(402);
+    // ⚠️ 契約で止めた時点で終わり。ここで role を引くと無駄なクエリが増える
+    expect(prismaMock.user.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('読み取りは契約を見ずに通す', async () => {
+    prismaMock.organization.findUnique.mockResolvedValue({ subscriptionStatus: 'canceled' });
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: 'u-1', role: 'OWNER', status: 'ACTIVE', orgId: 'org-1', email: 'a@b.c',
+    });
+    const req = makeReq('u-1', 'GET', '/api/members');
+    const reply = makeReply();
+
+    await requireOwner(req, reply as never);
+
+    expect(reply.statusCode).toBe(0);
+    expect(prismaMock.organization.findUnique).not.toHaveBeenCalled();
   });
 });

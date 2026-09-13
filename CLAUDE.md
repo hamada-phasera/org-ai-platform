@@ -120,8 +120,9 @@ STRIPE_PRICE_STORAGE_ADDON= / STRIPE_TAX_RATE_ID= / BILLING_TRIAL_DAYS=30 / APP_
   「再アップロードしてください」と出す（RAG の索引 `FileChunk` を守るため）。
 - **使用量の真実は `Organization.storageUsedBytes`**。保存と削除で、行の作成/削除と
   **同じトランザクション**で増減する。毎回 `SUM(sizeBytes)` はしない。
-- **容量 = プランの無料枠 + 追加容量**（`storageAddonUnits` × 1GB）。判定は
-  `canUpload()`（shared-types）1か所だけ。追加容量は課金開始後に購入できるようにする。
+- **容量 = プランの無料枠 + 追加容量**（`storageAddonUnits` × 10GB）。判定は
+  `canUpload()`（shared-types）1か所だけ。込みは 梅1GB / 竹5GB / 松20GB、1ファイルは 10/20/50MB。
+  追加容量は課金開始後（active）にだけ購入できる。
 - ⚠️ service_role キーは RLS を貫通する。**組織の切り分けはアプリ側**
   （キーの先頭が orgId、触る前に `keyBelongsToOrg` で確認）。
 
@@ -134,6 +135,12 @@ STRIPE_PRICE_STORAGE_ADDON= / STRIPE_TAX_RATE_ID= / BILLING_TRIAL_DAYS=30 / APP_
 - **組織への写し込みは webhook が正本**。イベントは順不同で届くので、本文の状態を書かずに
   毎回サブスクリプションを取り直して写す（`services/billing/sync.ts`）。処理済みの印は**成功してから**書く。
 - 権利があるのは trialing / active / past_due。それ以外は梅の上限に戻す（データは消さない）。
+- **解約後は「閲覧のみ」**。書き込み（POST/PUT/PATCH/DELETE）を 402 で止め、閲覧と書き出しは通す
+  （`services/entitlement.ts`）。決済と認証の経路は止めない＝再開できなくなるため。
+  ⚠️ `subscriptionStatus` が null は「まだ決済を繋いでいない」＝課金開始前の利用者なので止めない。
+- **AI の月間上限は超えても止めない**。8割で警告し、超えたら軽いモデルへ落として続ける
+  （ai-engine `governance/usage.py`。判定は LLMRouter 1か所なので n8n 経由にも効く）。
+  現場で「今日から使えません」は業務が止まり、そのまま解約になる。
 - トライアルは組織ごとに1回（`trialEndsAt` が一度でも入ったら使用済み）。
 - SDK は入れない（LINE・Supabase と同じ）。シークレットと Stripe のエラー文言は利用者に返さない。
 
