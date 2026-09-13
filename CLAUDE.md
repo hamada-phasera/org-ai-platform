@@ -52,7 +52,8 @@ org-ai-platform/
 
 ```
 ANTHROPIC_API_KEY=    # Anthropic APIキー (必須、ai-engine の LLM 呼び出し)
-GEMINI_API_KEY=       # Google AI Studio 無料キー (梅/竹プラン用。未設定なら全プランClaudeにフォールバック=課金注意)
+GEMINI_API_KEY=       # Google AI Studio キー (梅/竹プラン用。未設定なら全プランClaudeにフォールバック=課金注意)
+GEMINI_PAID_TIER=     # 有料課金に切り替えたら true。⚠️無料枠は入力がGoogleの製品改善に使われる（有料顧客を乗せる前に切替）
 ADMIN_EMAILS=         # admin判定 (カンマ区切りemail)。一致ユーザーは常にClaude
 JWT_SECRET=           # JWT署名シークレット (必須、32文字以上推奨)
 DATABASE_URL=postgresql://...   # Supabase(本番) / docker-compose(ローカル)

@@ -182,6 +182,28 @@ def _screen_user_messages(messages: List[ChatMessage]) -> Tuple[List[ChatMessage
     return screened, pii_detected, pii_types
 
 
+_warned_free_tier = False
+
+
+def _warn_if_gemini_free_tier() -> None:
+    """無料枠のまま有料のお客さまを乗せていないか、起動後1回だけ知らせる。
+
+    ⚠️ Gemini の無料枠は「入力が Google の製品改善に使われる」と明記されている。
+       領収書や LINE のやり取りを扱う以上、有料プランの土台にはできない。
+       有料課金に切り替えたら GEMINI_PAID_TIER=true を設定する（設定し忘れの検知用）。
+    """
+    global _warned_free_tier
+    if _warned_free_tier:
+        return
+    if os.getenv("GEMINI_PAID_TIER", "").strip().lower() in ("1", "true", "yes"):
+        return
+    _warned_free_tier = True
+    logger.warning(
+        "[LLMRouter] Gemini を無料枠の設定で使っています。無料枠の入力は Google の製品改善に"
+        "使われるため、有料のお客さまを乗せる前に有料課金へ切り替え、GEMINI_PAID_TIER=true を設定してください"
+    )
+
+
 async def _degrade_if_over_limit(
     org_id: str, plan: str, provider_name: str, model: str
 ) -> Tuple[str, str]:
@@ -228,6 +250,8 @@ class LLMRouter:
         if force_anthropic_model is None and task in (None, TaskKind.CHAT):
             provider_name, model = await _degrade_if_over_limit(org_id, plan, provider_name, model)
 
+        if provider_name == "gemini":
+            _warn_if_gemini_free_tier()
         provider = _get_gemini() if provider_name == "gemini" else _get_anthropic()
         response = await provider.chat(screened_messages, model=model, json_mode=json_mode)
         note_call(org_id)
@@ -251,6 +275,8 @@ class LLMRouter:
         provider_name, model = resolve_provider_model(plan, user_email, json_mode=False)
         provider_name, model = await _degrade_if_over_limit(org_id, plan, provider_name, model)
         note_call(org_id)
+        if provider_name == "gemini":
+            _warn_if_gemini_free_tier()
         provider = _get_gemini() if provider_name == "gemini" else _get_anthropic()
         async for token in provider.chat_stream(screened_messages, model=model):
             yield token

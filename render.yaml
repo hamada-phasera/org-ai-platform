@@ -105,6 +105,10 @@ services:
       # gateway 側でも埋め込み生成に Gemini を呼ぶため必要（ai-engine と同じキーで可）。
       - key: GEMINI_API_KEY
         sync: false
+      # ⚠️ 無料枠は入力が Google の製品改善に使われる。有料のお客さまを乗せる前に
+      # 有料課金へ切り替え、ここを true にすること（未設定なら ai-engine のログに警告が出る）
+      - key: GEMINI_PAID_TIER
+        value: "false"
       - key: N8N_CLOUD_URL
         sync: false
       - key: N8N_API_KEY
@@ -147,6 +151,10 @@ services:
       # 松竹梅ルーティング: 梅/竹=Gemini(無料枠), 松/admin=Claude
       - key: GEMINI_API_KEY
         sync: false
+      # ⚠️ 無料枠は入力が Google の製品改善に使われる。有料のお客さまを乗せる前に
+      # 有料課金へ切り替え、ここを true にすること（未設定なら ai-engine のログに警告が出る）
+      - key: GEMINI_PAID_TIER
+        value: "false"
       - key: ADMIN_EMAILS
         sync: false
       # ⚠️ ai-engine は公開 URL を持つ。未設定だと誰でも /llm/chat・/vision/receipt を叩けて
