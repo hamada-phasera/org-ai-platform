@@ -33,7 +33,7 @@ After rotation, save the values in your password manager — do **not** commit t
 
 1. Sign in / create project at https://supabase.com/dashboard
 2. Create a project: `org-ai-platform`（DB 名は `postgres` 固定。Neon 時代の `orgai` ではない）
-3. Project Settings → Database → Connection string から **Session pooler**（`aws-0-<region>.pooler.supabase.com` の **5432**）を 1 本コピーする。
+3. Project Settings → Database → Connection string から **Session pooler**（`aws-<n>-<region>.pooler.supabase.com` の **5432**。実際のホストはダッシュボード表示に従う）を 1 本コピーする。
    `?sslmode=require` を付ける。gateway・ai-engine ともこの 1 本で統一する。
 4. 他の 2 経路は使えない（[docs/supabase-migration.md](docs/supabase-migration.md) に実測あり）:
    - **direct**（`db.<ref>.supabase.co:5432`）… IPv6 のみで IPv4 が無い。Render から `P1001` になる
