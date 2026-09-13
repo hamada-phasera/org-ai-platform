@@ -1,6 +1,6 @@
 // LINE 受信メッセージへの AI 返信下書き生成。
-// LLM は AI Engine `/llm/chat` 経由（規約準拠・直接呼び出し禁止）。`/llm/chat` は AILog を
-// 書かないため、本モジュールで prisma.aILog.create する（routes/sns/posts.ts の流儀を踏襲）。
+// LLM は AI Engine `/llm/chat` 経由（規約準拠・直接呼び出し禁止）。AILog は `/llm/chat` 側が
+// department・org_id つきで書くので、ここでは書かない（以前は二重に記録していた）。
 // 下書きは InboundMessage.draft に保存し、status を DRAFTED / DRAFT_FAILED に遷移させる。
 // 実送信は絶対にしない（送信は承認 API → adapter.sendReply だけ）。
 
@@ -162,26 +162,6 @@ export async function generateInboxDraft(
     }
 
     const draft = parseReplyBody(llm.content ?? '');
-
-    // AILog（必須・best-effort）。/llm/chat は AILog を書かないため gateway 側で記録する。
-    try {
-      const userPrompt = messages.find((m) => m.role === 'user')?.content ?? '';
-      await prisma.aILog.create({
-        data: {
-          orgId: msg.orgId,
-          department: INBOX_DEPARTMENT,
-          provider: 'anthropic',
-          model: llm.model,
-          inputText: userPrompt.slice(0, MAX_INPUT_CHARS),
-          outputText: (llm.content ?? '').slice(0, MAX_INPUT_CHARS),
-          tokens: llm.tokens_used ?? null,
-          latencyMs: llm.latency_ms ?? null,
-          riskScore: null,
-        },
-      });
-    } catch (e) {
-      console.error('[inbox/draft] AILog 記録に失敗:', e instanceof Error ? e.message : e);
-    }
 
     await prisma.inboundMessage.update({
       where: { id },

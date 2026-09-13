@@ -81,7 +81,8 @@ describe('POST /api/sns/posts (下書き生成 N-1)', () => {
     expect(taskData.status).toBe('PENDING_APPROVAL');
     expect(taskData.taskType).toBe('sns');
     expect(taskData.department).toBe('MARKETING');
-    expect(prismaMock.aILog.create).toHaveBeenCalledTimes(1);
+    // AILog は /llm/chat 側が書く。ここで書くと二重記録になる
+    expect(prismaMock.aILog.create).not.toHaveBeenCalled();
     await app.close();
   });
 

@@ -75,15 +75,15 @@ describe('POST /api/sales/proposals', () => {
     expect(JSON.parse(opts.body).department).toBe('SALES');
     expect(JSON.parse(opts.body).json_mode).toBe(false);
 
-    // AILog(必須) と Task(既定保存) が記録される
-    expect(prismaMock.aILog.create).toHaveBeenCalledTimes(1);
-    expect(prismaMock.aILog.create.mock.calls[0][0].data.department).toBe('SALES');
+    // ⚠️ AILog はゲートウェイでは書かない（/llm/chat 側が department つきで記録する）。
+    // ここで書くと同じ呼び出しが二重に記録され、利用量の集計が実際の倍になる
+    expect(prismaMock.aILog.create).not.toHaveBeenCalled();
     expect(prismaMock.task.create).toHaveBeenCalledTimes(1);
     expect(prismaMock.task.create.mock.calls[0][0].data.taskType).toBe('proposal');
     await app.close();
   });
 
-  it('正常系: persist=false なら Task は保存せず AILog は記録する', async () => {
+  it('正常系: persist=false なら Task を保存しない', async () => {
     fetchMock.mockResolvedValue(llmOk());
     const app = await build();
     const res = await app.inject({
@@ -94,11 +94,11 @@ describe('POST /api/sales/proposals', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().data.taskId).toBeNull();
     expect(prismaMock.task.create).not.toHaveBeenCalled();
-    expect(prismaMock.aILog.create).toHaveBeenCalledTimes(1);
+    expect(prismaMock.aILog.create).not.toHaveBeenCalled();
     await app.close();
   });
 
-  it('正常系: AILog記録が失敗しても生成結果は返す(best-effort)', async () => {
+  it('正常系: 監査ログの記録はゲートウェイでは行わない（/llm/chat 側の責務）', async () => {
     fetchMock.mockResolvedValue(llmOk());
     prismaMock.aILog.create.mockRejectedValue(new Error('db down'));
     const app = await build();

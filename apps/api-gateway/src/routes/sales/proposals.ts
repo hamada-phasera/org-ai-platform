@@ -14,9 +14,8 @@ import {
  * 提案書ドラフト生成（S-3・主機能）。
  *
  * LLM 呼び出しは CLAUDE.md の規約に従い AI Engine の `/llm/chat` 経由で行う（直接呼び出し禁止）。
- * `/llm/chat` は PII スクリーニング(llm_router.chat)を通すが AILog を書かないため、
- * 「すべての AI 入出力を AILog に記録する」ルールを満たすよう本ルートで prisma.aILog.create する
- * （/llm/chat 側での集中ロギング化は integration-requests #5 に起票）。
+ * ⚠️ AILog はここで書かない。`/llm/chat` が department・org_id つきで記録する（集中ロギング）。
+ *    以前はここでも書いていて、同じ呼び出しが二重に記録されていた（2026-09-13 に解消）。
  *
  * 生成結果は完了 Task(taskType='proposal') として保存し、既存の deliverables 表示に載せる
  * （この製品では「成果物」= status='DONE' の Task。Deliverable モデルは存在しない）。
@@ -119,27 +118,6 @@ export async function salesProposalsRoutes(app: FastifyInstance): Promise<void> 
         success: false,
         error: { code: 'LLM_BAD_RESPONSE', message: 'AI エンジンの応答を解釈できませんでした。' },
       });
-    }
-
-    const userPrompt = messages.find((m) => m.role === 'user')?.content ?? '';
-
-    // ── AILog 記録（必須。best-effort: 失敗しても生成結果は返す） ──
-    try {
-      await prisma.aILog.create({
-        data: {
-          orgId: payload.orgId,
-          department: 'SALES',
-          provider: 'anthropic',
-          model: llm.model,
-          inputText: userPrompt.slice(0, 4000),
-          outputText: (llm.content ?? '').slice(0, 4000),
-          tokens: llm.tokens_used ?? null,
-          latencyMs: llm.latency_ms ?? null,
-          riskScore: null,
-        },
-      });
-    } catch (e) {
-      request.log.error({ err: e }, '[sales/proposals] AILog 記録に失敗');
     }
 
     // ── 成果物として Task 保存（既定 true。deliverables 表示に載る） ──

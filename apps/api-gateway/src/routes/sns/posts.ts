@@ -21,8 +21,8 @@ import { aiEngineHeaders } from '../../services/ai-engine-auth';
  * 承認しても投稿はされない。既存の POST /tasks/:id/approve は承認時に
  * dispatchQueuedTask() で実行に回すため **絶対に流用しない**（本ファイルは dispatch を import しない）。
  *
- * LLM は AI Engine `/llm/chat` 経由（規約準拠）。`/llm/chat` は AILog を書かないので
- * 本ルートで prisma.aILog.create する（integration-requests 参照）。
+ * LLM は AI Engine `/llm/chat` 経由（規約準拠）。AILog は `/llm/chat` 側が department つきで
+ * 書くので、ここでは書かない（以前は二重に記録していた。2026-09-13 に解消）。
  * 下書きは `Task(department='MARKETING', taskType='sns', status='PENDING_APPROVAL', output=JSON)` として保存し、
  * 既存フロントの deliverable 'sns' レンダラにそのまま載る。
  * ルート登録(index.ts)は統合フェーズ(B)。prefix 例: `/api/sns/posts`。
@@ -135,27 +135,6 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
     const hashtags = normalizeHashtags(body.hashtags).slice(0, PLATFORM_CONSTRAINTS[platform].maxHashtags ?? undefined);
     const draft: SnsDraft = { platform, content: body.content, hashtags };
     const validation = validatePost(platform, draft.content, draft.hashtags);
-    const userPrompt = messages.find((m) => m.role === 'user')?.content ?? '';
-
-    // AILog（必須・best-effort）
-    try {
-      await prisma.aILog.create({
-        data: {
-          orgId: payload.orgId,
-          department: SNS_DEPARTMENT,
-          provider: 'anthropic',
-          model: llm.model,
-          inputText: userPrompt.slice(0, 4000),
-          outputText: (llm.content ?? '').slice(0, 4000),
-          tokens: llm.tokens_used ?? null,
-          latencyMs: llm.latency_ms ?? null,
-          riskScore: null,
-        },
-      });
-    } catch (e) {
-      request.log.error({ err: e }, '[sns/posts] AILog 記録に失敗');
-    }
-
     // 承認待ち Task として保存（既定 true）。※投稿はしない。承認は別途キューで。
     let taskId: string | null = null;
     if (parsed.data.persist !== false) {
