@@ -1,6 +1,6 @@
 import { Activity, HardDrive } from 'lucide-react';
 import type { OrganizationUsage } from '@org-ai/shared-types';
-import { STORAGE_ADDON_UNIT_BYTES, STORAGE_WARN_RATIO, formatBytes } from '@org-ai/shared-types';
+import { STORAGE_ADDON_UNIT_BYTES, STORAGE_WARN_RATIO, formatBytes, usageState } from '@org-ai/shared-types';
 import { Card } from '../ui';
 
 interface UsageCardProps {
@@ -29,8 +29,16 @@ export default function UsageCard({ usage, modelLabel }: UsageCardProps) {
   const { aiCallsThisMonth, planLimit, resetAt } = usage;
   const ratio = planLimit > 0 ? Math.min(aiCallsThisMonth / planLimit, 1) : 0;
   const percent = Math.round(ratio * 100);
-  const overLimit = aiCallsThisMonth >= planLimit;
+  // 古い API（state を返さない）に当たっても画面を落とさない
+  const state = usage.state ?? usageState(aiCallsThisMonth, planLimit);
+  const callTone: Tone = state === 'over' ? 'over' : state === 'warn' ? 'warn' : 'normal';
   const resetLabel = new Date(resetAt).toLocaleDateString('ja-JP', { month: 'long', day: 'numeric' });
+  const callNote =
+    state === 'over'
+      ? `今月の上限を超えたため、軽いモデルで応答しています（${resetLabel} にリセット）。`
+      : state === 'warn'
+        ? `今月の上限に近づいています（${resetLabel} にリセット）。`
+        : `${resetLabel} にリセットされます`;
 
   // 容量を返さない古い API に当たっても画面を落とさない（デプロイ順がずれたとき）
   const storageUsed = usage.storageUsedBytes ?? 0;
@@ -60,10 +68,10 @@ export default function UsageCard({ usage, modelLabel }: UsageCardProps) {
             <span className="font-semibold">{aiCallsThisMonth.toLocaleString()}</span>
             <span className="text-muted"> / {planLimit.toLocaleString()} コール</span>
           </span>
-          <span className={`text-xs tabular ${overLimit ? 'text-danger' : 'text-muted'}`}>{percent}%</span>
+          <span className={`text-xs tabular ${TONE_TEXT[callTone]}`}>{percent}%</span>
         </div>
-        <Meter ratio={ratio} tone={overLimit ? 'over' : 'normal'} />
-        <p className="text-xs text-muted">{resetLabel} にリセットされます</p>
+        <Meter ratio={ratio} tone={callTone} />
+        <p className={`text-xs ${TONE_TEXT[callTone]}`}>{callNote}</p>
       </div>
 
       {storageQuota > 0 && (

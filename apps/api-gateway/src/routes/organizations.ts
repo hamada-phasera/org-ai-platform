@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma';
 import { requireAuth } from '../middleware/auth';
-import { PLAN_LIMITS, storageQuotaBytes, type Plan } from '@org-ai/shared-types';
+import { PLAN_LIMITS, storageQuotaBytes, usageState, type Plan } from '@org-ai/shared-types';
 
 const updateOrgSchema = z.object({
   name: z.string().min(1).max(120).optional(),
@@ -95,6 +95,8 @@ export async function organizationRoutes(app: FastifyInstance): Promise<void> {
       data: {
         aiCallsThisMonth,
         planLimit,
+        // 上限を超えても止めない。ai-engine が軽いモデルに落として継続する
+        state: usageState(aiCallsThisMonth, planLimit),
         resetAt: startOfNextMonthUTC().toISOString(),
         // BigInt は JSON にできない。容量は数GB規模なので Number で精度は落ちない
         storageUsedBytes: Number(org?.storageUsedBytes ?? 0),

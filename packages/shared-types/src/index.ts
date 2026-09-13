@@ -33,31 +33,34 @@ export const PLAN_LIMITS: Record<
     aiCallsPerMonth: 3000,
     model: 'gemini-2.5-flash-lite',
     modelLabel: 'Gemini 2.5 Flash-Lite',
-    storageBytes: 100 * MB,
+    storageBytes: 1024 * MB,
     maxFileBytes: 10 * MB,
   },
   PRO: {
     aiCallsPerMonth: 8000,
     model: 'gemini-2.5-flash',
     modelLabel: 'Gemini 2.5 Flash',
-    storageBytes: 300 * MB,
+    storageBytes: 5 * 1024 * MB,
     maxFileBytes: 20 * MB,
   },
   MAX: {
     aiCallsPerMonth: 20000,
     model: 'claude-opus-4-7',
     modelLabel: 'Claude Opus 4.7',
-    storageBytes: 1024 * MB,
+    storageBytes: 20 * 1024 * MB,
     maxFileBytes: 50 * MB,
   },
 };
 
 /**
- * 追加ストレージ。込みの容量を超えたぶんを 1GB 単位で増やせる。
+ * 追加ストレージ。込みの容量を超えたぶんを 10GB 単位で増やせる。
+ * ⚠️ 込みの容量を先に十分取ること。図面 PDF や現場写真は1枚数MBで、
+ *    100MB は初月で埋まる（2026-09-13 に 梅1GB / 竹5GB / 松20GB へ引き上げ）。
+ *    保管の原価は 1GB あたり月 3 円程度で、容量を理由に解約される方がはるかに高くつく。
  * ⚠️ 金額はここに書かない。Stripe の price ID を環境変数で指すこと
  *    （コードに金額を直書きすると、値上げのたびにデプロイが要る）。
  */
-export const STORAGE_ADDON_UNIT_BYTES = 1024 * MB;
+export const STORAGE_ADDON_UNIT_BYTES = 10 * 1024 * MB;
 
 /** 使用量の警告を出す割合。ここを超えたら画面に出す。 */
 export const STORAGE_WARN_RATIO = 0.8;
@@ -275,10 +278,33 @@ export interface Organization {
   createdAt: string;
 }
 
+/**
+ * 月間の AI 呼び出しの警告しきい値。
+ * ⚠️ ai-engine の governance/usage.py と同じ値。tests/fixtures/plan-models.json を正本に
+ *    両側から検証している（片方だけ変えるともう片方のテストが落ちる）。
+ */
+export const USAGE_WARN_RATIO = 0.8;
+
+export type UsageState = 'ok' | 'warn' | 'over';
+
+/**
+ * 利用量の状態。
+ * ⚠️ over でも止めない。軽いモデルに落として使い続けさせる
+ *    （現場の業務が止まる損害のほうが、モデル代よりはるかに大きい）。
+ */
+export function usageState(used: number, limit: number): UsageState {
+  if (limit <= 0) return 'ok';
+  if (used >= limit) return 'over';
+  if (used >= limit * USAGE_WARN_RATIO) return 'warn';
+  return 'ok';
+}
+
 export interface OrganizationUsage {
   aiCallsThisMonth: number;
   planLimit: number;
   resetAt: string;
+  /** 'ok' | 'warn'(8割) | 'over'(上限超過＝軽いモデルで継続) */
+  state: UsageState;
   /** 使用中の保存容量。Organization.storageUsedBytes（アップロード/削除で増減するカウンタ） */
   storageUsedBytes: number;
   /** プランの無料枠 + 追加容量 */

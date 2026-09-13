@@ -23,7 +23,7 @@ import { DeliverableBar, type DeliverableKind } from '../components/Chat/Deliver
 import { RunPreviewRow } from '../components/exec-kernel/RunPreviewRow';
 import { MarkdownLite } from '../components/Chat/MarkdownLite';
 import { CreateAgentModal } from '../components/Agents/CreateAgentModal';
-import type { AgentStepDef, ChatSession, Message } from '@org-ai/shared-types';
+import type { AgentStepDef, ChatSession, Message, OrganizationUsage } from '@org-ai/shared-types';
 import { DEPT_LABEL, DEPT_ACCENT, DEPARTMENTS, DEPT_CHARACTER } from '../constants/departments';
 
 interface InlineTask {
@@ -94,6 +94,15 @@ export default function ChatPage() {
   const [uploading, setUploading] = useState(false);
   // アップロードの失敗（容量超過・サイズ超過など）。以前は握りつぶしていて「添付したのに付いていない」になっていた
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  /* 今月の利用量。⚠️ 上限を超えても止めない（軽いモデルで応答が続く）ので、
+     黙って品質が変わらないよう、ここで理由を出す。 */
+  const { data: usage } = useQuery({
+    queryKey: ['organization-usage'],
+    queryFn: async () =>
+      (await api.get<{ success: boolean; data: OrganizationUsage }>('/organizations/me/usage')).data.data,
+    staleTime: 5 * 60 * 1000,
+  });
   const [showTaskSidebar, setShowTaskSidebar] = useState(false);
   // 会話が定型業務に育ったときのエージェント化提案
   const [agentSuggestion, setAgentSuggestion] = useState<{ afterMessageId: string; draft: AgentDraft } | null>(null);
@@ -1118,6 +1127,15 @@ export default function ChatPage() {
             {/* Input area - Claude style pill */}
             <div className="p-4 bg-transparent">
               <div className="max-w-3xl mx-auto">
+                {usage && usage.state !== 'ok' && (
+                  <div className="mb-2 flex items-center gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-1.5">
+                    <p className="min-w-0 flex-1 text-xs text-warning">
+                      {usage.state === 'over'
+                        ? '今月の AI 実行が上限を超えたため、軽いモデルで応答しています。来月にリセットされます。'
+                        : '今月の AI 実行が上限に近づいています。'}
+                    </p>
+                  </div>
+                )}
                 {/* 生成が失敗したとき。以前は空の吹き出しが増えるだけで何も分からなかった */}
                 {sendError && !sending && (
                   <div className="mb-2 flex items-center gap-2 rounded-md border border-danger/30 bg-danger/10 px-3 py-1.5">

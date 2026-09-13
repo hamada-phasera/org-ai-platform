@@ -15,17 +15,20 @@
     "STARTER": {
       "provider": "gemini",
       "model": "gemini-2.5-flash-lite",
-      "label": "Gemini 2.5 Flash-Lite"
+      "label": "Gemini 2.5 Flash-Lite",
+      "callsPerMonth": 3000
     },
     "PRO": {
       "provider": "gemini",
       "model": "gemini-2.5-flash",
-      "label": "Gemini 2.5 Flash"
+      "label": "Gemini 2.5 Flash",
+      "callsPerMonth": 8000
     },
     "MAX": {
       "provider": "anthropic",
       "model": "claude-opus-4-7",
-      "label": "Claude Opus 4.7"
+      "label": "Claude Opus 4.7",
+      "callsPerMonth": 20000
     }
   },
   "tasks": {
@@ -48,5 +51,15 @@
       "model": "claude-sonnet-4-6",
       "why": "領収書の金額・日付を読む。読み違いがトークン代より高くつく"
     }
+  },
+  "usage": {
+    "_comment": [
+      "月間の呼び出し上限の扱い。⚠️ 超えても止めない。",
+      "現場で「今日から使えません」は業務が止まり、そのまま解約になる。",
+      "超過したら軽いモデルへ落として使い続けさせ、記録は AILog に残す。",
+      "判定は ai-engine の LLMRouter 1か所（ゲートウェイ経由も n8n 経由も同じ扱いになる）。"
+    ],
+    "warnRatio": 0.8,
+    "overBehavior": "degrade"
   }
 }

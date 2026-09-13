@@ -5,6 +5,7 @@ from enum import Enum
 from typing import AsyncIterator, List, Optional, Tuple
 from app.models.llm import ChatMessage, LLMResponse
 from app.governance.pii_screener import screen
+from app.governance.usage import is_over_limit, note_call
 from app.llm.providers.anthropic_provider import (
     AnthropicProvider,
     MODEL_HAIKU,
@@ -181,6 +182,26 @@ def _screen_user_messages(messages: List[ChatMessage]) -> Tuple[List[ChatMessage
     return screened, pii_detected, pii_types
 
 
+async def _degrade_if_over_limit(
+    org_id: str, plan: str, provider_name: str, model: str
+) -> Tuple[str, str]:
+    """当月の上限を超えていたら、いちばん軽いモデルに落とす（止めない）。
+
+    ⚠️ 落とすのは本文生成だけ。判定・抽出・設計は用途でモデルを固定してあり、
+       ここを落とすと領収書の読み違いのような「値段では説明できない劣化」になる。
+    """
+    if not await is_over_limit(org_id, plan):
+        return provider_name, model
+    cheap = ("gemini", GEMINI_UME) if os.getenv("GEMINI_API_KEY") else ("anthropic", MODEL_HAIKU)
+    if (provider_name, model) == cheap:
+        return provider_name, model
+    logger.warning(
+        "[LLMRouter] org=%s は当月の上限を超えています。%s -> %s に落として継続します",
+        org_id, model, cheap[1],
+    )
+    return cheap
+
+
 class LLMRouter:
     async def chat(
         self,
@@ -203,8 +224,13 @@ class LLMRouter:
         else:
             provider_name, model = resolve_provider_model(plan, user_email, json_mode)
 
+        # 本文生成だけ、上限超過で軽いモデルへ落とす
+        if force_anthropic_model is None and task in (None, TaskKind.CHAT):
+            provider_name, model = await _degrade_if_over_limit(org_id, plan, provider_name, model)
+
         provider = _get_gemini() if provider_name == "gemini" else _get_anthropic()
         response = await provider.chat(screened_messages, model=model, json_mode=json_mode)
+        note_call(org_id)
         logger.info(
             f"[LLMRouter] task={task.value if task else '-'} plan={plan} "
             f"admin={_is_admin(user_email)} -> {provider_name} ({response.model})"
@@ -223,6 +249,8 @@ class LLMRouter:
         """Stream tokens with PII screening applied to user messages（プロバイダは松竹梅で分岐）。"""
         screened_messages, _, _ = _screen_user_messages(messages)
         provider_name, model = resolve_provider_model(plan, user_email, json_mode=False)
+        provider_name, model = await _degrade_if_over_limit(org_id, plan, provider_name, model)
+        note_call(org_id)
         provider = _get_gemini() if provider_name == "gemini" else _get_anthropic()
         async for token in provider.chat_stream(screened_messages, model=model):
             yield token

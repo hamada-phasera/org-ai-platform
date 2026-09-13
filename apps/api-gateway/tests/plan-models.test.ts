@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { PLAN_LIMITS, type Plan } from '@org-ai/shared-types';
+import { PLAN_LIMITS, USAGE_WARN_RATIO, usageState, type Plan } from '@org-ai/shared-types';
 
 /**
  * 画面に出すモデル名が、ai-engine が実際に叩くモデルと一致していることを確かめる。
@@ -15,8 +15,9 @@ import { PLAN_LIMITS, type Plan } from '@org-ai/shared-types';
 const fixture = JSON.parse(
   readFileSync(resolve(__dirname, '../../../tests/fixtures/plan-models.json'), 'utf8'),
 ) as {
-  plans: Record<Plan, { provider: string; model: string; label: string }>;
+  plans: Record<Plan, { provider: string; model: string; label: string; callsPerMonth: number }>;
   tasks: Record<string, { provider: string; model: string }>;
+  usage: { warnRatio: number; overBehavior: string };
 };
 
 describe('PLAN_LIMITS と共有の表', () => {
@@ -59,5 +60,31 @@ describe('タスク別のモデル（プランに依存しないもの）', () =
   it('抽出はプランで変えない（安いプランで領収書を読み違えさせない）', () => {
     expect(fixture.tasks.EXTRACT.provider).toBe('anthropic');
     expect(fixture.tasks.EXTRACT.model).toBeTruthy();
+  });
+});
+
+describe('利用量の上限（ai-engine と同じ表を見ている）', () => {
+  const plans: Plan[] = ['STARTER', 'PRO', 'MAX'];
+
+  it.each(plans)('%s の月間上限が表と一致する', (plan) => {
+    expect(PLAN_LIMITS[plan].aiCallsPerMonth).toBe(fixture.plans[plan].callsPerMonth);
+  });
+
+  it('警告のしきい値が表と一致する', () => {
+    expect(USAGE_WARN_RATIO).toBe(fixture.usage.warnRatio);
+  });
+
+  it('⚠️ 上限を超えても止めない（軽いモデルに落として継続する）', () => {
+    expect(fixture.usage.overBehavior).toBe('degrade');
+  });
+
+  it('状態の境目が ai-engine の state_of と同じ', () => {
+    const limit = PLAN_LIMITS.STARTER.aiCallsPerMonth;
+    expect(usageState(0, limit)).toBe('ok');
+    expect(usageState(Math.ceil(limit * 0.8) - 1, limit)).toBe('ok');
+    expect(usageState(limit * 0.8, limit)).toBe('warn');
+    expect(usageState(limit - 1, limit)).toBe('warn');
+    expect(usageState(limit, limit)).toBe('over');
+    expect(usageState(5, 0)).toBe('ok');
   });
 });
