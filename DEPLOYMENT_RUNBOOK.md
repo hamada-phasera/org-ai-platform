@@ -4,7 +4,8 @@ Target architecture:
 - **Web (Vite SPA)** → Vercel
 - **API Gateway (Fastify)** → Render (Node service)
 - **AI Engine (FastAPI)** → Render (Python service)
-- **DB** → Neon Postgres
+- **DB** → Supabase Postgres（us-west-2 / pg17。project ref と接続文字列はダッシュボード / パスワードマネージャ参照）
+  - 2026-08 に Neon から移行済み。旧 Neon プロジェクトは 2026-07-08 で更新が止まっているので参照しない
 - **n8n** (optional) → Render image / n8n Cloud
 
 ---
@@ -19,21 +20,29 @@ You must rotate every key that has touched git history.
 | `GEMINI_API_KEY` | https://aistudio.google.com/apikey — revoke old, create new |
 | `N8N_API_KEY` | n8n Cloud → Settings → API → revoke + recreate |
 | `JWT_SECRET` | `openssl rand -hex 32` |
-| Postgres password | created fresh by Neon (never reuse dev password) |
+| Postgres password | created fresh in Supabase (Project Settings → Database → Reset password) |
 
 After rotation, save the values in your password manager — do **not** commit them anywhere.
 
 ---
 
-## Phase 1 — Provision Neon Postgres
+## Phase 1 — Provision Supabase Postgres
 
-1. Sign in / create project at https://console.neon.tech
-2. Create a project: `org-ai-platform`
-3. Create a database: `orgai`
-4. Copy the **pooled connection string** (for serverless/API use):
-   `postgresql://<user>:<pass>@<host>/orgai?sslmode=require`
-5. Keep a second **direct** (non-pooled) string for migrations.
-6. Save both.
+> 現行プロジェクトは既にある（us-west-2 / pg17）ので作り直す必要は無い。
+> 以下はゼロから作る場合の手順。
+
+1. Sign in / create project at https://supabase.com/dashboard
+2. Create a project: `org-ai-platform`（DB 名は `postgres` 固定。Neon 時代の `orgai` ではない）
+3. Project Settings → Database → Connection string から **Session pooler**（`aws-0-<region>.pooler.supabase.com` の **5432**）を 1 本コピーする。
+   `?sslmode=require` を付ける。gateway・ai-engine ともこの 1 本で統一する。
+4. 他の 2 経路は使えない（[docs/supabase-migration.md](docs/supabase-migration.md) に実測あり）:
+   - **direct**（`db.<ref>.supabase.co:5432`）… IPv6 のみで IPv4 が無い。Render から `P1001` になる
+   - **transaction pooler**（6543）… Prisma がマイグレーション時に取るセッションスコープの advisory lock が維持できず失敗する
+5. Save it.
+
+⚠️ 無料プランは 7 日間アクセスが無いとプロジェクトが一時停止し、手動で再開するまで DB に到達できない。
+   [.github/workflows/db-keepalive.yml](.github/workflows/db-keepalive.yml) がその予防用だが、
+   `DATABASE_URL` シークレット未設定の間は何もしない。
 
 ---
 
@@ -49,7 +58,7 @@ After rotation, save the values in your password manager — do **not** commit t
 **`org-ai-api-gateway`**:
 ```
 NODE_ENV=production
-DATABASE_URL=<Neon direct URL>      # migrations + app use
+DATABASE_URL=<Supabase Session pooler URL :5432>   # migrations + app use
 JWT_SECRET=<32+ chars>
 ANTHROPIC_API_KEY=<new>
 GEMINI_API_KEY=<optional>
@@ -67,7 +76,7 @@ N8N_WEBHOOK_AUTH_TOKEN=
 
 **`org-ai-ai-engine`**:
 ```
-DATABASE_URL=<Neon pooled URL>
+DATABASE_URL=<Supabase Session pooler URL :5432>   # gateway と同じ 1 本
 ANTHROPIC_API_KEY=<new>
 GEMINI_API_KEY=<optional>
 API_GATEWAY_URL=https://org-ai-api-gateway.onrender.com
@@ -121,13 +130,13 @@ vercel --prod
 
 ---
 
-## Phase 4 — Run DB migrations on Neon
+## Phase 4 — Run DB migrations on Supabase
 
 Gateway runs `prisma migrate deploy` in its Render startCommand, so the first
 deploy applies all migrations automatically. To run manually:
 
 ```bash
-export DATABASE_URL="<Neon direct URL>"
+export DATABASE_URL="<Supabase Session pooler URL :5432>"
 npx prisma migrate deploy --schema=packages/db-schema/prisma/schema.prisma
 ```
 
@@ -188,11 +197,11 @@ Check DevTools:
 
 | Symptom | Fix |
 |---|---|
-| Render gateway crashes: "DATABASE_URL is not set" | Add the Neon URL env var and redeploy |
+| Render gateway crashes: "DATABASE_URL is not set" | Add the Supabase URL env var and redeploy |
 | Render gateway crashes: "JWT_SECRET is required" | `openssl rand -hex 32` → set env |
 | Frontend 401 on every API call | Token not being sent — check `VITE_API_URL` matches gateway, check CORS `FRONTEND_URL` |
 | CORS error in browser | Gateway `FRONTEND_URL` missing your Vercel domain |
-| Prisma P1001 can't reach DB | Use Neon **pooled** URL; ensure `?sslmode=require` |
+| Prisma P1001 can't reach DB | ① direct (`db.<ref>.supabase.co`) を使っていないか（IPv4 が無く Render から不達）→ **Session pooler :5432** に直す ② プロジェクトが一時停止していないか → 再開 ③ `?sslmode=require` |
 | AI Engine 500 "ANTHROPIC_API_KEY missing" | Set on both services (gateway forwards, engine calls) |
 
 ---

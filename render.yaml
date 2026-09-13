@@ -12,9 +12,10 @@ services:
       npx prisma generate --schema=packages/db-schema/prisma/schema.prisma &&
       npm run build --workspace=packages/shared-types &&
       npm run build --workspace=apps/api-gateway
-    # Neon は scale-to-zero でアイドル時に compute が停止する。デプロイ直後の 1 発目が
+    # DB がアイドルから復帰するまで最初の接続が失敗することがある（Supabase 無料プランは 7 日無アクセスで
+    # 一時停止、Neon 時代は scale-to-zero だった）。デプロイ直後の 1 発目が
     # 起動待ちに当たると P1001 (Can't reach database server) で即 exit し、デプロイ全体が
-    # 失敗する（実際に 2026-07-26 のデプロイがこれで落ちた）。復帰を待てるよう指数バックオフで
+    # 失敗する（実際に 2026-07-26 のデプロイが Neon でこれで落ちた）。復帰を待てるよう指数バックオフで
     # リトライする。全滅した場合は exit 1 = 未マイグレーションのまま起動させない（Render は
     # 直前のデプロイを生かしたままにする）。
     startCommand: |

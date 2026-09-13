@@ -108,7 +108,7 @@ render.yaml の値へ戻される**ため、プランはコード側を正本に
 ## デプロイ構成（実態）
 - **フロント**: Vercel プロジェクト `flow`（team=hamahiro1668s-projects）。**Git自動連携ではなく `vercel` CLI 手動デプロイ**。
 - **バック**: Render `render.yaml` の3サービス（`org-ai-api-gateway` / `org-ai-ai-engine` / `org-ai-n8n`）。**← 支払い未完了で停止中（要復旧）**。
-- env は全て Render/Vercel ダッシュボード管理（`sync:false`）。本番 `DATABASE_URL`=Neon prod（`gentle-flower-96128672` の default 枝）、`ANTHROPIC_API_KEY`、`JWT_SECRET`、`N8N_*` 等。
+- env は全て Render/Vercel ダッシュボード管理（`sync:false`）。本番 `DATABASE_URL`=Supabase の Session pooler（:5432。2026-08 に Neon から移行済み）、`ANTHROPIC_API_KEY`、`JWT_SECRET`、`N8N_*` 等。
 
 ## ⚠️ ブロッカー / 前提
 1. **Render 支払い解決**（or 代替ホスト）。これが無いとバックが動かず、フロントだけ出しても新API不達。
