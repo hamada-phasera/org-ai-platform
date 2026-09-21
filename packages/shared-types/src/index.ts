@@ -315,6 +315,18 @@ export interface OrganizationUsage {
   maxFileBytes: number;
 }
 
+/** 本番の設定が入っているかの状態（設定 > 基本 のカードに出す。オーナーのみ） */
+export type SetupHealth = 'ok' | 'warn' | 'error' | 'unknown';
+
+export interface SetupItem {
+  key: 'storage' | 'aiEngine' | 'billing' | 'embeddings';
+  label: string;
+  health: SetupHealth;
+  detail: string;
+  /** 直し方。ok のときは空 */
+  action: string;
+}
+
 export type BillingInterval = 'month' | 'year';
 
 /** Stripe のサブスクリプション状態のミラー。null は「一度も決済を繋いでいない」 */

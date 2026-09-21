@@ -27,6 +27,7 @@ import IntegrationsSection from '../components/Settings/IntegrationsSection';
 import { LiquidTabs } from '../components/motion/LiquidTabs';
 import { MembersSection } from '../components/Settings/MembersSection';
 import { BillingSection } from '../components/Settings/BillingSection';
+import { SetupStatusCard } from '../components/Settings/SetupStatusCard';
 
 interface OrganizationView {
   id: string;
@@ -206,6 +207,9 @@ export default function SettingsPage() {
       </Card>
 
       {usage && <UsageCard usage={usage} modelLabel={modelLabel} />}
+
+      {/* 設定が入っているかは、入れた本人にも見えないと確かめようがない */}
+      {user?.role === 'OWNER' && <SetupStatusCard />}
 
       <Card variant="regular" padding="lg" radius="2xl" className="mb-5">
         <div className="flex items-center gap-2 mb-4">

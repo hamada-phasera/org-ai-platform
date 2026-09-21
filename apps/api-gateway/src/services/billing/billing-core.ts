@@ -47,6 +47,14 @@ export function billingConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Bill
   };
 }
 
+/** テストと設定確認のための内部ヘルパ。 */
+export const INTERNALS_FOR_TEST = {
+  /** 設定されているべき price ID を全部（未設定は null のまま返す）。 */
+  allPriceIds(config: BillingConfig): Array<string | null> {
+    return PLANS.flatMap((plan) => INTERVALS.map((interval) => config.prices[plan][interval]));
+  },
+};
+
 export function planFromPriceId(
   config: BillingConfig,
   priceId: string | null | undefined,

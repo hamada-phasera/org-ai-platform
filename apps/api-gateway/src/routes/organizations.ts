@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requireOwner } from '../middleware/auth';
+import { collectSetupStatus } from '../services/setup-status';
 import { PLAN_LIMITS, storageQuotaBytes, usageState, type Plan } from '@org-ai/shared-types';
 
 const updateOrgSchema = z.object({
@@ -105,5 +106,11 @@ export async function organizationRoutes(app: FastifyInstance): Promise<void> {
         maxFileBytes: (PLAN_LIMITS[plan] ?? PLAN_LIMITS.STARTER).maxFileBytes,
       },
     });
+  });
+
+  /* 本番の設定が入っているか。
+     ⚠️ オーナー専用。「トークンが未設定」のような情報は攻撃側にとって有用なので外には出さない。 */
+  app.get('/me/setup', { preHandler: requireOwner }, async (_request, reply) => {
+    return reply.send({ success: true, data: await collectSetupStatus() });
   });
 }
