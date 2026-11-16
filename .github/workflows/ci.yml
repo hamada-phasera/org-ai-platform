@@ -30,7 +30,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20' # Dockerfile (node:20-alpine) に合わせる
+          # undici 8（api-gateway の依存）は Node >=22.19 を要求する。20 だと http-node/client.ts を読むテストが落ちる。
+          # ⚠️ apps/*/Dockerfile は node:20-alpine のまま（要確認: docs/maintenance/cleanup-hold-list.md）
+          node-version: '22'
           cache: npm
 
       - name: Install
