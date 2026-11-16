@@ -125,3 +125,8 @@ knip（`npx -y knip@5`、ルートの `knip.json` で `ignoreExportsUsedInFile: 
   渡している箇所が通らないので、そのモジュールだけ `arg-type` などを無効化している。
   `MessageParam` / `TextBlockParam` で組み立て直せば外せる。
 - 開発用 venv は Python 3.13、本番 Dockerfile は 3.11。ruff/mypy の target は 3.11 に合わせてある。
+
+## 追記: Node バージョンの不一致（要確認）
+- `apps/api-gateway` の依存 `undici@^8` は `engines.node >=22.19.0`。`apps/api-gateway/Dockerfile` / `apps/web/Dockerfile` は `node:20-alpine`。
+  Node 20 では `services/http-node/client.ts` の import 時に `webidl.util.markAsUncloneable is not a function` で落ちる（CI の Node 20 で再現）。
+  Render（`runtime: node`）は既定 Node のバージョン次第。Docker 経由で動かす場合は `node:22-alpine` への更新が必要。CI は Node 22 にした。
