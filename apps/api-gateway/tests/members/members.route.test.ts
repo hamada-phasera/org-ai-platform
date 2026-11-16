@@ -7,13 +7,15 @@ const prismaMock = {
   user: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
   invitation: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
   // 所属・役割・状態の正本（docs/design/multi-tenancy.md ADR-2）
-  membership: { findMany: vi.fn(), updateMany: vi.fn() },
+  membership: { findMany: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn() },
   $transaction: vi.fn(),
 };
 vi.mock('../../src/utils/prisma', () => ({ prisma: prismaMock }));
 
 let currentUser: Record<string, unknown> = { orgId: 'org-1', sub: 'owner-1', role: 'OWNER' };
 vi.mock('../../src/middleware/auth', () => ({
+  requireUser: async () => {},
+  userOf: () => ({ sub: currentUser.sub, orgId: currentUser.orgId }),
   requireAuth: async (req: { user?: unknown }) => {
     await setTenant(req as never, currentUser as never);
   },
@@ -100,13 +102,30 @@ describe('POST /api/members/invitations', () => {
     await app.close();
   });
 
-  it('既に登録済みのメールには発行しない', async () => {
-    prismaMock.user.findUnique.mockResolvedValue({ id: 'u-existing' });
+  it('既にこの組織のメンバーのメールには発行しない', async () => {
+    prismaMock.membership.findFirst.mockResolvedValue({ id: 'm-existing' });
     const app = await build();
     const res = await app.inject({
       method: 'POST', url: '/api/members/invitations', payload: { email: 'dup@example.com' },
     });
     expect(res.statusCode).toBe(409);
+    // 「この組織の」所属だけを見る（テナントクライアントが orgId を付ける）
+    expect(prismaMock.membership.findFirst.mock.calls[0][0].where).toEqual({ user: { email: 'dup@example.com' }, orgId: 'org-1' });
+    expect(prismaMock.invitation.create).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('別の組織で登録済みの人は招待できる（UC2: 既存ユーザーの招待）', async () => {
+    prismaMock.membership.findFirst.mockResolvedValue(null);
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'u-elsewhere' });
+    prismaMock.invitation.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      id: 'inv-2', email: data.email, role: data.role, expiresAt: data.expiresAt, createdAt: new Date(),
+    }));
+    const app = await build();
+    const res = await app.inject({
+      method: 'POST', url: '/api/members/invitations', payload: { email: 'tax@example.com' },
+    });
+    expect(res.statusCode).toBe(201);
     await app.close();
   });
 });
@@ -301,6 +320,107 @@ describe('GET /api/members', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().data[0]).toMatchObject({ id: 'u-2', role: 'MEMBER', status: 'DISABLED' });
     expect(prismaMock.membership.findMany.mock.calls[0][0].where).toEqual({ orgId: 'org-1' });
+    await app.close();
+  });
+});
+
+describe('既存ユーザーの招待受諾（UC2 / 設計書 §10.3）', () => {
+  const invitation = {
+    id: 'inv-1', orgId: 'org-1', email: 'tax@example.com', role: 'MEMBER', createdBy: 'owner-1',
+    expiresAt: future, acceptedAt: null, revokedAt: null,
+  };
+
+  it('プレビューは requiresLogin を返す（メールアドレス自体は返さない。Q2）', async () => {
+    prismaMock.invitation.findUnique.mockResolvedValue({ ...invitation, org: { name: '株式会社テスト' } });
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'u-t' });
+    const app = await build();
+    const res = await app.inject({ method: 'GET', url: '/api/members/invitations/preview/tok' });
+    expect(res.json().data.requiresLogin).toBe(true);
+    expect(res.body).not.toContain('tax@example.com');
+    await app.close();
+  });
+
+  it('新規登録の受諾で既存のメールなら 409 ACCOUNT_EXISTS（アカウントを二重に作らない）', async () => {
+    prismaMock.invitation.findUnique.mockResolvedValue(invitation);
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'u-t' });
+    const app = await build();
+    const res = await app.inject({
+      method: 'POST', url: '/api/members/invitations/accept',
+      payload: { token: TOKEN, name: 'x', password: 'password123' },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe('ACCOUNT_EXISTS');
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('ログイン中の本人のメールと一致すれば、招待の org / role で所属を作り、その組織のトークンを返す', async () => {
+    currentUser = { orgId: 'org-OTHER', sub: 'u-t', role: 'OWNER' };
+    prismaMock.invitation.findUnique.mockResolvedValue(invitation);
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'u-t', name: 'T', email: 'Tax@Example.com' });
+    prismaMock.membership.findUnique.mockResolvedValue(null);
+    const tx = {
+      invitation: { updateMany: vi.fn(async () => ({ count: 1 })) },
+      membership: { create: vi.fn(async () => ({})) },
+    };
+    prismaMock.$transaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+    prismaMock.membership.findMany.mockResolvedValue([]);
+    (prismaMock.user as Record<string, unknown>).update = vi.fn(async () => ({}));
+
+    const app = await build();
+    const res = await app.inject({
+      method: 'POST', url: '/api/members/invitations/accept-existing',
+      // body で別の組織・役割を要求しても無視される
+      payload: { token: TOKEN, orgId: 'org-EVIL', role: 'OWNER' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(tx.membership.create.mock.calls[0][0].data).toEqual({
+      userId: 'u-t', orgId: 'org-1', role: 'MEMBER', invitedBy: 'owner-1',
+    });
+    await app.close();
+  });
+
+  it('⚠️ 招待のメールと違うアカウントでは参加できない（リンクを拾った別人を通さない）', async () => {
+    currentUser = { orgId: 'org-OTHER', sub: 'u-x', role: 'OWNER' };
+    prismaMock.invitation.findUnique.mockResolvedValue(invitation);
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'u-x', name: 'X', email: 'someone@example.com' });
+    const app = await build();
+    const res = await app.inject({
+      method: 'POST', url: '/api/members/invitations/accept-existing', payload: { token: TOKEN },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe('INVITATION_EMAIL_MISMATCH');
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('既に所属している（無効化されている場合も）なら 409 で、所属を作り直さない', async () => {
+    currentUser = { orgId: 'org-OTHER', sub: 'u-t', role: 'OWNER' };
+    prismaMock.invitation.findUnique.mockResolvedValue(invitation);
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'u-t', name: 'T', email: 'tax@example.com' });
+    prismaMock.membership.findUnique.mockResolvedValue({ status: 'DISABLED' });
+    const app = await build();
+    const res = await app.inject({
+      method: 'POST', url: '/api/members/invitations/accept-existing', payload: { token: TOKEN },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('同じリンクの2回目は 409（条件付き更新で1回だけ勝つ）', async () => {
+    currentUser = { orgId: 'org-OTHER', sub: 'u-t', role: 'OWNER' };
+    prismaMock.invitation.findUnique.mockResolvedValue(invitation);
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'u-t', name: 'T', email: 'tax@example.com' });
+    prismaMock.membership.findUnique.mockResolvedValue(null);
+    const tx = { invitation: { updateMany: vi.fn(async () => ({ count: 0 })) }, membership: { create: vi.fn() } };
+    prismaMock.$transaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+    const app = await build();
+    const res = await app.inject({
+      method: 'POST', url: '/api/members/invitations/accept-existing', payload: { token: TOKEN },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(tx.membership.create).not.toHaveBeenCalled();
     await app.close();
   });
 });

@@ -6,10 +6,10 @@ import { isUserRole } from '@org-ai/shared-types';
 // 招待のプレビューと受諾（認証の無い経路）だけが素の prisma を使う（アーキテクチャテストの allowlist）
 import { prisma } from '../utils/prisma';
 import { authOf } from '../tenancy';
-import { requireAuth, requireOwner } from '../middleware/auth';
+import { requireAuth, requireOwner, requireUser, userOf } from '../middleware/auth';
 import { config } from '../config/env';
 import { sendError } from '../utils/http-error';
-import { mirrorRoleToUser, signAccessToken } from '../services/memberships';
+import { listActiveMemberships, mirrorRoleToUser, rememberActiveOrg, signAccessToken } from '../services/memberships';
 import { invalidateMembership } from '../tenancy/membership-cache';
 
 /**
@@ -39,6 +39,8 @@ const acceptSchema = z.object({
   name: z.string().min(1).max(100),
   password: z.string().min(8).max(200),
 });
+
+const acceptExistingSchema = z.object({ token: z.string().min(20).max(200) });
 
 const changeRoleSchema = z.object({ role: z.enum(['ADMIN', 'MEMBER']) });
 
@@ -96,15 +98,16 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.errors[0]?.message ?? '入力が不正です');
     }
 
-    /* 既に同じメールの利用者がいるなら招待しない（重複アカウントを作らせない）。
+    /* 既に**この組織に**所属している人には招待しない。
+       別の組織で登録済みの人は招待できる（ログインして「参加」する。設計書 UC2 / §10.3）。
        メールは任意なので、指定があるときだけ確認する。 */
     if (parsed.data.email) {
-      const existing = await prisma.user.findUnique({
-        where: { email: parsed.data.email },
+      const already = await db.membership.findFirst({
+        where: { user: { email: parsed.data.email } },
         select: { id: true },
       });
-      if (existing) {
-        return sendError(reply, 409, 'CONFLICT', 'このメールアドレスは既に登録されています');
+      if (already) {
+        return sendError(reply, 409, 'CONFLICT', 'このメールアドレスの方は既にこの組織のメンバーです');
       }
     }
 
@@ -153,7 +156,14 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
     const { token } = request.params as { token: string };
     const invitation = await prisma.invitation.findUnique({
       where: { tokenHash: hashToken(token) },
-      select: { role: true, expiresAt: true, acceptedAt: true, revokedAt: true, org: { select: { name: true } } },
+      select: {
+        role: true,
+        email: true,
+        expiresAt: true,
+        acceptedAt: true,
+        revokedAt: true,
+        org: { select: { name: true } },
+      },
     });
 
     /* 無効な理由を細かく返さない（トークンの当てずっぽうに情報を与えない） */
@@ -161,9 +171,21 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 404, 'NOT_FOUND', 'この招待リンクは使えません（期限切れ、または既に使用済みです）');
     }
 
+    /* 招待のメールの人が既に登録済みなら、新しいアカウントを作らずにログインして参加してもらう。
+       ⚠️ これで「そのメールが登録済みか」が分かるが、リンク（トークン）を持つ人にしか見えないので許容する
+       （設計書 Q2 仮採用）。メールアドレス自体は返さない。 */
+    const requiresLogin = invitation.email
+      ? !!(await prisma.user.findUnique({ where: { email: invitation.email }, select: { id: true } }))
+      : false;
+
     return reply.send({
       success: true,
-      data: { organizationName: invitation.org.name, role: invitation.role, expiresAt: invitation.expiresAt },
+      data: {
+        organizationName: invitation.org.name,
+        role: invitation.role,
+        expiresAt: invitation.expiresAt,
+        requiresLogin,
+      },
     });
   });
 
@@ -194,7 +216,8 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
 
     const existing = await prisma.user.findUnique({ where: { email: invitation.email }, select: { id: true } });
     if (existing) {
-      return sendError(reply, 409, 'CONFLICT', 'このメールアドレスは既に登録されています');
+      // 既に登録済みの人はアカウントを作らず、ログインして accept-existing で参加する
+      return sendError(reply, 409, 'ACCOUNT_EXISTS', 'このメールアドレスは登録済みです。ログインしてから参加してください。');
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -297,5 +320,68 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
     // 外した人のトークンを、キャッシュの TTL を待たずに止める（同じプロセス内）
     invalidateMembership(userId, payload.orgId);
     return reply.send({ success: true, data: { id: userId, status: body.status } });
+  });
+
+  /**
+   * 既に登録済みのユーザーが招待を受けて組織に参加する（設計書 UC2 / §10.3）。
+   * ログイン中（requireUser）であることに加えて、**ログイン中の本人のメールが招待のメールと一致すること**を要求する
+   * （リンクを拾った別人が自分のアカウントで入るのを防ぐ）。
+   * 参加したら新しい組織用のトークンを返す（そのまま切り替わる）。
+   */
+  app.post('/invitations/accept-existing', { preHandler: requireUser }, async (request, reply) => {
+    const { sub } = userOf(request);
+    const parsed = acceptExistingSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.errors[0]?.message ?? '入力が不正です');
+    }
+    const invitation = await prisma.invitation.findUnique({ where: { tokenHash: hashToken(parsed.data.token) } });
+    if (!invitation || invitation.acceptedAt || invitation.revokedAt || invitation.expiresAt < new Date()) {
+      return sendError(reply, 404, 'NOT_FOUND', 'この招待リンクは使えません（期限切れ、または既に使用済みです）');
+    }
+    const me = await prisma.user.findUnique({ where: { id: sub }, select: { id: true, name: true, email: true } });
+    if (!me) {
+      return sendError(reply, 401, 'AUTH_REQUIRED', '認証が必要です');
+    }
+    if (!invitation.email || invitation.email.toLowerCase() !== me.email.toLowerCase()) {
+      return sendError(reply, 403, 'INVITATION_EMAIL_MISMATCH', 'この招待は別のメールアドレス宛てです。招待されたアカウントでログインしてください。');
+    }
+    const already = await prisma.membership.findUnique({
+      where: { userId_orgId: { userId: me.id, orgId: invitation.orgId } },
+      select: { status: true },
+    });
+    if (already) {
+      return sendError(
+        reply,
+        409,
+        'CONFLICT',
+        already.status === 'ACTIVE'
+          ? '既にこの組織のメンバーです'
+          : 'この組織での利用が停止されています。組織のオーナーにご確認ください。',
+      );
+    }
+
+    // ⚠️ orgId / role は招待から取る。招待の消費と所属の作成は同じトランザクション（2回押しで2件作らない）
+    const role = isUserRole(invitation.role) && invitation.role !== 'OWNER' ? invitation.role : 'MEMBER';
+    const ok = await prisma.$transaction(async (tx) => {
+      const claim = await tx.invitation.updateMany({
+        where: { id: invitation.id, acceptedAt: null, revokedAt: null },
+        data: { acceptedAt: new Date(), acceptedBy: me.id },
+      });
+      if (claim.count === 0) return false;
+      await tx.membership.create({
+        data: { userId: me.id, orgId: invitation.orgId, role, invitedBy: invitation.createdBy },
+      });
+      return true;
+    });
+    if (!ok) {
+      return sendError(reply, 409, 'CONFLICT', 'この招待は既に使用されています');
+    }
+    invalidateMembership(me.id, invitation.orgId);
+    await rememberActiveOrg(me.id, invitation.orgId, role);
+    const jwtToken = signAccessToken(app, { userId: me.id, orgId: invitation.orgId, role, email: me.email });
+    return reply.code(201).send({
+      success: true,
+      data: { token: jwtToken, user: { ...me, orgId: invitation.orgId, role }, memberships: await listActiveMemberships(me.id) },
+    });
   });
 }
