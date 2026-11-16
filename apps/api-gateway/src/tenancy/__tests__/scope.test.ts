@@ -113,11 +113,15 @@ describe('Organization（テナントそのもの）', () => {
     expect(scopeArgs('Organization', 'findUnique', { where: { id: A } }, A)!.where).toEqual({ id: A });
     expect(scopeArgs('Organization', 'findFirst', {}, A)!.where).toEqual({ id: A });
   });
+  it('updateMany（条件付きの加算）も id = orgId に固定される', () => {
+    const out = scopeArgs('Organization', 'updateMany', { where: { storageUsedBytes: { lte: 1 } }, data: {} }, A)!;
+    expect(out.where).toEqual({ storageUsedBytes: { lte: 1 }, id: A });
+  });
   it('別の組織を名指しすると止める', () => {
     expect(() => scopeArgs('Organization', 'findUnique', { where: { id: 'org-B' } }, A)).toThrow(TenantViolationError);
     expect(() => scopeArgs('Organization', 'update', { where: { id: 'org-B' }, data: {} }, A)).toThrow();
   });
-  it.each(['create', 'delete', 'deleteMany', 'updateMany', 'upsert', 'findMany'])('%s は使えない', (op) => {
+  it.each(['create', 'delete', 'deleteMany', 'upsert', 'findMany', 'createMany'])('%s は使えない', (op) => {
     expect(() => scopeArgs('Organization', op, {}, A)).toThrow(TenantViolationError);
   });
 });

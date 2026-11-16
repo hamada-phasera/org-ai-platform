@@ -26,13 +26,12 @@
 import type { FastifyInstance } from 'fastify';
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { z } from 'zod';
-import { prisma } from '../utils/prisma';
+import { authOf } from '../tenancy';
 import { requireAdmin } from '../middleware/auth';
 import { sealSecret } from '../services/secret-box';
 import { syncRequiredCredentialStatus } from '../services/integration-sync';
 import { config } from '../config/env';
 import { sendError } from '../utils/http-error';
-import type { AuthPayload } from '../types/auth';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -225,7 +224,8 @@ export async function oauthGoogleRoutes(app: FastifyInstance): Promise<void> {
 
   // ── 確定（ログイン中のセッションの org に保存する） ──
   app.post('/confirm', { preHandler: requireAdmin }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
+    const payload = authOf(request);
+    const { db } = payload;
     const parsed = confirmSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
@@ -238,7 +238,7 @@ export async function oauthGoogleRoutes(app: FastifyInstance): Promise<void> {
     // ワンタイム消費（同じ linkId で二重に紐づけられないように）
     pendingLinks.delete(parsed.data.linkId);
 
-    const existing = await prisma.providerConnection.findUnique({
+    const existing = await db.providerConnection.findUnique({
       where: { orgId_provider: { orgId: payload.orgId, provider: 'google' } },
     });
     // refresh_token は初回同意時のみ返ることがある。返らなかったら既存を温存する。
@@ -246,7 +246,7 @@ export async function oauthGoogleRoutes(app: FastifyInstance): Promise<void> {
       ? sealSecret(link.refreshToken)
       : (existing?.refreshTokenEnc ?? null);
 
-    await prisma.providerConnection.upsert({
+    await db.providerConnection.upsert({
       where: { orgId_provider: { orgId: payload.orgId, provider: 'google' } },
       create: {
         orgId: payload.orgId,

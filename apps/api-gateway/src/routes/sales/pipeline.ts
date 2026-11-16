@@ -4,7 +4,6 @@ import { authOf } from '../../tenancy';
 import { requireAuth } from '../../middleware/auth';
 import { PIPELINE_STAGES, STAGE_LABEL, isPipelineStage, canTransition } from './pipeline-core';
 import { sendError } from '../../utils/http-error';
-import type { AuthPayload } from '../../types/auth';
 
 /**
  * 営業パイプライン（商談ステージ）API。

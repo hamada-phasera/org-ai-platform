@@ -11,6 +11,7 @@
 // 環境変数: METRICS_URL — usage-metrics-svc のベースURL（既定 http://localhost:8080）
 import type { FastifyInstance } from 'fastify';
 import { requireAuth } from '../../middleware/auth';
+import { authOf } from '../../tenancy';
 import { config } from '../../config/env';
 import { sendError } from '../../utils/http-error';
 
@@ -23,7 +24,7 @@ function metricsBaseUrl(): string {
 export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
   // GET /departments?from=&to= → usage-metrics-svc GET /metrics/departments
   app.get('/departments', { preHandler: requireAuth }, async (request, reply) => {
-    const { orgId } = request.user as { orgId: string };
+    const { orgId } = authOf(request);
     const q = request.query as { from?: string; to?: string };
 
     const params = new URLSearchParams({ tenant_id: orgId });

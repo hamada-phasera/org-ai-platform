@@ -14,7 +14,6 @@ import { groupDraftsByDate, type CalendarTask } from './calendar';
 import { aiEngineHeaders } from '../../services/ai-engine-auth';
 import { config } from '../../config/env';
 import { sendError, upstreamStatus } from '../../utils/http-error';
-import type { AuthPayload } from '../../types/auth';
 
 /**
  * SNS投稿 下書き生成 & 承認待ちキュー（N-1 / N-2）。

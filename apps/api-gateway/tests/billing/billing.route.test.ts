@@ -79,7 +79,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   for (const k of ENV_KEYS) delete process.env[k];
   resetBillingPriceCache();
-  currentUser = { orgId: 'org-1', sub: 'owner-1', role: 'OWNER' };
+  // 請求先メールが未設定のときは操作したオーナーのメール（JWT の email）を使う
+  currentUser = { orgId: 'org-1', sub: 'owner-1', role: 'OWNER', email: 'owner@example.com' };
   prismaMock.organization.findUnique.mockResolvedValue(org());
   prismaMock.organization.updateMany.mockResolvedValue({ count: 1 });
   prismaMock.user.findUnique.mockResolvedValue({ email: 'owner@example.com' });

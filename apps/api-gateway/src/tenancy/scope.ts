@@ -134,14 +134,15 @@ export function scopeArgs(model: string, operation: string, args: Args, orgId: s
   return a;
 }
 
-const ORG_ROOT_OPS = new Set(['findUnique', 'findUniqueOrThrow', 'findFirst', 'findFirstOrThrow', 'update']);
+// updateMany は「条件付きの加算」（ストレージ使用量・Stripe 顧客IDの先取り）に使う。where.id は orgId に固定される
+const ORG_ROOT_OPS = new Set(['findUnique', 'findUniqueOrThrow', 'findFirst', 'findFirstOrThrow', 'update', 'updateMany']);
 
 function scopeOrgRoot(operation: string, args: Args, orgId: string): Args {
   if (!ORG_ROOT_OPS.has(operation)) {
     throw new TenantViolationError(`Organization.${operation} はテナントクライアントでは使えません`);
   }
   const a: Record<string, unknown> = { ...(args ?? {}) };
-  if (operation === 'update') rejectIdChange(a.data);
+  if (operation === 'update' || operation === 'updateMany') rejectIdChange(a.data);
   a.where = scopeWhere(a.where, 'id', orgId);
   return a;
 }

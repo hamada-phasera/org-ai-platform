@@ -4,14 +4,13 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../../utils/prisma';
+import { authOf } from '../../tenancy';
 import { requireAdmin } from '../../middleware/auth';
 import { sealSecret } from '../../services/secret-box';
 import { getBotInfo } from '../../services/inbox/line-client';
 import { getChannelAdapter } from '../../services/inbox/adapter';
 import { config } from '../../config/env';
 import { sendError } from '../../utils/http-error';
-import type { AuthPayload } from '../../types/auth';
 
 const createSchema = z.object({
   channelSecret: z.string().min(1).max(200),
@@ -53,7 +52,8 @@ function sanitizeConnection(conn: {
 export async function inboxConnectionsRoutes(app: FastifyInstance): Promise<void> {
   // ── 接続登録: 資格情報を LINE API で検証してから暗号化保存 ──
   app.post('/', { preHandler: requireAdmin }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
+    const payload = authOf(request);
+    const { db } = payload;
     const parsed = createSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
@@ -72,7 +72,7 @@ export async function inboxConnectionsRoutes(app: FastifyInstance): Promise<void
     }
 
     try {
-      const created = await prisma.channelConnection.create({
+      const created = await db.channelConnection.create({
         data: {
           orgId: payload.orgId,
           provider: 'line',
@@ -93,8 +93,9 @@ export async function inboxConnectionsRoutes(app: FastifyInstance): Promise<void
 
   // ── 一覧（quota は best-effort で LINE 実測値を添える） ──────
   app.get('/', { preHandler: requireAdmin }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
-    const connections = await prisma.channelConnection.findMany({
+    const payload = authOf(request);
+    const { db } = payload;
+    const connections = await db.channelConnection.findMany({
       where: { orgId: payload.orgId },
       orderBy: { createdAt: 'desc' },
     });
@@ -113,7 +114,7 @@ export async function inboxConnectionsRoutes(app: FastifyInstance): Promise<void
         const quotaUsage = settled.status === 'fulfilled' ? settled.value : null;
         if (quotaUsage !== null) {
           try {
-            await prisma.channelConnection.update({
+            await db.channelConnection.update({
               where: { id: conn.id },
               data: { lastCheckedAt: now },
             });
@@ -134,13 +135,14 @@ export async function inboxConnectionsRoutes(app: FastifyInstance): Promise<void
 
   // ── 削除（InboundMessage は FK SetNull で残る） ─────────────
   app.delete('/:id', { preHandler: requireAdmin }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
+    const payload = authOf(request);
+    const { db } = payload;
     const { id } = request.params as { id: string };
-    const conn = await prisma.channelConnection.findUnique({ where: { id } });
+    const conn = await db.channelConnection.findUnique({ where: { id } });
     if (!conn || conn.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', '接続が見つかりません');
     }
-    await prisma.channelConnection.delete({ where: { id } });
+    await db.channelConnection.delete({ where: { id } });
     return reply.send({ success: true, data: { id } });
   });
 }

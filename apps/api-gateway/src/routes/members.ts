@@ -3,7 +3,9 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { isUserRole } from '@org-ai/shared-types';
+// 招待のプレビューと受諾（認証の無い経路）だけが素の prisma を使う（アーキテクチャテストの allowlist）
 import { prisma } from '../utils/prisma';
+import { authOf } from '../tenancy';
 import { requireAuth, requireOwner } from '../middleware/auth';
 import { config } from '../config/env';
 import { sendError } from '../utils/http-error';
@@ -49,8 +51,8 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
   /** メンバー一覧。全員が見てよい（誰が同僚かは隠す情報ではない）。
    *  role / status は**この組織の** Membership のもの（User.role / User.status ではない）。 */
   app.get('/', { preHandler: requireAuth }, async (request, reply) => {
-    const { orgId } = request.user as { orgId: string };
-    const rows = await prisma.membership.findMany({
+    const { orgId, db } = authOf(request);
+    const rows = await db.membership.findMany({
       where: { orgId },
       select: {
         role: true,
@@ -73,8 +75,8 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
 
   /** 招待の一覧（保留中のみ）。オーナーだけ。 */
   app.get('/invitations', { preHandler: requireOwner }, async (request, reply) => {
-    const { orgId } = request.user as { orgId: string };
-    const invitations = await prisma.invitation.findMany({
+    const { orgId, db } = authOf(request);
+    const invitations = await db.invitation.findMany({
       where: { orgId, acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
       select: { id: true, email: true, role: true, expiresAt: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
@@ -87,7 +89,8 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
    * 管理者はこのリンクを本人へ手渡す（口頭・Slack・LINE など）。
    */
   app.post('/invitations', { preHandler: requireOwner }, async (request, reply) => {
-    const payload = request.user as { orgId: string; sub: string };
+    const payload = authOf(request);
+    const { db } = payload;
     const parsed = createInviteSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.errors[0]?.message ?? '入力が不正です');
@@ -108,7 +111,7 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
     const raw = randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
 
-    const invitation = await prisma.invitation.create({
+    const invitation = await db.invitation.create({
       data: {
         orgId: payload.orgId,
         email: parsed.data.email ?? null,
@@ -129,9 +132,9 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
 
   /** 招待を取り消す。 */
   app.delete('/invitations/:invitationId', { preHandler: requireOwner }, async (request, reply) => {
-    const { orgId } = request.user as { orgId: string };
+    const { orgId, db } = authOf(request);
     const { invitationId } = request.params as { invitationId: string };
-    const result = await prisma.invitation.updateMany({
+    const result = await db.invitation.updateMany({
       where: { id: invitationId, orgId, acceptedAt: null, revokedAt: null },
       data: { revokedAt: new Date() },
     });
@@ -240,7 +243,8 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
 
   /** 役割を変える。オーナーだけ。OWNER への昇格はここではできない。 */
   app.patch('/:userId/role', { preHandler: requireOwner }, async (request, reply) => {
-    const payload = request.user as { orgId: string; sub: string };
+    const payload = authOf(request);
+    const { db } = payload;
     const { userId } = request.params as { userId: string };
     const parsed = changeRoleSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -253,7 +257,7 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 400, 'VALIDATION_ERROR', '自分自身の役割は変更できません');
     }
 
-    const result = await prisma.membership.updateMany({
+    const result = await db.membership.updateMany({
       where: { userId, orgId: payload.orgId },
       data: { role: parsed.data.role },
     });
@@ -272,7 +276,8 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
    *    消すと「誰が作ったか」が辿れなくなる（監査が壊れる）。
    */
   app.patch('/:userId/status', { preHandler: requireOwner }, async (request, reply) => {
-    const payload = request.user as { orgId: string; sub: string };
+    const payload = authOf(request);
+    const { db } = payload;
     const { userId } = request.params as { userId: string };
     const body = request.body as { status?: string };
     if (body?.status !== 'ACTIVE' && body?.status !== 'DISABLED') {
@@ -282,7 +287,7 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 400, 'VALIDATION_ERROR', '自分自身を無効化することはできません');
     }
 
-    const result = await prisma.membership.updateMany({
+    const result = await db.membership.updateMany({
       where: { userId, orgId: payload.orgId },
       data: { status: body.status },
     });

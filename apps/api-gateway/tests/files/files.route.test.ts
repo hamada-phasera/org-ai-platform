@@ -273,7 +273,8 @@ describe('DELETE /api/files/:fileId', () => {
 
     expect(res.statusCode).toBe(200);
     expect(driverMock.delete).toHaveBeenCalledWith('org-1/f_a.txt');
-    expect(prismaMock.uploadedFile.delete).toHaveBeenCalledWith({ where: { id: 'file-1' } });
+    // 削除にも組織の条件が付く（テナントクライアント）
+    expect(prismaMock.uploadedFile.delete).toHaveBeenCalledWith({ where: { id: 'file-1', orgId: 'org-1' } });
     const [strings, ...values] = prismaMock.$executeRaw.mock.calls[0];
     expect((strings as string[]).join('?')).toContain('GREATEST');
     expect(values).toEqual([BigInt(500), 'org-1']);

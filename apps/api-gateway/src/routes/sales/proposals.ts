@@ -11,7 +11,6 @@ import {
 } from './proposal-templates';
 import { config } from '../../config/env';
 import { sendError, upstreamStatus } from '../../utils/http-error';
-import type { AuthPayload } from '../../types/auth';
 
 /**
  * 提案書ドラフト生成（S-3・主機能）。

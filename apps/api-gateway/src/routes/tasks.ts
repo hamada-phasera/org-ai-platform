@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../utils/prisma';
+import { tenantDb } from '../tenancy/tenant-db';
+import { getMembership } from '../tenancy/membership-cache';
+import { authOf } from '../tenancy';
 import { requireAuth } from '../middleware/auth';
 import { dispatchQueuedTask } from '../services/task-executor';
 import { resumeAgentTask, parseRunState } from '../services/step-runner';
@@ -40,7 +42,8 @@ const addLogSchema = z.object({
 export async function taskRoutes(app: FastifyInstance): Promise<void> {
   // タスク一覧取得
   app.get('/', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
     const query = request.query as { department?: string; status?: string; taskType?: string };
     const where: { orgId: string; department?: string; status?: string; taskType?: string } = {
       orgId: payload.orgId,
@@ -48,7 +51,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     if (query.department) where.department = query.department;
     if (query.status) where.status = query.status;
     if (query.taskType) where.taskType = query.taskType;
-    const tasks = await prisma.task.findMany({
+    const tasks = await db.task.findMany({
       where,
       include: { logs: { orderBy: { createdAt: 'asc' }, take: 20 } },
       orderBy: { createdAt: 'desc' },
@@ -59,8 +62,9 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
   // タスク単体取得
   app.get('/:taskId', { preHandler: requireAuth }, async (request, reply) => {
     const { taskId } = request.params as { taskId: string };
-    const payload = request.user as { orgId: string };
-    const task = await prisma.task.findUnique({
+    const payload = authOf(request);
+    const { db } = payload;
+    const task = await db.task.findUnique({
       where: { id: taskId },
       include: { logs: { orderBy: { createdAt: 'asc' }, take: 50 } },
     });
@@ -72,12 +76,13 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
 
   // タスク作成
   app.post('/', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as { sub: string; orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
     const result = createTaskSchema.safeParse(request.body);
     if (!result.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
     }
-    const task = await prisma.task.create({
+    const task = await db.task.create({
       data: {
         orgId: payload.orgId,
         title: result.data.title,
@@ -88,7 +93,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       },
     });
     // 作成ログ
-    await prisma.taskLog.create({
+    await db.taskLog.create({
       data: { taskId: task.id, message: `タスクを作成しました: ${task.title}`, level: 'INFO' },
     });
 
@@ -103,9 +108,10 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
   // タスク更新
   app.patch('/:taskId', { preHandler: requireAuth }, async (request, reply) => {
     const { taskId } = request.params as { taskId: string };
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
 
-    const task = await prisma.task.findUnique({ where: { id: taskId } });
+    const task = await db.task.findUnique({ where: { id: taskId } });
     if (!task || task.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', 'タスクが見つかりません');
     }
@@ -115,13 +121,13 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
     }
 
-    const updated = await prisma.task.update({
+    const updated = await db.task.update({
       where: { id: taskId },
       data: result.data,
     });
 
     if (result.data.status && result.data.status !== task.status) {
-      await prisma.taskLog.create({
+      await db.taskLog.create({
         data: { taskId, message: `ステータス変更: ${task.status} → ${result.data.status}`, level: 'INFO' },
       });
       // QUEUED になったら n8n or AI Engine で実行
@@ -136,9 +142,10 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
   // タスク承認（PENDING_APPROVAL → QUEUED で実行フェーズをトリガー）
   app.post('/:taskId/approve', { preHandler: requireAuth }, async (request, reply) => {
     const { taskId } = request.params as { taskId: string };
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
 
-    const task = await prisma.task.findUnique({ where: { id: taskId } });
+    const task = await db.task.findUnique({ where: { id: taskId } });
     if (!task || task.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', 'タスクが見つかりません');
     }
@@ -159,14 +166,14 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       // 二重承認（ボタン連打・再送）で Slack 投稿やメール送信が 2 回走らないよう、
       // status を読んでから実行する read-then-act をやめ、条件付き更新で atomic に claim する。
       // PENDING_APPROVAL を掴めた 1 リクエストだけが resumeAgentTask を呼べる。
-      const claimed = await prisma.task.updateMany({
+      const claimed = await db.task.updateMany({
         where: { id: taskId, orgId: payload.orgId, status: 'PENDING_APPROVAL' },
         data: { status: 'RUNNING' },
       });
       if (claimed.count === 0) {
         return sendError(reply, 409, 'INVALID_STATE', 'このタスクは承認待ちではありません');
       }
-      await prisma.taskLog.create({
+      await db.taskLog.create({
         data: { taskId, message: 'ステップを承認しました。実行を再開します', level: 'INFO' },
       });
       // claim 済み（既に RUNNING）でも resumeAgentTask は続行する
@@ -175,13 +182,13 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
           editedArgs: body.success ? body.data.editedArgs : undefined,
         }),
       );
-      const current = await prisma.task.findUnique({ where: { id: taskId } });
+      const current = await db.task.findUnique({ where: { id: taskId } });
       return reply.send({ success: true, data: current });
     }
 
     const approvalData = body.success ? JSON.stringify(body.data) : null;
 
-    const updated = await prisma.task.update({
+    const updated = await db.task.update({
       where: { id: taskId },
       data: {
         status: 'QUEUED',
@@ -189,7 +196,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       },
     });
 
-    await prisma.taskLog.create({
+    await db.taskLog.create({
       data: { taskId, message: `タスクを承認しました（${body.data?.action ?? '実行'}）`, level: 'INFO' },
     });
 
@@ -202,9 +209,10 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
   // タスク却下（エージェントのステップ承認待ちを止める。残りステップは実行しない）
   app.post('/:taskId/reject', { preHandler: requireAuth }, async (request, reply) => {
     const { taskId } = request.params as { taskId: string };
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
 
-    const task = await prisma.task.findUnique({ where: { id: taskId } });
+    const task = await db.task.findUnique({ where: { id: taskId } });
     if (!task || task.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', 'タスクが見つかりません');
     }
@@ -219,7 +227,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // approve と同じく条件付き更新で claim。承認と却下が同時に来ても片方だけが通る。
-    const claimed = await prisma.task.updateMany({
+    const claimed = await db.task.updateMany({
       where: { id: taskId, orgId: payload.orgId, status: 'PENDING_APPROVAL' },
       data: {
         status: 'REJECTED',
@@ -230,34 +238,36 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     if (claimed.count === 0) {
       return sendError(reply, 409, 'INVALID_STATE', 'このタスクは承認待ちではありません');
     }
-    await prisma.taskLog.create({
+    await db.taskLog.create({
       data: { taskId, message: `承認を却下しました${reason ? `: ${reason}` : ''}`, level: 'INFO' },
     });
-    const updated = await prisma.task.findUnique({ where: { id: taskId } });
+    const updated = await db.task.findUnique({ where: { id: taskId } });
     return reply.send({ success: true, data: updated });
   });
 
   // タスク削除
   app.delete('/:taskId', { preHandler: requireAuth }, async (request, reply) => {
     const { taskId } = request.params as { taskId: string };
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
 
-    const task = await prisma.task.findUnique({ where: { id: taskId } });
+    const task = await db.task.findUnique({ where: { id: taskId } });
     if (!task || task.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', 'タスクが見つかりません');
     }
 
-    await prisma.taskLog.deleteMany({ where: { taskId } });
-    await prisma.task.delete({ where: { id: taskId } });
+    await db.taskLog.deleteMany({ where: { taskId } });
+    await db.task.delete({ where: { id: taskId } });
     return reply.send({ success: true, data: { deleted: true } });
   });
 
   // タスクログ追加
   app.post('/:taskId/logs', { preHandler: requireAuth }, async (request, reply) => {
     const { taskId } = request.params as { taskId: string };
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
 
-    const task = await prisma.task.findUnique({ where: { id: taskId } });
+    const task = await db.task.findUnique({ where: { id: taskId } });
     if (!task || task.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', 'タスクが見つかりません');
     }
@@ -267,7 +277,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
     }
 
-    const log = await prisma.taskLog.create({
+    const log = await db.taskLog.create({
       data: { taskId, message: result.data.message, level: result.data.level },
     });
     return reply.code(201).send({ success: true, data: log });
@@ -280,20 +290,33 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     const { token } = request.query as { token?: string };
 
     // query param のトークンを検証
-    let payload: { orgId: string };
+    let payload: { orgId?: string | null; sub?: string };
     try {
       if (token) {
-        payload = app.jwt.verify<{ orgId: string }>(token);
+        payload = app.jwt.verify<{ orgId: string; sub: string }>(token);
       } else {
         // Authorization ヘッダーにフォールバック
         await request.jwtVerify();
-        payload = request.user as { orgId: string };
+        payload = request.user as { orgId: string; sub: string };
       }
     } catch {
       socket.send(JSON.stringify({ type: 'error', message: '認証エラー' }));
       socket.close();
       return;
     }
+    /* requireAuth と同じく、トークンの組織に今も所属しているかを確かめる（外された人に流し続けない）。
+       ポーリングのたびにも確かめる（30 秒キャッシュなので負荷は増えない）。 */
+    const stillMember = async (): Promise<boolean> => {
+      if (!payload.orgId || !payload.sub) return false;
+      const snap = await getMembership(payload.sub, payload.orgId);
+      return snap.userStatus === 'ACTIVE' && snap.membership?.status === 'ACTIVE';
+    };
+    if (!(await stillMember())) {
+      socket.send(JSON.stringify({ type: 'error', message: '認証エラー' }));
+      socket.close();
+      return;
+    }
+    const db = tenantDb(payload.orgId as string);
 
     // 接続確認メッセージ
     socket.send(JSON.stringify({ type: 'connected', taskId }));
@@ -302,8 +325,9 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     let lastLogId: string | null = null;
     const interval = setInterval(async () => {
       try {
-        const task = await prisma.task.findUnique({ where: { id: taskId } });
-        if (!task || task.orgId !== payload.orgId) {
+        const task = await db.task.findUnique({ where: { id: taskId } });
+        if (!task || !(await stillMember())) {
+          clearInterval(interval);
           socket.close();
           return;
         }
@@ -312,7 +336,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
           ? { taskId, id: { gt: lastLogId } }
           : { taskId };
 
-        const logs = await prisma.taskLog.findMany({
+        const logs = await db.taskLog.findMany({
           where,
           orderBy: { createdAt: 'asc' },
           take: 50,
