@@ -179,6 +179,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       // claim 済み（既に RUNNING）でも resumeAgentTask は続行する
       tracked('agent-resume', taskId, () =>
         resumeAgentTask(taskId, {
+          orgId: payload.orgId,
           editedArgs: body.success ? body.data.editedArgs : undefined,
         }),
       );
