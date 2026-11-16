@@ -19,6 +19,7 @@ ALL_VARS = (
     "GEMINI_MODEL_JSON",
     "ADMIN_EMAILS",
     "INTERNAL_API_TOKEN",
+    "ORG_HEADER_MODE",
     "API_GATEWAY_URL",
     "DATABASE_URL",
 )
@@ -93,3 +94,11 @@ def test_gemini_json_model_follows_ume_override(clean_env: pytest.MonkeyPatch) -
     assert settings.gemini_model_json == "gemini-custom"
     clean_env.setenv("GEMINI_MODEL_JSON", "gemini-json")
     assert settings.gemini_model_json == "gemini-json"
+
+
+def test_org_header_mode_default_and_normalized(clean_env: pytest.MonkeyPatch) -> None:
+    from app.config import settings
+
+    assert settings.org_header_mode == "warn"
+    clean_env.setenv("ORG_HEADER_MODE", "  ENFORCE ")
+    assert settings.org_header_mode == "enforce"

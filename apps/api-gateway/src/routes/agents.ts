@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../utils/prisma';
+import { authOf, type TenantDb } from '../tenancy';
 import { requireAuth, requireAdmin } from '../middleware/auth';
 import { dispatchAgentTask } from '../services/task-executor';
 import { runAgentTask } from '../services/step-runner';
@@ -80,6 +80,7 @@ interface CurrentAgentContext {
 /** AI Engine /plan/agent でチャット説明文からエージェント定義を推論する（best-effort）。
  *  currentAgent を渡すと「既存を土台に、依頼された変更だけを加えた完成形」が返る。 */
 async function inferAgentDefinition(
+  db: TenantDb,
   description: string,
   orgId: string,
   plan: string,
@@ -94,7 +95,7 @@ async function inferAgentDefinition(
   confidence?: number;
 } | null> {
   const aiEngineUrl = config.aiEngineUrl;
-  const capabilities = await prisma.capability.findMany({
+  const capabilities = await db.capability.findMany({
     // ⚠️ 停止中のノードを planner に見せない。提案に出ても実行時に UNSUPPORTED で弾かれ、
     //    「提案どおり承認したのに動かない」ことになる（chat.ts 側と条件を揃える）。
     where: { orgId, status: { not: 'DISABLED' } },
@@ -137,27 +138,28 @@ async function inferAgentDefinition(
 export async function agentRoutes(app: FastifyInstance): Promise<void> {
   // 部署別エージェント統計
   app.get('/stats', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
     const orgId = payload.orgId;
 
     // 部署別タスク数を一括取得
     const [totalCounts, runningCounts, queuedCounts, doneCounts] = await Promise.all([
-      prisma.task.groupBy({
+      db.task.groupBy({
         by: ['department'],
         _count: true,
         where: { orgId },
       }),
-      prisma.task.groupBy({
+      db.task.groupBy({
         by: ['department'],
         _count: true,
         where: { orgId, status: 'RUNNING' },
       }),
-      prisma.task.groupBy({
+      db.task.groupBy({
         by: ['department'],
         _count: true,
         where: { orgId, status: 'QUEUED' },
       }),
-      prisma.task.groupBy({
+      db.task.groupBy({
         by: ['department'],
         _count: true,
         where: { orgId, status: 'DONE' },
@@ -173,7 +175,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
     // 各部署の最新完了タスクを取得
     const latestTasks = await Promise.all(
       DEPARTMENTS.map(async (dept) => {
-        const task = await prisma.task.findFirst({
+        const task = await db.task.findFirst({
           where: { orgId, department: dept, status: 'DONE' },
           orderBy: { updatedAt: 'desc' },
           select: { output: true, title: true },
@@ -189,7 +191,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
         // outputが長い場合は先頭100文字に切り詰め
         latestReports.set(dept, task.output.slice(0, 100));
       } else {
-        const log = await prisma.aILog.findFirst({
+        const log = await db.aILog.findFirst({
           where: { orgId, department: dept },
           orderBy: { createdAt: 'desc' },
           select: { outputText: true },
@@ -230,8 +232,9 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
 
   // 保存エージェント一覧（再選択用）
   app.get('/', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as { orgId: string };
-    const agents = await prisma.agent.findMany({
+    const payload = authOf(request);
+    const { db } = payload;
+    const agents = await db.agent.findMany({
       where: { orgId: payload.orgId },
       orderBy: { createdAt: 'desc' },
     });
@@ -241,8 +244,9 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
   // 保存エージェント単体
   app.get('/:agentId', { preHandler: requireAuth }, async (request, reply) => {
     const { agentId } = request.params as { agentId: string };
-    const payload = request.user as { orgId: string };
-    const agent = await prisma.agent.findUnique({ where: { id: agentId } });
+    const payload = authOf(request);
+    const { db } = payload;
+    const agent = await db.agent.findUnique({ where: { id: agentId } });
     if (!agent || agent.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', 'エージェントが見つかりません');
     }
@@ -257,7 +261,8 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
    * **変更後の完成形**（適用が単純な置換になり、部分適用の失敗が起きない）。
    */
   app.post('/suggest', { preHandler: requireAdmin }, async (request, reply) => {
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
     const parsed = suggestAgentSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
@@ -265,7 +270,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
 
     let current: CurrentAgentContext | undefined;
     if (parsed.data.agentId) {
-      const agent = await prisma.agent.findUnique({ where: { id: parsed.data.agentId } });
+      const agent = await db.agent.findUnique({ where: { id: parsed.data.agentId } });
       if (!agent || agent.orgId !== payload.orgId) {
         return sendError(reply, 404, 'NOT_FOUND', 'エージェントが見つかりません');
       }
@@ -278,11 +283,12 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
       };
     }
 
-    const org = await prisma.organization.findUnique({
+    const org = await db.organization.findUnique({
       where: { id: payload.orgId },
       select: { plan: true },
     });
     const inferred = await inferAgentDefinition(
+      db,
       parsed.data.description,
       payload.orgId,
       org?.plan ?? 'STARTER',
@@ -311,7 +317,8 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
 
   // 保存エージェント作成（任意で n8n 専用ワークフローを best-effort 生成）
   app.post('/', { preHandler: requireAdmin }, async (request, reply) => {
-    const payload = request.user as { sub: string; orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
     const parsed = createAgentSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
@@ -321,11 +328,12 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
     // 説明文からの推論（opt-in）。未指定フィールドのみ埋める。
     let { name, department, instructions, steps, trigger } = body;
     if (body.inferFromDescription && body.description) {
-      const org = await prisma.organization.findUnique({
+      const org = await db.organization.findUnique({
         where: { id: payload.orgId },
         select: { plan: true },
       });
       const inferred = await inferAgentDefinition(
+        db,
         body.description,
         payload.orgId,
         org?.plan ?? 'STARTER',
@@ -345,7 +353,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
 
     let agent;
     try {
-      agent = await prisma.agent.create({
+      agent = await db.agent.create({
         data: {
           orgId: payload.orgId,
           name,
@@ -377,7 +385,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
         instructions: agent.instructions,
         steps: (agent.steps as unknown as { capabilityName: string }[] | null) ?? undefined,
       });
-      agent = await prisma.agent.update({
+      agent = await db.agent.update({
         where: { id: agent.id },
         data: {
           n8nWorkflowId: result.workflowId,
@@ -395,8 +403,9 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
   // 保存エージェント実行（再呼び出し）
   app.post('/:agentId/run', { preHandler: requireAuth }, async (request, reply) => {
     const { agentId } = request.params as { agentId: string };
-    const payload = request.user as { orgId: string };
-    const agent = await prisma.agent.findUnique({ where: { id: agentId } });
+    const payload = authOf(request);
+    const { db } = payload;
+    const agent = await db.agent.findUnique({ where: { id: agentId } });
     if (!agent || agent.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', 'エージェントが見つかりません');
     }
@@ -407,7 +416,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
     const parsed = runAgentSchema.safeParse(request.body ?? {});
     const input = parsed.success && parsed.data.input ? parsed.data.input : agent.instructions;
 
-    const task = await prisma.task.create({
+    const task = await db.task.create({
       data: {
         orgId: payload.orgId,
         agentId: agent.id,
@@ -418,7 +427,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
         taskType: 'agent',
       },
     });
-    await prisma.taskLog.create({
+    await db.taskLog.create({
       data: { taskId: task.id, message: `エージェント実行を開始: ${agent.name}`, level: 'INFO' },
     });
 
@@ -461,8 +470,9 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
   // 保存エージェント更新
   app.patch('/:agentId', { preHandler: requireAdmin }, async (request, reply) => {
     const { agentId } = request.params as { agentId: string };
-    const payload = request.user as { orgId: string };
-    const agent = await prisma.agent.findUnique({ where: { id: agentId } });
+    const payload = authOf(request);
+    const { db } = payload;
+    const agent = await db.agent.findUnique({ where: { id: agentId } });
     if (!agent || agent.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', 'エージェントが見つかりません');
     }
@@ -471,7 +481,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
     const d = parsed.data;
-    const updated = await prisma.agent.update({
+    const updated = await db.agent.update({
       where: { id: agentId },
       data: {
         ...(d.name !== undefined ? { name: d.name } : {}),
@@ -503,7 +513,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
         steps: (updated.steps as unknown as { capabilityName: string }[] | null) ?? undefined,
       });
       if (!ok) {
-        await prisma.agent.update({ where: { id: agentId }, data: { n8nStatus: 'PENDING' } });
+        await db.agent.update({ where: { id: agentId }, data: { n8nStatus: 'PENDING' } });
       }
     }
 
@@ -513,15 +523,16 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
   // 保存エージェント削除（実行履歴は Task.agentId が SET NULL で保持される）
   app.delete('/:agentId', { preHandler: requireAdmin }, async (request, reply) => {
     const { agentId } = request.params as { agentId: string };
-    const payload = request.user as { orgId: string };
-    const agent = await prisma.agent.findUnique({ where: { id: agentId } });
+    const payload = authOf(request);
+    const { db } = payload;
+    const agent = await db.agent.findUnique({ where: { id: agentId } });
     if (!agent || agent.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', 'エージェントが見つかりません');
     }
     if (agent.n8nWorkflowId) await deleteAgentWorkflow(agent.n8nWorkflowId);
     // 紐づく定期タスクも掃除（FK は SetNull だが、孤児を残すと定期実行側で skip ログが出続ける）
-    await prisma.scheduledTask.deleteMany({ where: { agentId } });
-    await prisma.agent.delete({ where: { id: agentId } });
+    await db.scheduledTask.deleteMany({ where: { agentId } });
+    await db.agent.delete({ where: { id: agentId } });
     return reply.send({ success: true, data: { deleted: true } });
   });
 }

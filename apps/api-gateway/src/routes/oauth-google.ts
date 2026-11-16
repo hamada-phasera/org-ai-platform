@@ -26,13 +26,12 @@
 import type { FastifyInstance } from 'fastify';
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { z } from 'zod';
-import { prisma } from '../utils/prisma';
+import { authOf } from '../tenancy';
 import { requireAdmin } from '../middleware/auth';
 import { sealSecret } from '../services/secret-box';
 import { syncRequiredCredentialStatus } from '../services/integration-sync';
 import { config } from '../config/env';
 import { sendError } from '../utils/http-error';
-import type { AuthPayload } from '../types/auth';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -51,26 +50,28 @@ function stateKey(): Buffer {
   return createHash('sha256').update(`oauth-state:${config.jwtSecret ?? ''}`).digest();
 }
 
-function signState(payload: { nonce: string; exp: number }): string {
+function signState(payload: { nonce: string; exp: number; org?: string }): string {
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const sig = createHmac('sha256', stateKey()).update(body).digest('base64url');
   return `${body}.${sig}`;
 }
 
-function verifyState(raw: string): boolean {
+/** 署名と期限を確かめて中身を返す（だめなら null）。 */
+function readState(raw: string): { org?: string } | null {
   const parts = raw.split('.');
-  if (parts.length !== 2) return false;
+  if (parts.length !== 2) return null;
   const [body, sig] = parts;
   const expected = createHmac('sha256', stateKey()).update(body).digest('base64url');
   const a = Buffer.from(sig);
   const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
-  if (!timingSafeEqual(a, b)) return false;
+  if (a.length !== b.length) return null;
+  if (!timingSafeEqual(a, b)) return null;
   try {
-    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as { exp?: unknown };
-    return typeof payload.exp === 'number' && payload.exp > Date.now();
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as { exp?: unknown; org?: unknown };
+    if (!(typeof payload.exp === 'number' && payload.exp > Date.now())) return null;
+    return { org: typeof payload.org === 'string' ? payload.org : undefined };
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -81,6 +82,8 @@ interface PendingLink {
   refreshToken: string | null;
   expiresAt: Date;
   email: string | null;
+  /** 接続を始めた組織（state に署名して運んだもの）。confirm の組織と照合するだけで、保存先には使わない */
+  startedOrgId: string | null;
   createdAt: number;
 }
 const pendingLinks = new Map<string, PendingLink>();
@@ -140,7 +143,7 @@ function decodeIdTokenEmail(idToken: string | undefined): string | null {
 
 export async function oauthGoogleRoutes(app: FastifyInstance): Promise<void> {
   // ── 認可 URL の発行 ──────────────────────────────────
-  app.post('/start', { preHandler: requireAdmin }, async (_request, reply) => {
+  app.post('/start', { preHandler: requireAdmin }, async (request, reply) => {
     const clientId = config.googleOAuthClientId;
     if (!clientId || !config.googleOAuthClientSecret) {
       return sendError(
@@ -150,8 +153,10 @@ export async function oauthGoogleRoutes(app: FastifyInstance): Promise<void> {
         'Google 連携が未設定です（GOOGLE_OAUTH_CLIENT_ID / SECRET を環境変数に設定してください）。',
       );
     }
-    // state に orgId は入れない（保存先は confirm 時のセッションで決まるため不要）
-    const state = signState({ nonce: randomUUID(), exp: Date.now() + STATE_TTL_MS });
+    /* state の org は「接続を始めた組織」の記録。保存先は今までどおり confirm のセッションで決める。
+       組織を切り替えられるようになったので、start と confirm の間に切り替えた場合に
+       別の組織へ保存されないよう、confirm で照合するためだけに使う（docs/design/multi-tenancy.md §10.2） */
+    const state = signState({ nonce: randomUUID(), exp: Date.now() + STATE_TTL_MS, org: authOf(request).orgId });
     const params = new URLSearchParams({
       client_id: clientId,
       redirect_uri: `${gatewayBase()}/api/oauth/google/callback`,
@@ -174,7 +179,8 @@ export async function oauthGoogleRoutes(app: FastifyInstance): Promise<void> {
       // ユーザーが同意画面で拒否した等
       return reply.redirect(`${settingsUrl}&error=google_denied`);
     }
-    if (!q.code || !q.state || !verifyState(q.state)) {
+    const stateBody = q.state ? readState(q.state) : null;
+    if (!q.code || !stateBody) {
       return reply.redirect(`${settingsUrl}&error=google_state`);
     }
 
@@ -216,6 +222,7 @@ export async function oauthGoogleRoutes(app: FastifyInstance): Promise<void> {
         Date.now() + (typeof token.expires_in === 'number' ? token.expires_in : 3600) * 1000,
       ),
       email: decodeIdTokenEmail(typeof token.id_token === 'string' ? token.id_token : undefined),
+      startedOrgId: stateBody.org ?? null,
       createdAt: Date.now(),
     });
 
@@ -225,7 +232,8 @@ export async function oauthGoogleRoutes(app: FastifyInstance): Promise<void> {
 
   // ── 確定（ログイン中のセッションの org に保存する） ──
   app.post('/confirm', { preHandler: requireAdmin }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
+    const payload = authOf(request);
+    const { db } = payload;
     const parsed = confirmSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
@@ -235,10 +243,20 @@ export async function oauthGoogleRoutes(app: FastifyInstance): Promise<void> {
     if (!link) {
       return sendError(reply, 410, 'LINK_EXPIRED', '接続の確認期限が切れました。もう一度「Google で接続」からやり直してください。');
     }
+    // ⚠️ 接続を始めた組織と、いま確定しようとしている組織が違う（途中で組織を切り替えた）。
+    //    消費せずに止める（元の組織に切り替えてから確定し直せる）
+    if (link.startedOrgId && link.startedOrgId !== payload.orgId) {
+      return sendError(
+        reply,
+        409,
+        'ORG_SWITCHED',
+        '接続を開始した組織と、いま選んでいる組織が違います。接続を開始した組織に切り替えてから確定してください。',
+      );
+    }
     // ワンタイム消費（同じ linkId で二重に紐づけられないように）
     pendingLinks.delete(parsed.data.linkId);
 
-    const existing = await prisma.providerConnection.findUnique({
+    const existing = await db.providerConnection.findUnique({
       where: { orgId_provider: { orgId: payload.orgId, provider: 'google' } },
     });
     // refresh_token は初回同意時のみ返ることがある。返らなかったら既存を温存する。
@@ -246,7 +264,7 @@ export async function oauthGoogleRoutes(app: FastifyInstance): Promise<void> {
       ? sealSecret(link.refreshToken)
       : (existing?.refreshTokenEnc ?? null);
 
-    await prisma.providerConnection.upsert({
+    await db.providerConnection.upsert({
       where: { orgId_provider: { orgId: payload.orgId, provider: 'google' } },
       create: {
         orgId: payload.orgId,

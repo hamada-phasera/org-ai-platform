@@ -1,8 +1,8 @@
 import { NavLink } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronsUpDown } from 'lucide-react';
 import { api } from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
+import { OrgSwitcher } from '../org/OrgSwitcher';
 import { ADMIN_NAV, MAIN_NAV, WORK_PAGES } from './navConfig';
 import type { NavEntry } from './navConfig';
 
@@ -87,22 +87,7 @@ export function Sidebar() {
         <span className="font-display text-[15px] font-extrabold">FLOW</span>
       </div>
 
-      <button
-        type="button"
-        aria-label={`組織を切り替え — ${org?.name ?? '読み込み中'}、${org?.plan ?? ''} プラン`}
-        className="flex w-full items-center gap-2.5 rounded-sm border border-border bg-canvas px-2.5 py-2 text-left transition-colors duration-fast hover:bg-sunken"
-      >
-        <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[5px] bg-action text-[10px] font-extrabold text-inverse">
-          {org?.name?.slice(0, 1) ?? '—'}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-xs font-bold text-primary">{org?.name ?? '—'}</span>
-          <span className="block text-micro font-semibold text-text-muted">
-            {org?.plan ?? '—'} プラン
-          </span>
-        </span>
-        <ChevronsUpDown size={12} strokeWidth={2.4} className="text-text-muted" aria-hidden="true" />
-      </button>
+      <OrgSwitcher org={org} />
 
       <nav className="mt-3.5 flex flex-col gap-0.5" aria-label="メインナビゲーション">
         {MAIN_NAV.map((entry) => (

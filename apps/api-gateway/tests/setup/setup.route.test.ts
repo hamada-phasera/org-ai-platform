@@ -1,16 +1,19 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { setTenant } from '../helpers/tenant';
 
 const prismaMock = { organization: { findUnique: vi.fn() }, aILog: { count: vi.fn() } };
 vi.mock('../../src/utils/prisma', () => ({ prisma: prismaMock }));
 
 let currentUser: Record<string, unknown> = { orgId: 'org-1', sub: 'owner-1', role: 'OWNER' };
 vi.mock('../../src/middleware/auth', () => ({
+  requireUser: async () => {},
+  userOf: () => ({ sub: currentUser.sub, orgId: currentUser.orgId }),
   requireAuth: async (req: { user?: unknown }) => {
-    req.user = currentUser;
+    await setTenant(req as never, currentUser as never);
   },
   requireOwner: async (req: { user?: unknown }, reply: { code: (n: number) => { send: (b: unknown) => void } }) => {
-    req.user = currentUser;
+    await setTenant(req as never, currentUser as never);
     if (currentUser.role !== 'OWNER') {
       reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'この操作はオーナーのみ行えます' } });
     }

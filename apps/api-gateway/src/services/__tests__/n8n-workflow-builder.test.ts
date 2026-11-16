@@ -24,6 +24,14 @@ beforeEach(() => {
 });
 
 describe('buildAgentWorkflowJson', () => {
+  it('完了コールバックに orgId を載せる（gateway が組織を照合する。E1）', () => {
+    const wf = buildAgentWorkflowJson(AGENT) as { nodes: { name: string; parameters: Record<string, unknown> }[] };
+    const cb = wf.nodes.find((n) => n.name === 'Callback (Done)')!;
+    const params = (cb.parameters.bodyParameters as { parameters: { name: string; value: string }[] }).parameters;
+    const org = params.find((p) => p.name === 'orgId');
+    expect(org?.value).toContain('body.orgId');
+  });
+
   it('name / webhook path / headerAuth / WAF安全なノード構成を構築する', () => {
     const wf = buildAgentWorkflowJson(AGENT) as {
       name: string;

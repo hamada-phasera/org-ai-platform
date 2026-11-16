@@ -265,9 +265,26 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: UserRole;
+  /** **アクティブ組織での**役割（Membership.role）。所属組織が無いときは null。表示用（判定はサーバ） */
+  role: UserRole | null;
+  /** アクティブ組織（トークンの orgId）。所属組織が無いときは null */
   orgId: string | null;
-  createdAt: string;
+  createdAt?: string;
+}
+
+/** 所属している組織1件（GET /api/auth/memberships）。docs/design/multi-tenancy.md §10.1 */
+export interface MembershipSummary {
+  orgId: string;
+  orgName: string;
+  plan: string;
+  role: UserRole;
+}
+
+/** ログイン・組織の切り替え・組織の作成・招待の受諾が返すセッション */
+export interface SessionPayload {
+  token: string;
+  user: User;
+  memberships: MembershipSummary[];
 }
 
 export interface Organization {

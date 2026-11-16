@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../../utils/prisma';
+import { authOf, type TenantDb } from '../../tenancy';
 import { requireAuth } from '../../middleware/auth';
 import {
   PROJECT_STATUSES,
@@ -10,7 +10,7 @@ import {
   type CostCategory,
   COST_CATEGORIES,
 } from './accounting-core';
-import { AuthPayload, fail, isUniqueViolation, parseDateOnly, toDateOnly } from './shared';
+import { fail, isUniqueViolation, parseDateOnly, toDateOnly } from './shared';
 
 /**
  * 工事台帳（Project）API。prefix: `/api/accounting/projects`
@@ -68,13 +68,14 @@ function toDates(input: Record<string, unknown>): { ok: true; value: Record<stri
 
 /** 工事ごと・費目ごとの原価合計を1クエリで取る（工事が何十件あっても2クエリで済ませる）。 */
 async function actualsByProject(
+  db: TenantDb,
   orgId: string,
   projectIds: string[],
   confirmedOnly: boolean,
 ): Promise<Map<string, CategoryTotals>> {
   const map = new Map<string, CategoryTotals>();
   if (projectIds.length === 0) return map;
-  const rows = await prisma.costEntry.groupBy({
+  const rows = await db.costEntry.groupBy({
     by: ['projectId', 'category'],
     where: {
       orgId,
@@ -97,14 +98,14 @@ async function actualsByProject(
 export async function accountingProjectsRoutes(app: FastifyInstance): Promise<void> {
   // 一覧（収支つき）
   app.get('/', { preHandler: requireAuth }, async (request, reply) => {
-    const { orgId } = request.user as AuthPayload;
+    const { orgId, db } = authOf(request);
     const { status, includeDraft } = request.query as { status?: string; includeDraft?: string };
 
     if (status !== undefined && !(PROJECT_STATUSES as readonly string[]).includes(status)) {
       return fail(reply, 400, 'VALIDATION_ERROR', `不正な工事ステータス: ${status}`);
     }
 
-    const projects = await prisma.project.findMany({
+    const projects = await db.project.findMany({
       where: { orgId, ...(status ? { status } : {}) },
       orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
     });
@@ -112,6 +113,7 @@ export async function accountingProjectsRoutes(app: FastifyInstance): Promise<vo
        言っている以上、既定が DRAFT 込みだと承認操作が無意味に見える
        （承認しても数字が1円も動かない）。未確認込みで見たいときは明示的に頼む。 */
     const actuals = await actualsByProject(
+      db,
       orgId,
       projects.map((p) => p.id),
       includeDraft !== 'true',
@@ -142,14 +144,14 @@ export async function accountingProjectsRoutes(app: FastifyInstance): Promise<vo
 
   // 詳細（原価明細つき）
   app.get('/:projectId', { preHandler: requireAuth }, async (request, reply) => {
-    const { orgId } = request.user as AuthPayload;
+    const { orgId, db } = authOf(request);
     const { projectId } = request.params as { projectId: string };
     const { includeDraft } = request.query as { includeDraft?: string };
 
-    const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
+    const project = await db.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return fail(reply, 404, 'NOT_FOUND', '工事が見つかりません');
 
-    const entries = await prisma.costEntry.findMany({
+    const entries = await db.costEntry.findMany({
       where: { orgId, projectId },
       orderBy: { incurredOn: 'desc' },
       include: { vendor: { select: { id: true, name: true, kind: true, invoiceRegistered: true } } },
@@ -172,7 +174,7 @@ export async function accountingProjectsRoutes(app: FastifyInstance): Promise<vo
 
   // 作成
   app.post('/', { preHandler: requireAuth }, async (request, reply) => {
-    const { orgId } = request.user as AuthPayload;
+    const { orgId, db } = authOf(request);
     const parsed = createSchema.safeParse(request.body);
     if (!parsed.success) {
       return fail(reply, 400, 'VALIDATION_ERROR', parsed.error.errors[0]?.message ?? '入力が不正です');
@@ -181,7 +183,7 @@ export async function accountingProjectsRoutes(app: FastifyInstance): Promise<vo
     if (!dates.ok) return fail(reply, 400, 'VALIDATION_ERROR', `${dates.field} が不正な日付です`);
 
     try {
-      const project = await prisma.project.create({
+      const project = await db.project.create({
         data: { ...(dates.value as object), orgId } as never,
       });
       return reply.code(201).send({ success: true, data: project });
@@ -195,7 +197,7 @@ export async function accountingProjectsRoutes(app: FastifyInstance): Promise<vo
 
   // 更新
   app.patch('/:projectId', { preHandler: requireAuth }, async (request, reply) => {
-    const { orgId } = request.user as AuthPayload;
+    const { orgId, db } = authOf(request);
     const { projectId } = request.params as { projectId: string };
     const parsed = updateSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -205,11 +207,11 @@ export async function accountingProjectsRoutes(app: FastifyInstance): Promise<vo
     if (!dates.ok) return fail(reply, 400, 'VALIDATION_ERROR', `${dates.field} が不正な日付です`);
 
     // 他 org の工事を id 指定で書き換えられないよう、必ず orgId ごと確認してから更新する
-    const existing = await prisma.project.findFirst({ where: { id: projectId, orgId } });
+    const existing = await db.project.findFirst({ where: { id: projectId, orgId } });
     if (!existing) return fail(reply, 404, 'NOT_FOUND', '工事が見つかりません');
 
     try {
-      const project = await prisma.project.update({
+      const project = await db.project.update({
         where: { id: projectId },
         data: dates.value as never,
       });
@@ -225,13 +227,13 @@ export async function accountingProjectsRoutes(app: FastifyInstance): Promise<vo
   // 削除。原価明細が残っている工事は消させない
   // （CostEntry は CASCADE で一緒に消えるため、金額の履歴が黙って失われる）
   app.delete('/:projectId', { preHandler: requireAuth }, async (request, reply) => {
-    const { orgId } = request.user as AuthPayload;
+    const { orgId, db } = authOf(request);
     const { projectId } = request.params as { projectId: string };
 
-    const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
+    const project = await db.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return fail(reply, 404, 'NOT_FOUND', '工事が見つかりません');
 
-    const costCount = await prisma.costEntry.count({ where: { orgId, projectId } });
+    const costCount = await db.costEntry.count({ where: { orgId, projectId } });
     if (costCount > 0) {
       return fail(
         reply,
@@ -241,7 +243,7 @@ export async function accountingProjectsRoutes(app: FastifyInstance): Promise<vo
       );
     }
 
-    await prisma.project.delete({ where: { id: projectId } });
+    await db.project.delete({ where: { id: projectId } });
     return reply.send({ success: true, data: { id: projectId } });
   });
 }

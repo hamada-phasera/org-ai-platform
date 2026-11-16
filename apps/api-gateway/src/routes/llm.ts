@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../utils/prisma';
+import { authOf } from '../tenancy';
 import { requireAuth } from '../middleware/auth';
 import { aiEngineHeaders } from '../services/ai-engine-auth';
 import { config } from '../config/env';
@@ -28,8 +28,9 @@ export async function llmRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
 
-    const payload = request.user as { orgId: string; email?: string };
-    const org = await prisma.organization.findUnique({ where: { id: payload.orgId } });
+    const payload = authOf(request);
+    const { db } = payload;
+    const org = await db.organization.findUnique({ where: { id: payload.orgId } });
     const plan = org?.plan ?? 'STARTER';
 
     const aiEngineUrl = config.aiEngineUrl;

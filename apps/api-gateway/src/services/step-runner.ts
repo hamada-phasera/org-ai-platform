@@ -13,6 +13,7 @@
 import type { AgentRunState, AgentStepApprovalData, AgentStepDef, StepState } from '@org-ai/shared-types';
 import { APPROVAL_REQUIRED_CAPS, LLM_TRANSFORM_STEP } from '@org-ai/shared-types';
 import { prisma } from '../utils/prisma';
+import { currentTenant, runAsTenant } from '../tenancy/context';
 import { resolveAndExecute } from './capability-resolver';
 import { httpMethodOf } from './http-node/template';
 import { aiEngineHeaders } from './ai-engine-auth';
@@ -372,6 +373,29 @@ export async function runAgentTask(
   task: { id: string; orgId: string; input: string },
   agent: StepAgentContext,
 ): Promise<void> {
+  // 実行はリクエストの外で続く。ai-engine への X-Org-Id とログのために、Task の組織で包む
+  return withTaskTenant(task.orgId, () => runAgentTaskInner(task, agent));
+}
+
+/**
+ * Task の組織をテナントコンテキストにして実行する。
+ * 既に同じ組織のコンテキストの中（HTTP リクエストから起動）ならそのまま、そうでなければ包む。
+ * ⚠️ 別の組織のコンテキストの中から呼ばれたら、それはバグ（他組織の Task を動かそうとしている）。
+ */
+async function withTaskTenant(orgId: string, fn: () => Promise<void>): Promise<void> {
+  const current = currentTenant();
+  if (current?.orgId === orgId) return fn();
+  if (current) {
+    stepRunnerLog.error(`別組織のコンテキスト (${current.orgId}) から Task (${orgId}) を実行しようとしたので中止しました`);
+    return;
+  }
+  return runAsTenant({ orgId, userId: null, role: null, source: 'scheduler' }, fn);
+}
+
+async function runAgentTaskInner(
+  task: { id: string; orgId: string; input: string },
+  agent: StepAgentContext,
+): Promise<void> {
   try {
     const state = initRunState(task.input, agent.steps);
     await prisma.task.update({
@@ -401,11 +425,32 @@ export async function runAgentTask(
  */
 export async function resumeAgentTask(
   taskId: string,
+  opts?: { editedArgs?: Record<string, unknown>; orgId?: string },
+): Promise<void> {
+  try {
+    /* 呼び出し元（承認 API = テナント経路）は orgId を渡す。渡されたらその組織の Task だけを引く（E6） */
+    const task = await prisma.task.findUnique({
+      where: opts?.orgId ? { id: taskId, orgId: opts.orgId } : { id: taskId },
+    });
+    if (!task) return;
+    if (opts?.orgId && task.orgId !== opts.orgId) return;
+    await withTaskTenant(task.orgId, () => resumeLoaded(taskId, task, opts));
+  } catch (e) {
+    stepRunnerLog.error('resumeAgentTask failed:', e);
+    await prisma.task
+      .update({ where: { id: taskId }, data: { status: 'FAILED', lastError: String(e) } })
+      .catch(() => {});
+  }
+}
+
+type TaskRow = NonNullable<Awaited<ReturnType<typeof prisma.task.findUnique>>>;
+
+async function resumeLoaded(
+  taskId: string,
+  task: TaskRow,
   opts?: { editedArgs?: Record<string, unknown> },
 ): Promise<void> {
   try {
-    const task = await prisma.task.findUnique({ where: { id: taskId } });
-    if (!task) return;
     // RUNNING = approve が claim 済み / PENDING_APPROVAL = claim を経ない旧経路。それ以外は再開しない
     // （却下済み・完了済みを蒸し返さない）。
     if (task.status && task.status !== 'RUNNING' && task.status !== 'PENDING_APPROVAL') {
@@ -416,9 +461,14 @@ export async function resumeAgentTask(
       await failTask(taskId, 'エージェントが紐づいていないため再開できません');
       return;
     }
-    const agentRow = await prisma.agent.findUnique({ where: { id: task.agentId } });
+    // ⚠️ Task と同じ組織のエージェントだけを使う（E6）
+    const agentRow = await prisma.agent.findUnique({ where: { id: task.agentId, orgId: task.orgId } });
     if (!agentRow) {
       await failTask(taskId, 'エージェントが削除されています');
+      return;
+    }
+    if (agentRow.orgId !== task.orgId) {
+      await failTask(taskId, 'エージェントが見つかりません');
       return;
     }
     const state = parseRunState(task.executionResult);

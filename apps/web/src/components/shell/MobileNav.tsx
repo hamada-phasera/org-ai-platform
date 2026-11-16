@@ -5,6 +5,9 @@ import { FileText, Home, Inbox, Menu, MessageCircle, Monitor, X } from 'lucide-r
 import { ADMIN_NAV, MAIN_NAV, WORK_PAGES } from './navConfig';
 import type { NavEntry } from './navConfig';
 import { useMotion } from '../motion/springs';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../../services/api';
+import { OrgSwitcher } from '../org/OrgSwitcher';
 
 const TABS: NavEntry[] = [
   { to: '/', label: 'ホーム', icon: Home, end: true },
@@ -23,6 +26,13 @@ export function MobileNav() {
   const [menuOpen, setMenuOpen] = useState(false);
   const navigate = useNavigate();
   const transition = useMotion('enter');
+  // サイドバーと同じキー（同じキャッシュを共有する）
+  const { data: org } = useQuery<{ name: string; plan: string } | null>({
+    queryKey: ['org-me'],
+    queryFn: async () => (await api.get<{ data: { name: string; plan: string } }>('/organizations/me')).data.data,
+    staleTime: 5 * 60_000,
+    enabled: menuOpen,
+  });
 
   const desktopOnly = [...MAIN_NAV, ...ADMIN_NAV].filter((e) => !MOBILE_OK.has(e.to));
 
@@ -51,6 +61,10 @@ export function MobileNav() {
               >
                 <X size={16} strokeWidth={2.3} aria-hidden="true" />
               </button>
+            </div>
+
+            <div className="px-4 pt-1">
+              <OrgSwitcher org={org} />
             </div>
 
             <p className="px-4 pb-2 pt-3 text-micro font-bold uppercase tracking-[0.1em] text-text-muted">

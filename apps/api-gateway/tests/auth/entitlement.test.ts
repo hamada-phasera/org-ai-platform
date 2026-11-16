@@ -2,10 +2,16 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import jwt from '@fastify/jwt';
 
-const prismaMock = { organization: { findUnique: vi.fn() } };
+import { userWithMembership } from '../helpers/membership';
+
+// 契約状態は、所属の確認（User ⨝ Membership ⨝ Organization の1回の読み取り）に載っている
+const prismaMock = { user: { findUnique: vi.fn() } };
 vi.mock('../../src/utils/prisma', () => ({ prisma: prismaMock }));
 
 const { requireAuth } = await import('../../src/middleware/auth');
+const { clearMembershipCache } = await import('../../src/tenancy/membership-cache');
+const withStatus = (subscriptionStatus: string | null) =>
+  prismaMock.user.findUnique.mockResolvedValue(userWithMembership({ subscriptionStatus }));
 const { entitlementOf, needsEntitlementCheck } = await import('../../src/services/entitlement');
 
 const SECRET = 'test-secret-value-that-is-long-enough-32';
@@ -27,7 +33,8 @@ const auth = (app: FastifyInstance) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
-  prismaMock.organization.findUnique.mockResolvedValue({ subscriptionStatus: null });
+  clearMembershipCache();
+  withStatus(null);
 });
 
 describe('entitlementOf', () => {
@@ -69,7 +76,7 @@ describe('needsEntitlementCheck', () => {
 
 describe('requireAuth の契約チェック', () => {
   it('解約済みの組織は書き込みを 402 で止める', async () => {
-    prismaMock.organization.findUnique.mockResolvedValue({ subscriptionStatus: 'canceled' });
+    withStatus('canceled');
     const app = await build();
     const res = await app.inject({ method: 'POST', url: '/api/tasks', headers: auth(app), payload: {} });
 
@@ -79,18 +86,20 @@ describe('requireAuth の契約チェック', () => {
     await app.close();
   });
 
-  it('解約済みでも読み取りは通り、DB も引かない', async () => {
-    prismaMock.organization.findUnique.mockResolvedValue({ subscriptionStatus: 'canceled' });
+  it('解約済みでも読み取りは通り、契約のために余分なクエリを足さない', async () => {
+    // 所属の確認は毎リクエスト行う（設計書 Q1）。契約状態はその1回の読み取りに載っているので、
+    // 読み取りのために別のクエリは増えない
+    withStatus('canceled');
     const app = await build();
     const res = await app.inject({ method: 'GET', url: '/api/tasks', headers: auth(app) });
 
     expect(res.statusCode).toBe(200);
-    expect(prismaMock.organization.findUnique).not.toHaveBeenCalled();
+    expect(prismaMock.user.findUnique).toHaveBeenCalledTimes(1);
     await app.close();
   });
 
   it('解約済みでも決済の手続きは通す', async () => {
-    prismaMock.organization.findUnique.mockResolvedValue({ subscriptionStatus: 'canceled' });
+    withStatus('canceled');
     const app = await build();
     const res = await app.inject({ method: 'POST', url: '/api/billing/checkout', headers: auth(app), payload: {} });
     expect(res.statusCode).toBe(200);
@@ -100,7 +109,8 @@ describe('requireAuth の契約チェック', () => {
   it('契約中と、まだ決済を繋いでいない組織は書き込める', async () => {
     const app = await build();
     for (const status of ['active', 'trialing', 'past_due', null]) {
-      prismaMock.organization.findUnique.mockResolvedValue({ subscriptionStatus: status });
+      clearMembershipCache();
+      withStatus(status);
       const res = await app.inject({ method: 'POST', url: '/api/tasks', headers: auth(app), payload: {} });
       expect(res.statusCode).toBe(200);
     }
@@ -111,7 +121,7 @@ describe('requireAuth の契約チェック', () => {
     const app = await build();
     const res = await app.inject({ method: 'POST', url: '/api/tasks', payload: {} });
     expect(res.statusCode).toBe(401);
-    expect(prismaMock.organization.findUnique).not.toHaveBeenCalled();
+    expect(prismaMock.user.findUnique).not.toHaveBeenCalled();
     await app.close();
   });
 });

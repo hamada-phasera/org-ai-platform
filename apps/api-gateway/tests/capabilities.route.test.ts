@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { setTenant } from './helpers/tenant';
 
 process.env.CHANNEL_CREDENTIAL_ENC_KEY = 'c'.repeat(64);
 
@@ -21,13 +22,13 @@ vi.mock('../src/utils/prisma', () => ({ prisma: prismaMock }));
 
 vi.mock('../src/middleware/auth', () => ({
   requireAuth: async (req: { user?: unknown }) => {
-    req.user = { orgId: 'org-1', sub: 'user-1', role: 'OWNER' };
+    await setTenant(req as never, { orgId: 'org-1', sub: 'user-1', role: 'OWNER' } as never);
   },
   requireOwner: async (req: { user?: unknown }) => {
-    req.user = { orgId: 'org-1', sub: 'user-1', role: 'OWNER' };
+    await setTenant(req as never, { orgId: 'org-1', sub: 'user-1', role: 'OWNER' } as never);
   },
   requireAdmin: async (req: { user?: unknown }) => {
-    req.user = { orgId: 'org-1', sub: 'user-1', role: 'OWNER' };
+    await setTenant(req as never, { orgId: 'org-1', sub: 'user-1', role: 'OWNER' } as never);
   },
 }));
 

@@ -4,12 +4,11 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../../utils/prisma';
+import { authOf, type TenantDb } from '../../tenancy';
 import { requireAuth } from '../../middleware/auth';
 import { getChannelAdapter } from '../../services/inbox/adapter';
 import { generateInboxDraft } from '../../services/inbox/draft-generator';
 import { sendError } from '../../utils/http-error';
-import type { AuthPayload } from '../../types/auth';
 
 export type InboxAction = 'regenerate' | 'approve' | 'reject';
 
@@ -37,23 +36,22 @@ const approveSchema = z.object({ replyText: z.string().min(1).max(5000) });
 const rejectSchema = z.object({ reason: z.string().max(500).optional() });
 
 export async function inboxMessagesRoutes(app: FastifyInstance): Promise<void> {
-  // 自 org のメッセージだけを引く。他 org / 不存在は区別せず 404。
-  async function loadMessage(orgId: string, id: string) {
-    const msg = await prisma.inboundMessage.findUnique({ where: { id } });
-    if (!msg || msg.orgId !== orgId) return null;
-    return msg;
+  // 自 org のメッセージだけを引く（テナントクライアントが orgId で絞る）。他 org / 不存在は区別せず 404。
+  async function loadMessage(db: TenantDb, id: string) {
+    return db.inboundMessage.findUnique({ where: { id } });
   }
 
   // ── 一覧: GET /?status=&connectionId=&limit=50 ──────────────
   app.get('/', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
+    const payload = authOf(request);
+    const { db } = payload;
     const parsed = listQuerySchema.safeParse(request.query ?? {});
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
     const { status, connectionId } = parsed.data;
     const take = Math.min(parsed.data.limit ?? 50, 100);
-    const messages = await prisma.inboundMessage.findMany({
+    const messages = await db.inboundMessage.findMany({
       where: {
         orgId: payload.orgId,
         ...(status ? { status } : {}),
@@ -67,9 +65,10 @@ export async function inboxMessagesRoutes(app: FastifyInstance): Promise<void> {
 
   // ── 下書き再生成 ──────────────────────────────────────────
   app.post('/:id/regenerate', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
+    const payload = authOf(request);
+    const { db } = payload;
     const { id } = request.params as { id: string };
-    const msg = await loadMessage(payload.orgId, id);
+    const msg = await loadMessage(db, id);
     if (!msg) {
       return sendError(reply, 404, 'NOT_FOUND', 'メッセージが見つかりません');
     }
@@ -77,19 +76,20 @@ export async function inboxMessagesRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 409, 'INVALID_STATE', `この状態では再生成できません(現在: ${msg.status})`);
     }
     await generateInboxDraft(id, { allowRegenerate: true });
-    const updated = await prisma.inboundMessage.findUnique({ where: { id } });
+    const updated = await db.inboundMessage.findUnique({ where: { id } });
     return reply.send({ success: true, data: updated });
   });
 
   // ── 承認 = LINE push 送信（唯一の実送信経路） ──────────────
   app.post('/:id/approve', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
+    const payload = authOf(request);
+    const { db } = payload;
     const { id } = request.params as { id: string };
     const parsed = approveSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
-    const msg = await loadMessage(payload.orgId, id);
+    const msg = await loadMessage(db, id);
     if (!msg) {
       return sendError(reply, 404, 'NOT_FOUND', 'メッセージが見つかりません');
     }
@@ -97,16 +97,17 @@ export async function inboxMessagesRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 409, 'INVALID_STATE', `この状態では承認できません(現在: ${msg.status})`);
     }
     const connection = msg.connectionId
-      ? await prisma.channelConnection.findUnique({ where: { id: msg.connectionId } })
+      ? await db.channelConnection.findUnique({ where: { id: msg.connectionId, orgId: msg.orgId } })
       : null;
-    if (!connection) {
+    // ⚠️ 送信用の資格情報を取る経路なので、接続が同じ組織のものかを必ず照合する（E7）
+    if (!connection || connection.orgId !== msg.orgId) {
       return sendError(reply, 409, 'INVALID_STATE', 'LINE 接続が削除されているため送信できません');
     }
 
     const adapter = getChannelAdapter(msg.provider);
     const result = await adapter.sendReply(connection, msg, parsed.data.replyText);
     if (!result.ok) {
-      await prisma.inboundMessage.update({
+      await db.inboundMessage.update({
         where: { id },
         data: {
           status: 'SEND_FAILED',
@@ -116,7 +117,7 @@ export async function inboxMessagesRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 502, 'LINE_PUSH_FAILED', 'LINE への送信に失敗しました。再度承認するとリトライします。');
     }
 
-    const updated = await prisma.inboundMessage.update({
+    const updated = await db.inboundMessage.update({
       where: { id },
       data: {
         status: 'SENT',
@@ -131,7 +132,7 @@ export async function inboxMessagesRoutes(app: FastifyInstance): Promise<void> {
     // pushCountMonth が今月でなければ 1 にリセット（月替りの lazy リセット）。
     try {
       const currentMonth = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
-      await prisma.channelConnection.update({
+      await db.channelConnection.update({
         where: { id: connection.id },
         data:
           connection.pushCountMonth === currentMonth
@@ -147,20 +148,21 @@ export async function inboxMessagesRoutes(app: FastifyInstance): Promise<void> {
 
   // ── 却下（状態遷移のみ・送信しない） ──────────────────────
   app.post('/:id/reject', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
+    const payload = authOf(request);
+    const { db } = payload;
     const { id } = request.params as { id: string };
     const parsed = rejectSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
-    const msg = await loadMessage(payload.orgId, id);
+    const msg = await loadMessage(db, id);
     if (!msg) {
       return sendError(reply, 404, 'NOT_FOUND', 'メッセージが見つかりません');
     }
     if (!assertTransition(msg.status, 'reject')) {
       return sendError(reply, 409, 'INVALID_STATE', `この状態では却下できません(現在: ${msg.status})`);
     }
-    const updated = await prisma.inboundMessage.update({
+    const updated = await db.inboundMessage.update({
       where: { id },
       data: { status: 'REJECTED', rejectedReason: parsed.data.reason ?? null },
     });

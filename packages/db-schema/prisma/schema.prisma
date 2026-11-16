@@ -20,10 +20,36 @@ model User {
   /// 'ACTIVE' | 'DISABLED'。退職者は物理削除しない
   /// （Agent.createdBy / Capability.createdBy などの User.id 参照を壊さないため）
   status       String        @default("ACTIVE")
+  /// **最後に選んだ組織**（次にログインしたときの既定）。所属の正本は Membership。
+  /// 列名は互換のため残す（docs/design/multi-tenancy.md ADR-2。名前の変更は Phase 3）。
   orgId        String?
   org          Organization? @relation(fields: [orgId], references: [id])
+  memberships  Membership[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
+}
+
+/// 組織への所属。**権限の正本**（ロールも状態も組織ごと）。
+/// User.role は移行期間中の写しで、判定には使わない（docs/design/multi-tenancy.md ADR-2）。
+///
+/// ⚠️ どの組織にも ACTIVE な OWNER が最低1人いること（I4）。外す・降格する API で守る。
+model Membership {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// 'OWNER' | 'ADMIN' | 'MEMBER'。DEFAULT は fail-closed（User.role と同じ理由）
+  role      String       @default("MEMBER")
+  /// 'ACTIVE' | 'DISABLED'。DISABLED はこの組織にだけ入れない（User.status はアカウント全体）
+  status    String       @default("ACTIVE")
+  /// 招待で入った場合の招待者（User.id）
+  invitedBy String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([userId, orgId])
+  @@index([orgId, status])
 }
 
 /// 招待。管理者が発行し、リンクを手渡す（口頭・Slack・LINE 等）。
@@ -85,7 +111,11 @@ model Organization {
   trialEndsAt         DateTime?
   /// 期間の終わりで解約する予約が入っている
   cancelAtPeriodEnd   Boolean              @default(false)
+  /// 組織を作ったユーザー（User.id）。トライアルを「作成者ごとに1回」にする判定と監査に使う。
+  /// 移行前の行は null
+  createdBy           String?
   users               User[]
+  memberships         Membership[]
   invitations         Invitation[]
   sessions            ChatSession[]
   tasks               Task[]
@@ -172,6 +202,10 @@ model AILog {
   latencyMs  Int?
   riskScore  Float?
   createdAt  DateTime @default(now())
+
+  /// 月間上限の判定（ai-engine governance/usage.py）と利用量表示の count が前提にしている索引。
+  /// 以前は usage-metrics-svc/schema.sql が Prisma の外で作っていた（名前を合わせて取り込んだ）
+  @@index([orgId, createdAt], map: "idx_ailog_org_created")
 }
 
 model RiskEvent {
@@ -183,6 +217,8 @@ model RiskEvent {
   severity    String
   resolved    Boolean  @default(false)
   createdAt   DateTime @default(now())
+
+  @@index([orgId, createdAt])
 }
 
 model UploadedFile {

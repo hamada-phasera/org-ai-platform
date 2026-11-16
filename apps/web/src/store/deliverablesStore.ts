@@ -1,5 +1,7 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { activeOrgId } from './authStore';
+import { createOrgScopedStorage } from './orgScopedStorage';
 
 export interface Folder {
   id: string;
@@ -143,6 +145,9 @@ export const useDeliverablesStore = create<DeliverablesState>()(
     }),
     {
       name: 'flow-deliverables-v1',
+      // ⚠️ 組織ごとに保存する（key は flow-deliverables-v1:<orgId>）。組織を切り替えると
+      //    ページを読み直すので、そのときに切り替え先の組織の分を読む（services/session.ts）
+      storage: createJSONStorage(() => createOrgScopedStorage(activeOrgId)),
     },
   ),
 );

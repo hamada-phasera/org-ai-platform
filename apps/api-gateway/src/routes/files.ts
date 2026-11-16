@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { basename } from 'path';
 import { PLAN_LIMITS, canUpload, formatBytes, type Plan } from '@org-ai/shared-types';
-import { prisma } from '../utils/prisma';
+import { authOf } from '../tenancy';
 import { keyBelongsToOrg, storageKey } from '../services/storage';
 import { currentDriverName, readDriver, writeDriver } from '../services/storage/driver';
 import { requireAuth } from '../middleware/auth';
@@ -59,10 +59,11 @@ class QuotaRaceError extends Error {}
 
 export async function fileRoutes(app: FastifyInstance): Promise<void> {
   app.post('/upload', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as { sub: string; orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
 
     // プランを先に引く。1ファイルの上限はプランごとに違い、読み取りの上限に使う
-    const org = await prisma.organization.findUnique({
+    const org = await db.organization.findUnique({
       where: { id: payload.orgId },
       select: { plan: true, storageUsedBytes: true, storageAddonUnits: true },
     });
@@ -126,7 +127,7 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     const quota = verdict.quota;
     let file;
     try {
-      file = await prisma.$transaction(async (tx) => {
+      file = await db.$transaction(async (tx) => {
         const claimed = await tx.organization.updateMany({
           where: { id: payload.orgId, storageUsedBytes: { lte: BigInt(quota - size) } },
           data: { storageUsedBytes: { increment: BigInt(size) } },
@@ -160,8 +161,9 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get('/', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as { orgId: string };
-    const files = await prisma.uploadedFile.findMany({
+    const payload = authOf(request);
+    const { db } = payload;
+    const files = await db.uploadedFile.findMany({
       where: { orgId: payload.orgId },
       select: { id: true, originalName: true, mimeType: true, sizeBytes: true, createdAt: true, storageDriver: true },
       orderBy: { createdAt: 'desc' },
@@ -174,9 +176,10 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/:fileId', { preHandler: requireAuth }, async (request, reply) => {
     const { fileId } = request.params as { fileId: string };
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
 
-    const file = await prisma.uploadedFile.findUnique({ where: { id: fileId } });
+    const file = await db.uploadedFile.findUnique({ where: { id: fileId } });
     if (!file || file.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', 'ファイルが見つかりません');
     }
@@ -193,10 +196,11 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/:fileId/analyze', { preHandler: requireAuth }, async (request, reply) => {
     const { fileId } = request.params as { fileId: string };
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
     const body = (request.body ?? {}) as { question?: string; department?: string };
 
-    const file = await prisma.uploadedFile.findUnique({ where: { id: fileId } });
+    const file = await db.uploadedFile.findUnique({ where: { id: fileId } });
     if (!file || file.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', 'ファイルが見つかりません');
     }
@@ -214,7 +218,7 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     const department = body.department && ALLOWED_DEPARTMENTS.has(body.department) ? body.department : 'GENERAL';
     const question = (body.question ?? 'このファイルの内容を要約し、重要なポイントを箇条書きで教えてください。').trim();
 
-    const org = await prisma.organization.findUnique({ where: { id: payload.orgId } });
+    const org = await db.organization.findUnique({ where: { id: payload.orgId } });
     const plan = org?.plan ?? 'STARTER';
 
     const prompt = [
@@ -240,7 +244,7 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
           org_id: payload.orgId,
           plan,
           department,
-          user_email: (request.user as { email?: string }).email ?? null, // 松竹梅ルーティング
+          user_email: authOf(request).email ?? null, // 松竹梅ルーティング
         }),
       });
     } catch (e) {
@@ -274,9 +278,10 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
 
   app.delete('/:fileId', { preHandler: requireAuth }, async (request, reply) => {
     const { fileId } = request.params as { fileId: string };
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
 
-    const file = await prisma.uploadedFile.findUnique({ where: { id: fileId } });
+    const file = await db.uploadedFile.findUnique({ where: { id: fileId } });
     if (!file || file.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', 'ファイルが見つかりません');
     }
@@ -302,7 +307,7 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     /* ⚠️ 行の削除と使用量の減算は同じトランザクションで。
        減算は GREATEST で 0 に張り付ける（移行前の行はカウンタに加算されていないので、
        そのまま引くと負になる）。読んでから書くと同時削除で競合するので1文で行う。 */
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       await tx.uploadedFile.delete({ where: { id: fileId } });
       await tx.$executeRaw`UPDATE "Organization" SET "storageUsedBytes" = GREATEST("storageUsedBytes" - ${BigInt(file.sizeBytes)}, 0) WHERE "id" = ${payload.orgId}`;
     });

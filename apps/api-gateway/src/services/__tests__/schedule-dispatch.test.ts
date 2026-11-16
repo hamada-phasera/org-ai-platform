@@ -20,6 +20,7 @@ vi.mock('../step-runner', () => ({ runAgentTask: runAgentTaskMock }));
 
 const { startOfCurrentHourUtc, matchesSchedule, claimAndEnqueueScheduledTask, enqueueDueScheduledTasks } =
   await import('../schedule-dispatcher');
+const { currentTenant } = await import('../../tenancy/context');
 
 const ST = {
   id: 'st1',
@@ -168,6 +169,39 @@ describe('claimAndEnqueueScheduledTask（二重発火防止）', () => {
 
     await claimAndEnqueueScheduledTask('st1');
     await expect(flush()).resolves.toBeUndefined();
+  });
+
+  it('claim 後の処理は定期タスクの組織のテナントコンテキストで走る（ai-engine に X-Org-Id が伝わる）', async () => {
+    prismaMock.scheduledTask.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.scheduledTask.findUnique.mockResolvedValue({ ...ST, agentId: 'A1' });
+    prismaMock.agent.findUnique.mockResolvedValue({
+      ...AGENT,
+      steps: [{ capabilityName: 'create_google_doc', argTemplate: { title: 'T', content: '{{input}}' } }],
+    });
+    let seen: { orgId: string; source: string } | undefined;
+    runAgentTaskMock.mockImplementation(async () => {
+      const t = currentTenant();
+      seen = t ? { orgId: t.orgId, source: t.source } : undefined;
+    });
+
+    await claimAndEnqueueScheduledTask('st1');
+    await flush();
+
+    expect(seen).toEqual({ orgId: 'org-1', source: 'scheduler' });
+    // Task は定期タスクの組織に作られる（テナントクライアントが orgId を付ける）
+    expect(prismaMock.task.create.mock.calls[0][0].data.orgId).toBe('org-1');
+  });
+
+  it('⚠️ 別組織のエージェントは使わない（E5）', async () => {
+    prismaMock.scheduledTask.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.scheduledTask.findUnique.mockResolvedValue({ ...ST, agentId: 'A1' });
+    prismaMock.agent.findUnique.mockResolvedValue({ ...AGENT, orgId: 'org-OTHER' });
+
+    const r = await claimAndEnqueueScheduledTask('st1');
+
+    expect(prismaMock.agent.findUnique.mock.calls[0][0].where).toEqual({ id: 'A1', orgId: ST.orgId });
+    expect(r).toEqual({ enqueued: false, reason: 'agent_gone' });
+    expect(prismaMock.task.create).not.toHaveBeenCalled();
   });
 
   it('エージェントが削除済み/無効なら Task を作らない', async () => {

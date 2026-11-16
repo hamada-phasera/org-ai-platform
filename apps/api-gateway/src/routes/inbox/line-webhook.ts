@@ -8,6 +8,7 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { prisma } from '../../utils/prisma';
+import { runAsTenant } from '../../tenancy/context';
 import { openSecret } from '../../services/secret-box';
 import { verifyLineSignature } from '../../services/inbox/line-client';
 import { processLineEvents } from '../../services/inbox/line-inbox';
@@ -71,7 +72,10 @@ export async function lineWebhookRoutes(app: FastifyInstance): Promise<void> {
     // 即 200 → 取り込みは完全非同期（LINE の応答タイムアウト・再送を防ぐ）
     reply.send({ success: true });
     const events = Array.isArray(body.events) ? body.events : [];
-    void processLineEvents(connection, events).catch((e) => {
+    // 署名を確かめた接続の組織に閉じて取り込む（下書き生成・領収書読み取りの ai-engine 呼び出しにも伝わる）
+    void runAsTenant({ orgId: connection.orgId, userId: null, role: null, source: 'line-webhook' }, () =>
+      processLineEvents(connection, events),
+    ).catch((e) => {
       request.log.error(
         { connectionId: connection.id, err: e instanceof Error ? e.message : String(e) },
         '[line-webhook] processLineEvents に失敗',

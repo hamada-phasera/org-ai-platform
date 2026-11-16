@@ -6,10 +6,14 @@ import { Building2, ShieldCheck } from 'lucide-react';
 import { api } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { Button, Card, Input, Spinner } from '../components/ui';
-import type { User } from '@org-ai/shared-types';
+import type { SessionPayload, User } from '@org-ai/shared-types';
+import { applySession } from '../services/session';
+import { sessionDeps } from '../services/sessionDeps';
 
 /**
  * 招待されたひとがアカウントを作る画面。**ログイン不要**。
+ * 招待のメールの人が既に登録済み（requiresLogin）なら、アカウントは作らずにログインして「参加」する
+ * （docs/design/multi-tenancy.md UC2 / §10.3）。参加すると招待した組織に切り替わる。
  *
  * 招待リンクは管理者が手渡す（このプロダクトはメールを送れない）。
  * 組織と役割はサーバがトークンから決めるので、この画面からは選べない。
@@ -35,9 +39,22 @@ export default function InvitePage() {
     queryFn: async () => {
       const res = await api.get<{
         success: boolean;
-        data: { organizationName: string; role: string; expiresAt: string };
+        data: { organizationName: string; role: string; expiresAt: string; requiresLogin?: boolean };
       }>(`/members/invitations/preview/${token}`);
       return res.data.data;
+    },
+  });
+
+  const sessionToken = useAuthStore((s) => s.token);
+
+  /* 既存ユーザーの参加。サーバはログイン中の本人のメールと招待のメールが一致するときだけ受け付ける */
+  const joinMut = useMutation({
+    mutationFn: () =>
+      api.post<{ success: boolean; data: SessionPayload }>('/members/invitations/accept-existing', { token }),
+    onSuccess: (res) => applySession(sessionDeps, res.data.data),
+    onError: (err) => {
+      const data = (err as { response?: { data?: { error?: { message?: string } } } }).response?.data;
+      setError(data?.error?.message ?? '参加できませんでした');
     },
   });
 
@@ -84,6 +101,36 @@ export default function InvitePage() {
 
   const invite = previewQ.data;
   const canSubmit = name.trim().length > 0 && password.length >= 8;
+
+  if (invite.requiresLogin) {
+    return (
+      <div className="flex min-h-screen items-center justify-center px-4">
+        <Card variant="regular" padding="lg" radius="2xl" className="w-full max-w-md space-y-4 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-soft">
+            <Building2 size={20} className="text-accent" aria-hidden="true" />
+          </div>
+          <h1 className="text-body font-semibold text-primary">「{invite.organizationName}」に招待されています</h1>
+          <p className="flex items-center justify-center gap-1 text-xs text-muted">
+            <ShieldCheck size={12} aria-hidden="true" />
+            {ROLE_LABEL[invite.role] ?? invite.role}として参加します
+          </p>
+          <p className="text-sm leading-relaxed text-muted">
+            このメールアドレスは登録済みです。今お使いのアカウントのまま参加できます。参加後は組織を切り替えて行き来できます。
+          </p>
+          {error && <p className="text-xs text-danger">{error}</p>}
+          {sessionToken ? (
+            <Button fullWidth loading={joinMut.isPending} onClick={() => { setError(null); joinMut.mutate(); }}>
+              参加する
+            </Button>
+          ) : (
+            <Button fullWidth onClick={() => navigate(`/login?next=${encodeURIComponent(`/invite/${token}`)}`)}>
+              ログインして参加する
+            </Button>
+          )}
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4">

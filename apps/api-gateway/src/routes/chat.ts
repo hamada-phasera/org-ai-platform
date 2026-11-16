@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../utils/prisma';
+import { authOf } from '../tenancy';
 import { requireAuth } from '../middleware/auth';
 import { retrieveContext, indexMessages } from '../services/rag';
 import { scrubSecrets } from '../services/secret-scrubber';
@@ -85,16 +85,18 @@ const sendMessageSchema = z.object({
 
 export async function chatRoutes(app: FastifyInstance): Promise<void> {
   app.post('/sessions', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as { sub: string; orgId: string };
-    const session = await prisma.chatSession.create({
+    const payload = authOf(request);
+    const { db } = payload;
+    const session = await db.chatSession.create({
       data: { orgId: payload.orgId },
     });
     return reply.code(201).send({ success: true, data: session });
   });
 
   app.get('/sessions', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as { orgId: string };
-    const sessions = await prisma.chatSession.findMany({
+    const payload = authOf(request);
+    const { db } = payload;
+    const sessions = await db.chatSession.findMany({
       where: { orgId: payload.orgId },
       orderBy: { createdAt: 'desc' },
     });
@@ -103,7 +105,8 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
   /** 組織内の全セッションタイトル・メッセージ本文を横断検索（秘書AI検索用） */
   app.get('/search', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
     const q = typeof request.query === 'object' && request.query && 'q' in request.query
       ? String((request.query as { q?: string }).q ?? '').trim()
       : '';
@@ -115,7 +118,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const [sessionHits, messageHits] = await Promise.all([
-      prisma.chatSession.findMany({
+      db.chatSession.findMany({
         where: {
           orgId: payload.orgId,
           title: { contains: q, mode: 'insensitive' },
@@ -123,7 +126,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         orderBy: { createdAt: 'desc' },
         take: 15,
       }),
-      prisma.message.findMany({
+      db.message.findMany({
         where: {
           content: { contains: q, mode: 'insensitive' },
           session: { orgId: payload.orgId },
@@ -159,19 +162,20 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
   // 従来の非ストリーミングエンドポイント（互換性維持）
   app.post('/sessions/:id/messages', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const payload = request.user as { sub: string; orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
 
     const result = sendMessageSchema.safeParse(request.body);
     if (!result.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
     }
 
-    const session = await prisma.chatSession.findUnique({ where: { id } });
+    const session = await db.chatSession.findUnique({ where: { id } });
     if (!session || session.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', 'セッションが見つかりません');
     }
 
-    const org = await prisma.organization.findUnique({ where: { id: payload.orgId } });
+    const org = await db.organization.findUnique({ where: { id: payload.orgId } });
     const plan = org?.plan ?? 'STARTER';
 
     // 資格情報らしき文字列は「保存前に1回だけ」マスクし、以降の DB 保存 / LLM 送信 / RAG 索引は
@@ -186,11 +190,11 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     }
     const userContent = scrubbed.text;
 
-    const userMessage = await prisma.message.create({
+    const userMessage = await db.message.create({
       data: { sessionId: id, role: 'user', content: userContent },
     });
 
-    const recentMessages = await prisma.message.findMany({
+    const recentMessages = await db.message.findMany({
       where: { sessionId: id },
       orderBy: { createdAt: 'desc' },
       take: 10,
@@ -234,7 +238,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
             department: result.data.department ?? null,
             plan,
             context: ragContext,
-            user_email: (request.user as { email?: string }).email ?? null, // 松竹梅ルーティング
+            user_email: authOf(request).email ?? null, // 松竹梅ルーティング
           }),
         });
         if (!res.ok) {
@@ -258,7 +262,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    const assistantMessage = await prisma.message.create({
+    const assistantMessage = await db.message.create({
       data: {
         sessionId: id,
         role: 'assistant',
@@ -275,7 +279,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
     if (!session.title) {
       const title = userContent.slice(0, 30);
-      await prisma.chatSession.update({ where: { id }, data: { title } });
+      await db.chatSession.update({ where: { id }, data: { title } });
     }
 
     return reply.send({ success: true, data: { userMessage, assistantMessage } });
@@ -284,19 +288,20 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
   // SSE ストリーミングエンドポイント
   app.post('/sessions/:id/messages/stream', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const payload = request.user as { sub: string; orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
 
     const body = sendMessageSchema.safeParse(request.body);
     if (!body.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', body.error.message);
     }
 
-    const session = await prisma.chatSession.findUnique({ where: { id } });
+    const session = await db.chatSession.findUnique({ where: { id } });
     if (!session || session.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', 'セッションが見つかりません');
     }
 
-    const org = await prisma.organization.findUnique({ where: { id: payload.orgId } });
+    const org = await db.organization.findUnique({ where: { id: payload.orgId } });
     const plan = org?.plan ?? 'STARTER';
 
     // 資格情報らしき文字列は「保存前に1回だけ」マスクし、以降の DB 保存 / LLM 送信 / RAG 索引は
@@ -311,13 +316,13 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     }
     const userContent = scrubbed.text;
 
-    const userMessage = await prisma.message.create({
+    const userMessage = await db.message.create({
       data: { sessionId: id, role: 'user', content: userContent },
     });
 
     if (!session.title) {
       const title = userContent.slice(0, 30);
-      await prisma.chatSession.update({ where: { id }, data: { title } });
+      await db.chatSession.update({ where: { id }, data: { title } });
     }
 
     // SSE ヘッダー
@@ -379,7 +384,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     } catch { /* RAG はベストエフォート */ }
 
     // 同一セッションの直近履歴（今回のユーザー発話を除く）。ヒアリングが前回の回答を踏まえて進行できるように。
-    const prior = await prisma.message.findMany({
+    const prior = await db.message.findMany({
       where: { sessionId: id, id: { not: userMessage.id } },
       orderBy: { createdAt: 'desc' },
       take: 10,
@@ -398,7 +403,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
           plan,
           context: ragContext,
           history,
-          user_email: (request.user as { email?: string }).email ?? null, // 松竹梅ルーティング
+          user_email: authOf(request).email ?? null, // 松竹梅ルーティング
         }),
       });
 
@@ -453,7 +458,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       chatStreamLog.info('responded via ai-engine streaming');
     } catch (err) {
       chatStreamLog.error('ai-engine stream failed, trying n8n fallback:', err);
-      const orgRow = await prisma.organization.findUnique({ where: { id: payload.orgId }, select: { plan: true } });
+      const orgRow = await db.organization.findUnique({ where: { id: payload.orgId }, select: { plan: true } });
       const n8nResult = await generateViaN8n({
         message: userContent,
         department: body.data.department ?? null,
@@ -482,7 +487,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    const assistantMessage = await prisma.message.create({
+    const assistantMessage = await db.message.create({
       data: { sessionId: id, role: 'assistant', content: fullContent, department },
     });
 
@@ -499,14 +504,15 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/sessions/:id/messages', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
 
-    const session = await prisma.chatSession.findUnique({ where: { id } });
+    const session = await db.chatSession.findUnique({ where: { id } });
     if (!session || session.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', 'セッションが見つかりません');
     }
 
-    const messages = await prisma.message.findMany({
+    const messages = await db.message.findMany({
       where: { sessionId: id },
       orderBy: { createdAt: 'asc' },
     });
@@ -522,14 +528,15 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post('/sessions/:id/suggest', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
 
-    const session = await prisma.chatSession.findUnique({ where: { id } });
+    const session = await db.chatSession.findUnique({ where: { id } });
     if (!session || session.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', 'セッションが見つかりません');
     }
 
-    const recent = await prisma.message.findMany({
+    const recent = await db.message.findMany({
       where: { sessionId: id },
       orderBy: { createdAt: 'desc' },
       take: 8,
@@ -540,7 +547,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       return reply.send({ success: true, data: { suggest: false } });
     }
 
-    const org = await prisma.organization.findUnique({ where: { id: payload.orgId } });
+    const org = await db.organization.findUnique({ where: { id: payload.orgId } });
     const plan = org?.plan ?? 'STARTER';
 
     const transcript = ordered
@@ -553,7 +560,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
     // ⚠️ ここは以前 available_capabilities: [] を渡しており、planner が手順を組みようがなかった
     //    （提案カードに名前しか出なかった原因）。org の capability を実際に渡す。
-    const capabilities = await prisma.capability.findMany({
+    const capabilities = await db.capability.findMany({
       where: { orgId: payload.orgId, status: { not: 'DISABLED' } },
       select: { name: true, displayName: true, description: true, department: true, inputSchema: true },
     });

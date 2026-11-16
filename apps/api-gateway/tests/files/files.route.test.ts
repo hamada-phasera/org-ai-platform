@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { PLAN_LIMITS } from '@org-ai/shared-types';
+import { setTenant } from '../helpers/tenant';
 
 const prismaMock = {
   organization: { findUnique: vi.fn(), updateMany: vi.fn() },
@@ -13,7 +14,7 @@ vi.mock('../../src/utils/prisma', () => ({ prisma: prismaMock }));
 
 vi.mock('../../src/middleware/auth', () => ({
   requireAuth: async (req: { user?: unknown }) => {
-    req.user = { orgId: 'org-1', sub: 'user-1', role: 'MEMBER' };
+    await setTenant(req as never, { orgId: 'org-1', sub: 'user-1', role: 'MEMBER' } as never);
   },
 }));
 
@@ -272,7 +273,8 @@ describe('DELETE /api/files/:fileId', () => {
 
     expect(res.statusCode).toBe(200);
     expect(driverMock.delete).toHaveBeenCalledWith('org-1/f_a.txt');
-    expect(prismaMock.uploadedFile.delete).toHaveBeenCalledWith({ where: { id: 'file-1' } });
+    // 削除にも組織の条件が付く（テナントクライアント）
+    expect(prismaMock.uploadedFile.delete).toHaveBeenCalledWith({ where: { id: 'file-1', orgId: 'org-1' } });
     const [strings, ...values] = prismaMock.$executeRaw.mock.calls[0];
     expect((strings as string[]).join('?')).toContain('GREATEST');
     expect(values).toEqual([BigInt(500), 'org-1']);

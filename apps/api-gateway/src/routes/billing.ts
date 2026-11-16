@@ -17,7 +17,8 @@ import {
   type Plan,
   type SubscriptionStatus,
 } from '@org-ai/shared-types';
-import { prisma } from '../utils/prisma';
+import { creatorTrialUsed } from '../services/organizations';
+import { authOf, type TenantDb } from '../tenancy';
 import { requireAuth, requireOwner } from '../middleware/auth';
 import {
   INTERVALS,
@@ -74,6 +75,7 @@ const ORG_SELECT = {
   billingInterval: true,
   currentPeriodEnd: true,
   trialEndsAt: true,
+  createdBy: true,
   cancelAtPeriodEnd: true,
   storageAddonUnits: true,
   storageUsedBytes: true,
@@ -83,8 +85,8 @@ const PLAN_NAME: Record<Plan, string> = { STARTER: '梅', PRO: '竹', MAX: '松'
 
 const asPlan = (v: string): Plan => ((PLANS as readonly string[]).includes(v) ? (v as Plan) : 'STARTER');
 
-async function buildOverview(orgId: string): Promise<BillingOverview | null> {
-  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: ORG_SELECT });
+async function buildOverview(db: TenantDb, orgId: string): Promise<BillingOverview | null> {
+  const org = await db.organization.findUnique({ where: { id: orgId }, select: ORG_SELECT });
   if (!org) return null;
   const config = billingConfigFromEnv();
   const stripe = config ? new StripeClient(config.secretKey) : null;
@@ -110,7 +112,7 @@ async function buildOverview(orgId: string): Promise<BillingOverview | null> {
     currentPeriodEnd: org.currentPeriodEnd?.toISOString() ?? null,
     trialEndsAt: org.trialEndsAt?.toISOString() ?? null,
     cancelAtPeriodEnd: org.cancelAtPeriodEnd,
-    trialAvailable: !org.trialEndsAt && !org.stripeSubscriptionId,
+    trialAvailable: !org.trialEndsAt && !org.stripeSubscriptionId && !(await creatorTrialUsed(org)),
     trialDays: config?.trialDays ?? 30,
     hasCustomer: !!org.stripeCustomerId,
     prices,
@@ -143,8 +145,8 @@ const addonSchema = z.object({ units: z.number().int().min(0).max(MAX_ADDON_UNIT
 export async function billingRoutes(app: FastifyInstance): Promise<void> {
   // 現在の契約と価格。メンバーも見られる（操作はオーナーだけ）
   app.get('/', { preHandler: requireAuth }, async (request, reply) => {
-    const { orgId } = request.user as { orgId: string };
-    const data = await buildOverview(orgId);
+    const { orgId, db } = authOf(request);
+    const data = await buildOverview(db, orgId);
     if (!data) {
       return sendError(reply, 404, 'NOT_FOUND', '組織が見つかりません');
     }
@@ -153,7 +155,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
 
   // 新規契約（Stripe Checkout の URL を返す）
   app.post('/checkout', { preHandler: requireOwner }, async (request, reply) => {
-    const { orgId, sub } = request.user as { orgId: string; sub: string };
+    const { orgId, email, db } = authOf(request);
     const config = billingConfigFromEnv();
     if (!config) return notConfigured(reply);
 
@@ -166,7 +168,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 400, 'PRICE_NOT_AVAILABLE', 'このプランはまだお申し込みいただけません。');
     }
 
-    const org = await prisma.organization.findUnique({ where: { id: orgId }, select: ORG_SELECT });
+    const org = await db.organization.findUnique({ where: { id: orgId }, select: ORG_SELECT });
     if (!org) {
       return sendError(reply, 404, 'NOT_FOUND', '組織が見つかりません');
     }
@@ -179,17 +181,17 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
     try {
       let customerId = org.stripeCustomerId;
       if (!customerId) {
-        const owner = await prisma.user.findUnique({ where: { id: sub }, select: { email: true } });
-        const customer = await stripe.createCustomer({ name: org.name, email: org.billingEmail ?? owner?.email ?? null, orgId: org.id });
+        // 請求先メールが未設定なら操作したオーナーのメール（JWT の email は発行時に DB から入れた値）
+        const customer = await stripe.createCustomer({ name: org.name, email: org.billingEmail ?? email ?? null, orgId: org.id });
         // 同時に2回押されても顧客IDを1つにする。まだ空のときだけ書き、負けたら勝った方を使う
-        const claimed = await prisma.organization.updateMany({
+        const claimed = await db.organization.updateMany({
           where: { id: org.id, stripeCustomerId: null },
           data: { stripeCustomerId: customer.id },
         });
         if (claimed.count === 1) {
           customerId = customer.id;
         } else {
-          const again = await prisma.organization.findUnique({ where: { id: org.id }, select: { stripeCustomerId: true } });
+          const again = await db.organization.findUnique({ where: { id: org.id }, select: { stripeCustomerId: true } });
           customerId = again?.stripeCustomerId ?? customer.id;
         }
       }
@@ -201,7 +203,8 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
           customerId,
           priceId,
           // トライアルは組織ごとに1回だけ
-          withTrial: !org.trialEndsAt && !org.stripeSubscriptionId,
+          // トライアルは作成者ごとに1回（設計書 Q3）
+          withTrial: !org.trialEndsAt && !org.stripeSubscriptionId && !(await creatorTrialUsed(org)),
         }),
       );
       if (!session.url) return upstreamFailed(reply, new Error('Checkout の URL が返りませんでした'));
@@ -213,11 +216,11 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
 
   // お支払い・契約の管理（Stripe のカスタマーポータル）
   app.post('/portal', { preHandler: requireOwner }, async (request, reply) => {
-    const { orgId } = request.user as { orgId: string };
+    const { orgId, db } = authOf(request);
     const config = billingConfigFromEnv();
     if (!config) return notConfigured(reply);
 
-    const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { stripeCustomerId: true } });
+    const org = await db.organization.findUnique({ where: { id: orgId }, select: { stripeCustomerId: true } });
     if (!org?.stripeCustomerId) {
       return sendError(reply, 409, 'NO_CUSTOMER', 'まだご契約がありません。');
     }
@@ -236,7 +239,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
   // ⚠️ ポータルに任せない。追加ストレージを買った契約は明細が2本になり、ポータルのプラン変更が使えない。
   //    またポータルでは「下げた先の容量に今のファイルが収まるか」を確かめられない。
   app.post('/change-plan', { preHandler: requireOwner }, async (request, reply) => {
-    const { orgId } = request.user as { orgId: string };
+    const { orgId, db } = authOf(request);
     const config = billingConfigFromEnv();
     if (!config) return notConfigured(reply);
 
@@ -250,7 +253,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 400, 'PRICE_NOT_AVAILABLE', 'このプランはまだお申し込みいただけません。');
     }
 
-    const org = await prisma.organization.findUnique({ where: { id: orgId }, select: ORG_SELECT });
+    const org = await db.organization.findUnique({ where: { id: orgId }, select: ORG_SELECT });
     if (!org) {
       return sendError(reply, 404, 'NOT_FOUND', '組織が見つかりません');
     }
@@ -289,12 +292,12 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
     } catch (e) {
       return upstreamFailed(reply, e);
     }
-    return reply.send({ success: true, data: await buildOverview(org.id) });
+    return reply.send({ success: true, data: await buildOverview(db, org.id) });
   });
 
   // 追加容量の口数を変える（1口 = 1GB / 月額）
   app.post('/storage-addon', { preHandler: requireOwner }, async (request, reply) => {
-    const { orgId } = request.user as { orgId: string };
+    const { orgId, db } = authOf(request);
     const config = billingConfigFromEnv();
     if (!config?.storageAddonPrice) return notConfigured(reply);
 
@@ -304,7 +307,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
     }
     const units = parsed.data.units;
 
-    const org = await prisma.organization.findUnique({ where: { id: orgId }, select: ORG_SELECT });
+    const org = await db.organization.findUnique({ where: { id: orgId }, select: ORG_SELECT });
     if (!org) {
       return sendError(reply, 404, 'NOT_FOUND', '組織が見つかりません');
     }
@@ -341,6 +344,6 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
     } catch (e) {
       return upstreamFailed(reply, e);
     }
-    return reply.send({ success: true, data: await buildOverview(org.id) });
+    return reply.send({ success: true, data: await buildOverview(db, org.id) });
   });
 }

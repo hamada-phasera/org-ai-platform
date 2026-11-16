@@ -54,6 +54,34 @@ module.exports = tseslint.config(
     languageOptions: { globals: { ...globals.node } },
   },
 
+  // ── api-gateway のテナント分離（docs/design/multi-tenancy.md ADR-5 / I10）──
+  // ルートは request.tenant.db（tenantDb）だけを使う。素の prisma は全テナントを横断できるので、
+  // 認証の無い経路・組織をまたぐ経路だけに限る（同じ allowlist を src/__tests__/architecture.test.ts でも検査）。
+  {
+    files: ['apps/api-gateway/src/routes/**/*.ts'],
+    ignores: [
+      'apps/api-gateway/src/routes/auth.ts',
+      'apps/api-gateway/src/routes/members.ts',
+      'apps/api-gateway/src/routes/webhooks.ts',
+      'apps/api-gateway/src/routes/billing-webhook.ts',
+      'apps/api-gateway/src/routes/inbox/line-webhook.ts',
+    ],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/utils/prisma'],
+              message:
+                'ルートから素の prisma を使わない。authOf(request).db（テナントスコープ付き）を使う（docs/design/multi-tenancy.md ADR-5）',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // ── web (ブラウザ + React) ──
   {
     files: ['apps/web/**/*.{ts,tsx}'],

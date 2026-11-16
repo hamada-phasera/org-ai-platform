@@ -3,6 +3,7 @@
 import { prisma } from '../../utils/prisma';
 import { customerIdOf, subscriptionSnapshot, type BillingConfig, type StripeSubscription } from './billing-core';
 import { createLogger } from '../../utils/logger';
+import { invalidateOrgMemberships } from '../../tenancy/membership-cache';
 
 const billingLog = createLogger('billing');
 
@@ -45,6 +46,8 @@ export async function applySubscription(
       ...(snap.plan ? { plan: snap.plan } : {}),
     },
   });
+  // 契約状態は所属のキャッシュ（requireAuth の「閲覧のみ」判定）に載っているので、すぐに効かせる
+  invalidateOrgMemberships(orgId);
   if (snap.unknownPrice) {
     billingLog.warn('設定に無い price のサブスクリプションです。プランは変更していません:', snap.subscriptionId);
   }

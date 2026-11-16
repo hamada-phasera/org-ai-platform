@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { setTenant } from '../helpers/tenant';
 
 // 商談は Prisma の Deal モデルに永続化するようになったため、prisma をモックする。
 // テストの振る舞い（作成→一覧→絞り込み→遷移）を保つため、配列を裏に持つステートフルな
@@ -52,13 +53,13 @@ vi.mock('../../src/utils/prisma', () => ({ prisma: prismaMock }));
 
 vi.mock('../../src/middleware/auth', () => ({
   requireAuth: async (req: { user?: unknown }) => {
-    req.user = { orgId: 'org-1', sub: 'user-1', role: 'OWNER' };
+    await setTenant(req as never, { orgId: 'org-1', sub: 'user-1', role: 'OWNER' } as never);
   },
   requireOwner: async (req: { user?: unknown }) => {
-    req.user = { orgId: 'org-1', sub: 'user-1', role: 'OWNER' };
+    await setTenant(req as never, { orgId: 'org-1', sub: 'user-1', role: 'OWNER' } as never);
   },
   requireAdmin: async (req: { user?: unknown }) => {
-    req.user = { orgId: 'org-1', sub: 'user-1', role: 'OWNER' };
+    await setTenant(req as never, { orgId: 'org-1', sub: 'user-1', role: 'OWNER' } as never);
   },
 }));
 

@@ -1,10 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../../utils/prisma';
+import { authOf } from '../../tenancy';
 import { requireAuth } from '../../middleware/auth';
 import { PIPELINE_STAGES, STAGE_LABEL, isPipelineStage, canTransition } from './pipeline-core';
 import { sendError } from '../../utils/http-error';
-import type { AuthPayload } from '../../types/auth';
 
 /**
  * 営業パイプライン（商談ステージ）API。
@@ -50,14 +49,15 @@ const updateDealSchema = z
 export async function salesPipelineRoutes(app: FastifyInstance): Promise<void> {
   // 商談一覧（?stage= で絞り込み可）
   app.get('/', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
+    const payload = authOf(request);
+    const { db } = payload;
     const { stage } = request.query as { stage?: string };
 
     if (stage !== undefined && !isPipelineStage(stage)) {
       return sendError(reply, 400, 'VALIDATION_ERROR', `不正なステージ: ${stage}`);
     }
 
-    const deals = await prisma.deal.findMany({
+    const deals = await db.deal.findMany({
       where: { orgId: payload.orgId, ...(stage !== undefined ? { stage } : {}) },
       orderBy: { createdAt: 'asc' },
     });
@@ -66,9 +66,10 @@ export async function salesPipelineRoutes(app: FastifyInstance): Promise<void> {
 
   // 商談 詳細
   app.get('/:dealId', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
+    const payload = authOf(request);
+    const { db } = payload;
     const { dealId } = request.params as { dealId: string };
-    const deal = await prisma.deal.findUnique({ where: { id: dealId } });
+    const deal = await db.deal.findUnique({ where: { id: dealId } });
     if (!deal || deal.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', '商談が見つかりません');
     }
@@ -77,12 +78,13 @@ export async function salesPipelineRoutes(app: FastifyInstance): Promise<void> {
 
   // 商談 作成
   app.post('/', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
+    const payload = authOf(request);
+    const { db } = payload;
     const parsed = createDealSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
-    const deal = await prisma.deal.create({
+    const deal = await db.deal.create({
       data: {
         orgId: payload.orgId,
         title: parsed.data.title,
@@ -97,14 +99,15 @@ export async function salesPipelineRoutes(app: FastifyInstance): Promise<void> {
 
   // 商談 更新（ステージ移動・金額など）
   app.patch('/:dealId', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
+    const payload = authOf(request);
+    const { db } = payload;
     const { dealId } = request.params as { dealId: string };
     const parsed = updateDealSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
 
-    const deal = await prisma.deal.findUnique({ where: { id: dealId } });
+    const deal = await db.deal.findUnique({ where: { id: dealId } });
     if (!deal || deal.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', '商談が見つかりません');
     }
@@ -120,7 +123,7 @@ export async function salesPipelineRoutes(app: FastifyInstance): Promise<void> {
       );
     }
 
-    const updated = await prisma.deal.update({
+    const updated = await db.deal.update({
       where: { id: dealId },
       data: {
         ...(title !== undefined ? { title } : {}),

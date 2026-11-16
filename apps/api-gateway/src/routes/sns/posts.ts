@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../../utils/prisma';
+import { authOf, type TenantDb } from '../../tenancy';
 import { requireAuth } from '../../middleware/auth';
 import {
   PLATFORM_CONSTRAINTS,
@@ -14,7 +14,6 @@ import { groupDraftsByDate, type CalendarTask } from './calendar';
 import { aiEngineHeaders } from '../../services/ai-engine-auth';
 import { config } from '../../config/env';
 import { sendError, upstreamStatus } from '../../utils/http-error';
-import type { AuthPayload } from '../../types/auth';
 
 /**
  * SNS投稿 下書き生成 & 承認待ちキュー（N-1 / N-2）。
@@ -77,7 +76,8 @@ function parseDraftBody(raw: string): { content: string; hashtags: string[] } {
 export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
   // ── N-1: 投稿下書き生成 ──────────────────────────────
   app.post('/', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
+    const payload = authOf(request);
+    const { db } = payload;
     const parsed = generateSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
@@ -85,7 +85,7 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
 
     const { platform, topic, tone, keywords, hashtagCount } = parsed.data;
     const inputs: SnsGenInputs = { topic, tone, keywords, hashtagCount };
-    const org = await prisma.organization.findUnique({ where: { id: payload.orgId } });
+    const org = await db.organization.findUnique({ where: { id: payload.orgId } });
     const plan = org?.plan ?? 'STARTER';
     const messages = buildSnsMessages(platform, inputs);
 
@@ -101,7 +101,7 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
           org_id: payload.orgId,
           plan,
           json_mode: true,
-          user_email: (request.user as { email?: string }).email ?? null, // 松竹梅ルーティング
+          user_email: authOf(request).email ?? null, // 松竹梅ルーティング
         }),
       });
     } catch (e) {
@@ -129,7 +129,7 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
     let taskId: string | null = null;
     if (parsed.data.persist !== false) {
       try {
-        const task = await prisma.task.create({
+        const task = await db.task.create({
           data: {
             orgId: payload.orgId,
             title: `SNS下書き(${platform}): ${topic.slice(0, 40)}`,
@@ -151,8 +151,9 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
 
   // ── N-2: 承認待ちキュー（read） ──────────────────────
   app.get('/queue', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
-    const tasks = await prisma.task.findMany({
+    const payload = authOf(request);
+    const { db } = payload;
+    const tasks = await db.task.findMany({
       where: { orgId: payload.orgId, taskType: SNS_TASK_TYPE, status: 'PENDING_APPROVAL' },
       orderBy: { createdAt: 'desc' },
     });
@@ -161,8 +162,9 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
 
   // ── N-3: コンテンツカレンダー（下書きを日付にグルーピング） ──
   app.get('/calendar', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
-    const tasks = (await prisma.task.findMany({
+    const payload = authOf(request);
+    const { db } = payload;
+    const tasks = (await db.task.findMany({
       where: { orgId: payload.orgId, taskType: SNS_TASK_TYPE },
       orderBy: { createdAt: 'desc' },
     })) as unknown as CalendarTask[]; // Prisma Task → カレンダー最小形（groupDraftsByDate が必要フィールドのみ参照）
@@ -170,9 +172,10 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── N-2: 承認/却下（状態遷移のみ・dispatch/投稿はしない） ──
-  async function loadPendingSnsTask(orgId: string, taskId: string) {
-    const task = await prisma.task.findUnique({ where: { id: taskId } });
-    if (!task || task.orgId !== orgId || task.taskType !== SNS_TASK_TYPE) {
+  async function loadPendingSnsTask(db: TenantDb, taskId: string) {
+    // テナントクライアントで引くので、他組織の id は見つからない（= 404）
+    const task = await db.task.findUnique({ where: { id: taskId } });
+    if (!task || task.taskType !== SNS_TASK_TYPE) {
       return { ok: false as const, code: 404, body: { code: 'NOT_FOUND', message: 'SNS下書きが見つかりません' } };
     }
     if (task.status !== 'PENDING_APPROVAL') {
@@ -186,14 +189,15 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
   }
 
   app.post('/:taskId/approve', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
+    const payload = authOf(request);
+    const { db } = payload;
     const { taskId } = request.params as { taskId: string };
-    const found = await loadPendingSnsTask(payload.orgId, taskId);
+    const found = await loadPendingSnsTask(db, taskId);
     if (!found.ok) {
       return reply.code(found.code).send({ success: false, error: found.body });
     }
     // 状態を APPROVED にするだけ。投稿・実行(dispatch)は一切行わない。
-    const updated = await prisma.task.update({
+    const updated = await db.task.update({
       where: { id: taskId },
       data: {
         status: 'APPROVED',
@@ -208,17 +212,18 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post('/:taskId/reject', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
+    const payload = authOf(request);
+    const { db } = payload;
     const { taskId } = request.params as { taskId: string };
     const parsed = rejectSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
-    const found = await loadPendingSnsTask(payload.orgId, taskId);
+    const found = await loadPendingSnsTask(db, taskId);
     if (!found.ok) {
       return reply.code(found.code).send({ success: false, error: found.body });
     }
-    const updated = await prisma.task.update({
+    const updated = await db.task.update({
       where: { id: taskId },
       data: {
         status: 'REJECTED',
@@ -235,19 +240,20 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
 
   // ── N-3: 下書きを日付にひも付け（scheduledAt 設定・メタデータのみ／投稿はしない） ──
   app.patch('/:taskId/schedule', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
+    const payload = authOf(request);
+    const { db } = payload;
     const { taskId } = request.params as { taskId: string };
     const parsed = scheduleSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
-    const task = await prisma.task.findUnique({ where: { id: taskId } });
+    const task = await db.task.findUnique({ where: { id: taskId } });
     if (!task || task.orgId !== payload.orgId || task.taskType !== SNS_TASK_TYPE) {
       return sendError(reply, 404, 'NOT_FOUND', 'SNS下書きが見つかりません');
     }
     // scheduledAt カラム（新方式）に予約日時を設定。output(下書きJSON)は汚さない。
     // status は変えない・投稿もしない（メタデータのみ）。
-    const updated = await prisma.task.update({
+    const updated = await db.task.update({
       where: { id: taskId },
       data: { scheduledAt: new Date(parsed.data.scheduledAt) },
     });

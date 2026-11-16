@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../utils/prisma';
+import { authOf } from '../tenancy';
 import { RESERVED_CAPABILITY_NAMES, type HttpNodeConfig, type HttpNodeHeader } from '@org-ai/shared-types';
 import { requireAuth, requireAdmin } from '../middleware/auth';
 import { resolveAndExecute } from '../services/capability-resolver';
@@ -110,8 +110,8 @@ function sanitizeCapability(cap: {
 
 export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
   app.get('/', { preHandler: requireAuth }, async (request, reply) => {
-    const { orgId } = request.user as { orgId: string };
-    const caps = await prisma.capability.findMany({
+    const { orgId, db } = authOf(request);
+    const caps = await db.capability.findMany({
       where: { orgId },
       include: { requiredCreds: true },
       orderBy: { name: 'asc' },
@@ -122,7 +122,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post('/resolve', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as { sub: string; orgId: string };
+    const payload = authOf(request);
     const parsed = resolveSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
@@ -148,14 +148,15 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
    * ⚠️ 返る設定の secret ヘッダは常に空。実キーは画面の専用入力欄から POST / で直送される。
    */
   app.post('/suggest', { preHandler: requireAdmin }, async (request, reply) => {
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
     const parsed = suggestSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
 
     const scrubbed = scrubSecrets(parsed.data.source);
-    const org = await prisma.organization.findUnique({
+    const org = await db.organization.findUnique({
       where: { id: payload.orgId },
       select: { plan: true },
     });
@@ -228,7 +229,8 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
    *    信頼済みホストだから成立する話で、ここには当てはまらない）
    */
   app.post('/', { preHandler: requireAdmin }, async (request, reply) => {
-    const payload = request.user as { sub: string; orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
     const parsed = createSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
@@ -245,7 +247,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
     }
 
     try {
-      const created = await prisma.capability.create({
+      const created = await db.capability.create({
         data: {
           orgId: payload.orgId,
           name: d.name,
@@ -275,10 +277,10 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
   /** カスタムノードを削除する。seed 由来（kind='n8n'）は構造的に消せない。 */
   app.delete('/:id', { preHandler: requireAdmin }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { orgId } = request.user as { orgId: string };
+    const { orgId, db } = authOf(request);
     const force = (request.query as { force?: string }).force === 'true';
 
-    const cap = await prisma.capability.findUnique({ where: { id } });
+    const cap = await db.capability.findUnique({ where: { id } });
     if (!cap || cap.orgId !== orgId) {
       return sendError(reply, 404, 'NOT_FOUND', 'capability が見つかりません');
     }
@@ -288,7 +290,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
 
     /* 使っているエージェントがあれば、黙って壊さず知らせる。
        steps は Json なので JS 側で走査する（org あたりの件数は小さい） */
-    const agents = await prisma.agent.findMany({
+    const agents = await db.agent.findMany({
       where: { orgId },
       select: { id: true, name: true, steps: true },
     });
@@ -308,7 +310,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    await prisma.capability.delete({ where: { id } });
+    await db.capability.delete({ where: { id } });
     return reply.send({ success: true, data: { deleted: true } });
   });
 
@@ -318,13 +320,13 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post('/:id/test', { preHandler: requireAdmin }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { orgId } = request.user as { orgId: string };
+    const { orgId, db } = authOf(request);
     const parsed = testSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
 
-    const cap = await prisma.capability.findUnique({ where: { id } });
+    const cap = await db.capability.findUnique({ where: { id } });
     if (!cap || cap.orgId !== orgId || cap.kind !== 'http') {
       return sendError(reply, 404, 'NOT_FOUND', 'カスタムノードが見つかりません');
     }
@@ -354,12 +356,12 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
 
   app.patch('/:id', { preHandler: requireAdmin }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { orgId } = request.user as { orgId: string };
+    const { orgId, db } = authOf(request);
     const parsed = patchSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
-    const cap = await prisma.capability.findUnique({ where: { id } });
+    const cap = await db.capability.findUnique({ where: { id } });
     if (!cap || cap.orgId !== orgId) {
       return sendError(reply, 404, 'NOT_FOUND', 'capability が見つかりません');
     }
@@ -399,7 +401,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
       inputSchema = buildInputSchema(built.config.params) as object;
     }
 
-    const updated = await prisma.capability.update({
+    const updated = await db.capability.update({
       where: { id },
       data: {
         ...(d.displayName !== undefined ? { displayName: d.displayName } : {}),
@@ -415,8 +417,8 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get('/gaps', { preHandler: requireAuth }, async (request, reply) => {
-    const { orgId } = request.user as { orgId: string };
-    const gaps = await prisma.capabilityGap.findMany({
+    const { orgId, db } = authOf(request);
+    const gaps = await db.capabilityGap.findMany({
       where: { orgId },
       orderBy: [{ count: 'desc' }, { updatedAt: 'desc' }],
       take: 100,
@@ -425,9 +427,9 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get('/execution-logs', { preHandler: requireAuth }, async (request, reply) => {
-    const { orgId } = request.user as { orgId: string };
+    const { orgId, db } = authOf(request);
     const query = request.query as { capabilityId?: string; limit?: string };
-    const logs = await prisma.executionLog.findMany({
+    const logs = await db.executionLog.findMany({
       where: { orgId, ...(query.capabilityId ? { capabilityId: query.capabilityId } : {}) },
       orderBy: { createdAt: 'desc' },
       take: Math.min(Number(query.limit ?? 50), 200),

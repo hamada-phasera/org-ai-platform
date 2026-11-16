@@ -352,6 +352,7 @@ describe('resumeAgentTask', () => {
     });
     prismaMock.agent.findUnique.mockResolvedValue({
       id: 'A1',
+      orgId: 'org-1',
       instructions: AGENT.instructions,
       department: AGENT.department,
       createdBy: AGENT.createdBy,
@@ -396,6 +397,7 @@ describe('resumeAgentTask', () => {
     });
     prismaMock.agent.findUnique.mockResolvedValue({
       id: 'A1',
+      orgId: 'org-1',
       instructions: AGENT.instructions,
       department: AGENT.department,
       createdBy: AGENT.createdBy,
@@ -427,6 +429,32 @@ describe('resumeAgentTask', () => {
     expect(lastUpdateData().status).toBe('FAILED');
   });
 
+  it('⚠️ エージェントが別組織のものなら実行せず FAILED にする（E6）', async () => {
+    prismaMock.task.findUnique.mockResolvedValue({
+      id: 't1',
+      orgId: 'org-1',
+      agentId: 'A-other',
+      status: 'RUNNING',
+      executionResult: null,
+      approvalData: null,
+    });
+    prismaMock.agent.findUnique.mockResolvedValue({
+      id: 'A-other',
+      orgId: 'org-2',
+      instructions: AGENT.instructions,
+      department: AGENT.department,
+      createdBy: AGENT.createdBy,
+      steps: AGENT.steps,
+    });
+
+    await resumeAgentTask('t1');
+
+    // 引くときにも org 条件を付けている
+    expect(prismaMock.agent.findUnique.mock.calls[0][0].where).toEqual({ id: 'A-other', orgId: 'org-1' });
+    expect(resolveMock).not.toHaveBeenCalled();
+    expect(lastUpdateData().status).toBe('FAILED');
+  });
+
   it('却下済み・完了済みの Task は再開しない（外部送信を蒸し返さない）', async () => {
     prismaMock.task.findUnique.mockResolvedValue({
       id: 't1',
@@ -455,6 +483,7 @@ describe('resumeAgentTask', () => {
     });
     prismaMock.agent.findUnique.mockResolvedValue({
       id: 'A1',
+      orgId: 'org-1',
       instructions: AGENT.instructions,
       department: AGENT.department,
       createdBy: AGENT.createdBy,

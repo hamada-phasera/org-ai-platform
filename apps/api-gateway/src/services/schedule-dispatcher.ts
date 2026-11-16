@@ -7,6 +7,8 @@
 
 import type { AgentStepDef } from '@org-ai/shared-types';
 import { prisma } from '../utils/prisma';
+import { runAsTenant } from '../tenancy/context';
+import { tenantDb, type TenantDb } from '../tenancy/tenant-db';
 import { dispatchQueuedTask, dispatchAgentTask } from './task-executor';
 import { runAgentTask } from './step-runner';
 import { config } from '../config/env';
@@ -92,14 +94,27 @@ export async function claimAndEnqueueScheduledTask(
   const st = await prisma.scheduledTask.findUnique({ where: { id: scheduledTaskId } });
   if (!st) return { enqueued: false, reason: 'not_found' };
 
+  /* claim と候補のスキャンは全テナント横断（素の prisma）。ここから先は定期タスクの組織に閉じる:
+     エージェント・Task はテナントクライアントで引いて作り、起動した実行（fire-and-forget を含む）にも
+     テナントコンテキスト（ai-engine への X-Org-Id）が伝わる。 */
+  return runAsTenant({ orgId: st.orgId, userId: null, role: null, source: 'scheduler' }, () =>
+    enqueueClaimed(tenantDb(st.orgId), st),
+  );
+}
+
+type ScheduledTaskRow = NonNullable<Awaited<ReturnType<typeof prisma.scheduledTask.findUnique>>>;
+
+async function enqueueClaimed(db: TenantDb, st: ScheduledTaskRow): Promise<EnqueueResult> {
   // ── エージェント紐付きの定期実行 ──
   if (st.agentId) {
-    const agent = await prisma.agent.findUnique({ where: { id: st.agentId } });
-    if (!agent || !agent.enabled) {
+    // ⚠️ 同じ組織のエージェントだけを使う（E5）。作成時（assertOwnAgent）にも確かめているが、
+    //    DB を直接いじった場合や将来の経路で、他組織の instructions/steps で走らせないための二重の照合。
+    const agent = await db.agent.findUnique({ where: { id: st.agentId } });
+    if (!agent || agent.orgId !== st.orgId || !agent.enabled) {
       scheduleLog.warn(`agent ${st.agentId} が削除/無効のため skip (scheduledTask=${st.id})`);
       return { enqueued: false, reason: 'agent_gone' };
     }
-    const task = await prisma.task.create({
+    const task = await db.task.create({
       data: {
         orgId: st.orgId,
         agentId: agent.id,
@@ -110,7 +125,7 @@ export async function claimAndEnqueueScheduledTask(
         taskType: 'agent',
       },
     });
-    await prisma.taskLog.create({
+    await db.taskLog.create({
       data: { taskId: task.id, message: `定期実行から起動 (scheduledTaskId=${st.id})`, level: 'INFO' },
     });
     const steps = (agent.steps as unknown as AgentStepDef[] | null) ?? [];
@@ -147,7 +162,7 @@ export async function claimAndEnqueueScheduledTask(
   }
 
   // ── 従来どおり部署ワークフロー実行 ──
-  const task = await prisma.task.create({
+  const task = await db.task.create({
     data: {
       orgId: st.orgId,
       title: `[定期] ${st.title}`,
@@ -157,7 +172,7 @@ export async function claimAndEnqueueScheduledTask(
       taskType: st.taskType,
     },
   });
-  await prisma.taskLog.create({
+  await db.taskLog.create({
     data: { taskId: task.id, message: `定期実行から起動 (scheduledTaskId=${st.id})`, level: 'INFO' },
   });
   fireAndForget(task.id, 'dispatchQueuedTask', () => dispatchQueuedTask(task));

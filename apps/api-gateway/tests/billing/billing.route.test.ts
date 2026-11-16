@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { PLAN_LIMITS, STORAGE_ADDON_UNIT_BYTES } from '@org-ai/shared-types';
+import { setTenant } from '../helpers/tenant';
 
 const prismaMock = {
-  organization: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
+  organization: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn(), count: vi.fn() },
   user: { findUnique: vi.fn() },
 };
 vi.mock('../../src/utils/prisma', () => ({ prisma: prismaMock }));
@@ -11,10 +12,10 @@ vi.mock('../../src/utils/prisma', () => ({ prisma: prismaMock }));
 let currentUser: Record<string, unknown> = { orgId: 'org-1', sub: 'owner-1', role: 'OWNER' };
 vi.mock('../../src/middleware/auth', () => ({
   requireAuth: async (req: { user?: unknown }) => {
-    req.user = currentUser;
+    await setTenant(req as never, currentUser as never);
   },
   requireOwner: async (req: { user?: unknown }, reply: { code: (n: number) => { send: (b: unknown) => void } }) => {
-    req.user = currentUser;
+    await setTenant(req as never, currentUser as never);
     if (currentUser.role !== 'OWNER') {
       reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'この操作はオーナーのみ行えます' } });
     }
@@ -78,7 +79,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   for (const k of ENV_KEYS) delete process.env[k];
   resetBillingPriceCache();
-  currentUser = { orgId: 'org-1', sub: 'owner-1', role: 'OWNER' };
+  // 請求先メールが未設定のときは操作したオーナーのメール（JWT の email）を使う
+  currentUser = { orgId: 'org-1', sub: 'owner-1', role: 'OWNER', email: 'owner@example.com' };
   prismaMock.organization.findUnique.mockResolvedValue(org());
   prismaMock.organization.updateMany.mockResolvedValue({ count: 1 });
   prismaMock.user.findUnique.mockResolvedValue({ email: 'owner@example.com' });
@@ -182,6 +184,33 @@ describe('POST /api/billing/checkout', () => {
     await app.inject({ method: 'POST', url: '/api/billing/checkout', payload: { plan: 'PRO', interval: 'month' } });
     expect(stripeMock.createCustomer).not.toHaveBeenCalled();
     expect(stripeMock.createCheckoutSession.mock.calls[0][0].subscription_data.trial_period_days).toBeUndefined();
+    await app.close();
+  });
+
+  it('⚠️ トライアルは作成者ごとに1回: 同じ人が作った別の組織で使っていれば付けない（設計書 Q3）', async () => {
+    configure();
+    prismaMock.organization.findUnique.mockResolvedValue(org({ createdBy: 'owner-1' }));
+    prismaMock.organization.count.mockResolvedValue(1);
+    stripeMock.createCustomer.mockResolvedValue({ id: 'cus_new' });
+    prismaMock.organization.updateMany.mockResolvedValue({ count: 1 });
+    stripeMock.createCheckoutSession.mockResolvedValue({ id: 'cs_1', url: 'https://checkout.stripe.com/c/cs_1' });
+    const app = await build();
+    await app.inject({ method: 'POST', url: '/api/billing/checkout', payload: { plan: 'PRO', interval: 'month' } });
+    expect(prismaMock.organization.count.mock.calls[0][0].where.createdBy).toBe('owner-1');
+    expect(stripeMock.createCheckoutSession.mock.calls[0][0].subscription_data.trial_period_days).toBeUndefined();
+    await app.close();
+  });
+
+  it('作成者の初めての組織ならトライアルを付ける', async () => {
+    configure();
+    prismaMock.organization.findUnique.mockResolvedValue(org({ createdBy: 'owner-1' }));
+    prismaMock.organization.count.mockResolvedValue(0);
+    stripeMock.createCustomer.mockResolvedValue({ id: 'cus_new' });
+    prismaMock.organization.updateMany.mockResolvedValue({ count: 1 });
+    stripeMock.createCheckoutSession.mockResolvedValue({ id: 'cs_1', url: 'https://checkout.stripe.com/c/cs_1' });
+    const app = await build();
+    await app.inject({ method: 'POST', url: '/api/billing/checkout', payload: { plan: 'PRO', interval: 'month' } });
+    expect(stripeMock.createCheckoutSession.mock.calls[0][0].subscription_data.trial_period_days).toBe(30);
     await app.close();
   });
 

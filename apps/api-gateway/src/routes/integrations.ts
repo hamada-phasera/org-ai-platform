@@ -4,14 +4,13 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../utils/prisma';
+import { authOf } from '../tenancy';
 import { requireAdmin } from '../middleware/auth';
 import { sealSecret } from '../services/secret-box';
 import { authTest } from '../services/adapters/slack-client';
 import { revokeGoogleToken } from '../services/google-auth';
 import { syncRequiredCredentialStatus } from '../services/integration-sync';
 import { sendError } from '../utils/http-error';
-import type { AuthPayload } from '../types/auth';
 
 // xoxb 限定: xoxp（ユーザートークン）の誤貼付を入口で弾く
 const slackSchema = z.object({
@@ -50,8 +49,9 @@ function sanitize(conn: {
 export async function integrationsRoutes(app: FastifyInstance): Promise<void> {
   // ── 一覧 ─────────────────────────────────────────────
   app.get('/', { preHandler: requireAdmin }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
-    const connections = await prisma.providerConnection.findMany({
+    const payload = authOf(request);
+    const { db } = payload;
+    const connections = await db.providerConnection.findMany({
       where: { orgId: payload.orgId },
       orderBy: { provider: 'asc' },
     });
@@ -60,7 +60,8 @@ export async function integrationsRoutes(app: FastifyInstance): Promise<void> {
 
   // ── Slack 接続（Bot トークン貼付） ───────────────────
   app.post('/slack', { preHandler: requireAdmin }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
+    const payload = authOf(request);
+    const { db } = payload;
     const parsed = slackSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
@@ -89,7 +90,7 @@ export async function integrationsRoutes(app: FastifyInstance): Promise<void> {
       ? null
       : 'chat:write.public スコープが無いため、ボットを招待していないチャンネルへは投稿できません。';
 
-    const saved = await prisma.providerConnection.upsert({
+    const saved = await db.providerConnection.upsert({
       where: { orgId_provider: { orgId: payload.orgId, provider: 'slack' } },
       create: {
         orgId: payload.orgId,
@@ -116,12 +117,13 @@ export async function integrationsRoutes(app: FastifyInstance): Promise<void> {
 
   // ── 解除 ─────────────────────────────────────────────
   app.delete('/:provider', { preHandler: requireAdmin }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
+    const payload = authOf(request);
+    const { db } = payload;
     const { provider } = request.params as { provider: string };
     if (!PROVIDERS.includes(provider as (typeof PROVIDERS)[number])) {
       return sendError(reply, 400, 'VALIDATION_ERROR', '不明なプロバイダです');
     }
-    const conn = await prisma.providerConnection.findUnique({
+    const conn = await db.providerConnection.findUnique({
       where: { orgId_provider: { orgId: payload.orgId, provider } },
     });
     if (!conn) {
@@ -131,7 +133,7 @@ export async function integrationsRoutes(app: FastifyInstance): Promise<void> {
       // best-effort revoke（失敗しても解除は続行）
       await revokeGoogleToken(conn.accessTokenEnc);
     }
-    await prisma.providerConnection.delete({ where: { id: conn.id } });
+    await db.providerConnection.delete({ where: { id: conn.id } });
     await syncRequiredCredentialStatus(payload.orgId, provider as 'slack' | 'google', 'DISCONNECTED');
     return reply.send({ success: true, data: { provider } });
   });

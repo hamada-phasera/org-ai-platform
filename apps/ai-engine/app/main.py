@@ -49,6 +49,7 @@ from app.orchestrator.orchestrator import get_agent, orchestrator, resolve_depar
 from app.planner import plan_agent, plan_capability
 from app.planner.planner import plan_http_node, screen_agent
 from app.planner.receipt_vision import read_receipt
+from app.tenancy import ORG_HEADER, bind_org, current_org_header
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,8 @@ async def require_internal_token(request: Request, call_next: Callable[[Request]
         if not secrets.compare_digest(provided, INTERNAL_API_TOKEN):
             # ⚠️ 理由を細かく返さない（トークンの有無を推測させない）
             return JSONResponse(status_code=401, content={"detail": "unauthorized"})
+    # どの組織としての呼び出しか（gateway が付ける）。照合は各エンドポイントの bind_org で行う
+    current_org_header.set(request.headers.get(ORG_HEADER) or None)
     return await call_next(request)
 
 
@@ -169,6 +172,7 @@ async def ready() -> dict:
 
 @app.post("/orchestrate", response_model=OrchestrateResponse)
 async def orchestrate(request: OrchestateRequest) -> OrchestrateResponse:
+    bind_org(request.org_id)
     try:
         return await orchestrator.process(
             user_message=request.message,
@@ -189,6 +193,7 @@ async def orchestrate(request: OrchestateRequest) -> OrchestrateResponse:
 @app.post("/orchestrate/stream")
 async def orchestrate_stream(request: OrchestateRequest) -> StreamingResponse:
     """SSE ストリーミングエンドポイント。トークンを1つずつ返す。"""
+    bind_org(request.org_id)
     resolved_dept = await resolve_department(request.message, request.department)
 
     # /orchestrate と同じ組み立て（セキュリティ核 + エージェント化提案を含む統一ビルダ経由）
@@ -248,6 +253,7 @@ async def orchestrate_stream(request: OrchestateRequest) -> StreamingResponse:
 
 @app.post("/llm/chat", response_model=LLMResponse)
 async def llm_chat(request: LLMRequest) -> LLMResponse:
+    bind_org(request.org_id)
     response, pii_detected, pii_types = await llm_router.chat(
         messages=request.messages,
         department=request.department,
@@ -279,6 +285,7 @@ async def llm_chat(request: LLMRequest) -> LLMResponse:
 
 @app.post("/plan", response_model=PlanResponse)
 async def plan(request: PlanRequest) -> PlanResponse:
+    bind_org(request.org_id)
     pii_result = screen(request.message)
     capabilities = [c.model_dump() for c in request.available_capabilities]
     result = await plan_capability(
@@ -343,6 +350,7 @@ def _parse_rankings(content: str) -> dict[str, Ranking]:
 @app.post("/rank", response_model=RankResponse)
 async def rank(request: RankRequest) -> RankResponse:
     """成果物リストをビジネス上の重要度 (high/mid/low) で分類する。"""
+    bind_org(request.org_id)
     if not request.items:
         return RankResponse(rankings=[])
 
@@ -371,6 +379,7 @@ async def rank(request: RankRequest) -> RankResponse:
 
 @app.post("/vision/receipt", response_model=ReadReceiptResponse)
 async def read_receipt_endpoint(request: ReadReceiptRequest) -> ReadReceiptResponse:
+    bind_org(request.org_id)
     """領収書の写真から工事原価の候補を読み取る（記帳はしない）。
 
     返すのは候補だけ。工事・取引先の紐付けと確定は gateway 側で人が承認する。
@@ -409,6 +418,7 @@ async def read_receipt_endpoint(request: ReadReceiptRequest) -> ReadReceiptRespo
 
 @app.post("/plan/http-node", response_model=PlanHttpNodeResponse)
 async def plan_http_node_endpoint(request: PlanHttpNodeRequest) -> PlanHttpNodeResponse:
+    bind_org(request.org_id)
     """curl / API ドキュメントの断片からカスタムノードの設定を提案する（保存はしない）。
 
     ⚠️ source には API キーが混ざりうるが、gateway の secret-scrubber と
@@ -433,6 +443,7 @@ async def plan_http_node_endpoint(request: PlanHttpNodeRequest) -> PlanHttpNodeR
 
 @app.post("/plan/agent", response_model=PlanAgentResponse)
 async def plan_agent_endpoint(request: PlanAgentRequest) -> PlanAgentResponse:
+    bind_org(request.org_id)
     """自由記述から再利用可能なエージェント定義を推論する (opt-in)。
 
     screen_first=True のときは、先に安いモデルで「そもそも定型業務か」を判定し、

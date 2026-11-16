@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { Sparkles, ArrowRight, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
 import { useAuthStore } from '../store/authStore';
-import type { User } from '@org-ai/shared-types';
+import type { MembershipSummary, User } from '@org-ai/shared-types';
 import { AmbientBackground, Card, Input, Button } from '../components/ui';
 
 const FIELDS = [
@@ -26,11 +26,11 @@ export default function RegisterPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await api.post<{ success: boolean; data: { token: string; user: User } }>(
+      const res = await api.post<{ success: boolean; data: { token: string; user: User; memberships?: MembershipSummary[] } }>(
         '/auth/register',
         form,
       );
-      login(res.data.data.token, res.data.data.user);
+      login(res.data.data.token, res.data.data.user, res.data.data.memberships);
       navigate('/');
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;

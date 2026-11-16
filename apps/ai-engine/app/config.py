@@ -75,6 +75,12 @@ class Settings:
         """gateway との共有シークレット。前後空白は除去。未設定なら空文字（= 認証なし）。"""
         return _env("INTERNAL_API_TOKEN").strip()
 
+    @property
+    def org_header_mode(self) -> str:
+        """X-Org-Id の照合モード: off | warn | enforce（小文字化・前後空白除去）。既定 warn。
+        不正な値の扱いは app.tenancy.org_header_mode が決める。"""
+        return _env("ORG_HEADER_MODE", "warn").strip().lower()
+
     # ── ネットワーク・DB ───────────────────────────────────────
     @property
     def allowed_origins(self) -> list[str]:

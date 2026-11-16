@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../utils/prisma';
+// agentId は同じ組織のエージェントであること（I3）
+import { authOf, assertSameOrg } from '../tenancy';
 import { requireAuth } from '../middleware/auth';
 import { sendError } from '../utils/http-error';
 
@@ -24,17 +25,13 @@ const createSchema = z.object({
 
 const updateSchema = createSchema.partial();
 
-/** agentId が指定されたら、その org のエージェントであることを確認する。 */
-async function assertOwnAgent(agentId: string, orgId: string): Promise<boolean> {
-  const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { orgId: true } });
-  return !!agent && agent.orgId === orgId;
-}
 
 export async function scheduledTaskRoutes(app: FastifyInstance): Promise<void> {
   // 一覧
   app.get('/', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as { orgId: string };
-    const tasks = await prisma.scheduledTask.findMany({
+    const payload = authOf(request);
+    const { db } = payload;
+    const tasks = await db.scheduledTask.findMany({
       where: { orgId: payload.orgId },
       orderBy: { createdAt: 'desc' },
     });
@@ -43,7 +40,8 @@ export async function scheduledTaskRoutes(app: FastifyInstance): Promise<void> {
 
   // 作成
   app.post('/', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
     const result = createSchema.safeParse(request.body);
     if (!result.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
@@ -58,11 +56,11 @@ export async function scheduledTaskRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 400, 'VALIDATION_ERROR', 'monthly には dayOfMonth (1-31) が必要です');
     }
 
-    if (data.agentId && !(await assertOwnAgent(data.agentId, payload.orgId))) {
+    if (data.agentId && !(await assertSameOrg(db, 'agent', data.agentId))) {
       return sendError(reply, 404, 'NOT_FOUND', '指定されたエージェントが見つかりません');
     }
 
-    const created = await prisma.scheduledTask.create({
+    const created = await db.scheduledTask.create({
       data: {
         orgId: payload.orgId,
         title: data.title,
@@ -84,8 +82,9 @@ export async function scheduledTaskRoutes(app: FastifyInstance): Promise<void> {
   // 更新
   app.patch('/:id', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const payload = request.user as { orgId: string };
-    const existing = await prisma.scheduledTask.findUnique({ where: { id } });
+    const payload = authOf(request);
+    const { db } = payload;
+    const existing = await db.scheduledTask.findUnique({ where: { id } });
     if (!existing || existing.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', '定期タスクが見つかりません');
     }
@@ -94,11 +93,11 @@ export async function scheduledTaskRoutes(app: FastifyInstance): Promise<void> {
     if (!result.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
     }
-    if (result.data.agentId && !(await assertOwnAgent(result.data.agentId, payload.orgId))) {
+    if (result.data.agentId && !(await assertSameOrg(db, 'agent', result.data.agentId))) {
       return sendError(reply, 404, 'NOT_FOUND', '指定されたエージェントが見つかりません');
     }
 
-    const updated = await prisma.scheduledTask.update({
+    const updated = await db.scheduledTask.update({
       where: { id },
       data: result.data,
     });
@@ -108,12 +107,13 @@ export async function scheduledTaskRoutes(app: FastifyInstance): Promise<void> {
   // 削除
   app.delete('/:id', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const payload = request.user as { orgId: string };
-    const existing = await prisma.scheduledTask.findUnique({ where: { id } });
+    const payload = authOf(request);
+    const { db } = payload;
+    const existing = await db.scheduledTask.findUnique({ where: { id } });
     if (!existing || existing.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', '定期タスクが見つかりません');
     }
-    await prisma.scheduledTask.delete({ where: { id } });
+    await db.scheduledTask.delete({ where: { id } });
     return reply.send({ success: true, data: { deleted: true } });
   });
 }
