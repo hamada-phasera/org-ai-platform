@@ -187,7 +187,7 @@ describe('rollupDepartmentKpis（部署別ロールアップ — A-1 DepartmentK
       severity: 'LOW',
       aiLogId: null,
       ...partial,
-    } as KpiEvent;
+    } as unknown as KpiEvent;
   }
 
   it('正常系: 成功率・コスト合計・平均レイテンシ・リスク件数を部署別に集計', () => {
