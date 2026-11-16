@@ -4,7 +4,7 @@ import { prisma } from '../utils/prisma';
 import { requireAuth } from '../middleware/auth';
 import { aiEngineHeaders } from '../services/ai-engine-auth';
 import { config } from '../config/env';
-import { sendError } from '../utils/http-error';
+import { sendError, upstreamStatus } from '../utils/http-error';
 
 const llmChatSchema = z.object({
   messages: z
@@ -59,7 +59,7 @@ export async function llmRoutes(app: FastifyInstance): Promise<void> {
 
     const text = await res.text();
     if (!res.ok) {
-      return sendError(reply, res.status >= 500 ? 502 : res.status, 'LLM_UPSTREAM_ERROR', text.slice(0, 800));
+      return sendError(reply, upstreamStatus(res.status), 'LLM_UPSTREAM_ERROR', text.slice(0, 800));
     }
 
     try {

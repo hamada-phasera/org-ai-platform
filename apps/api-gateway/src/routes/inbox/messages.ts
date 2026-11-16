@@ -9,8 +9,7 @@ import { requireAuth } from '../../middleware/auth';
 import { getChannelAdapter } from '../../services/inbox/adapter';
 import { generateInboxDraft } from '../../services/inbox/draft-generator';
 import { sendError } from '../../utils/http-error';
-
-type AuthPayload = { orgId: string; sub?: string };
+import type { AuthPayload } from '../../types/auth';
 
 export type InboxAction = 'regenerate' | 'approve' | 'reject';
 

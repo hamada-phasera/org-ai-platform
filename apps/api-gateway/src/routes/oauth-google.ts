@@ -32,6 +32,7 @@ import { sealSecret } from '../services/secret-box';
 import { syncRequiredCredentialStatus } from '../services/integration-sync';
 import { config } from '../config/env';
 import { sendError } from '../utils/http-error';
+import type { AuthPayload } from '../types/auth';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -39,8 +40,6 @@ const SCOPES = 'openid email https://www.googleapis.com/auth/drive.file';
 const API_TIMEOUT_MS = 10_000;
 const STATE_TTL_MS = 10 * 60_000;
 const PENDING_LINK_TTL_MS = 10 * 60_000;
-
-type AuthPayload = { orgId: string; sub?: string };
 
 const confirmSchema = z.object({ linkId: z.string().min(1).max(100) });
 

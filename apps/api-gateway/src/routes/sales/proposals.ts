@@ -10,7 +10,8 @@ import {
   type ProposalInputs,
 } from './proposal-templates';
 import { config } from '../../config/env';
-import { sendError } from '../../utils/http-error';
+import { sendError, upstreamStatus } from '../../utils/http-error';
+import type { AuthPayload } from '../../types/auth';
 
 /**
  * 提案書ドラフト生成（S-3・主機能）。
@@ -42,8 +43,6 @@ const generateSchema = z.object({
   /** 生成結果を完了 Task として保存するか（既定: true）。 */
   persist: z.boolean().optional(),
 });
-
-type AuthPayload = { orgId: string; sub?: string };
 
 export async function salesProposalsRoutes(app: FastifyInstance): Promise<void> {
   // 組み込みテンプレート一覧
@@ -98,7 +97,7 @@ export async function salesProposalsRoutes(app: FastifyInstance): Promise<void> 
 
     const text = await res.text();
     if (!res.ok) {
-      return sendError(reply, res.status >= 500 ? 502 : res.status, 'LLM_UPSTREAM_ERROR', text.slice(0, 800));
+      return sendError(reply, upstreamStatus(res.status), 'LLM_UPSTREAM_ERROR', text.slice(0, 800));
     }
 
     let llm: LLMChatResponse;

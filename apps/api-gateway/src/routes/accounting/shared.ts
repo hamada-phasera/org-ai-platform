@@ -3,7 +3,7 @@
 import type { FastifyReply } from 'fastify';
 import { sendError } from '../../utils/http-error';
 
-export type AuthPayload = { orgId: string; sub?: string; role?: string };
+export type { AuthPayload } from '../../types/auth';
 
 export function fail(
   reply: FastifyReply,

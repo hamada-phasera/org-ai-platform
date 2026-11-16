@@ -22,3 +22,11 @@ export function sendError(
 ): FastifyReply {
   return reply.code(status).send(errorBody(code, message));
 }
+
+/**
+ * 上流（ai-engine 等）のエラーステータスをこちらの応答ステータスに写す。
+ * 5xx は 502（上流の障害）にまとめ、4xx はそのまま返す。
+ */
+export function upstreamStatus(status: number): number {
+  return status >= 500 ? 502 : status;
+}

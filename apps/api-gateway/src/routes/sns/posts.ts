@@ -13,7 +13,8 @@ import {
 import { groupDraftsByDate, type CalendarTask } from './calendar';
 import { aiEngineHeaders } from '../../services/ai-engine-auth';
 import { config } from '../../config/env';
-import { sendError } from '../../utils/http-error';
+import { sendError, upstreamStatus } from '../../utils/http-error';
+import type { AuthPayload } from '../../types/auth';
 
 /**
  * SNS投稿 下書き生成 & 承認待ちキュー（N-1 / N-2）。
@@ -58,8 +59,6 @@ const scheduleSchema = z.object({
     .string()
     .refine((s) => !Number.isNaN(new Date(s).getTime()), { message: '日付が不正です' }),
 });
-
-type AuthPayload = { orgId: string; sub?: string };
 
 /** LLM 応答本文から {content, hashtags} を取り出す。JSON でなければ全文を content 扱い。 */
 function parseDraftBody(raw: string): { content: string; hashtags: string[] } {
@@ -112,7 +111,7 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
 
     const text = await res.text();
     if (!res.ok) {
-      return sendError(reply, res.status >= 500 ? 502 : res.status, 'LLM_UPSTREAM_ERROR', text.slice(0, 800));
+      return sendError(reply, upstreamStatus(res.status), 'LLM_UPSTREAM_ERROR', text.slice(0, 800));
     }
 
     let llm: LLMChatResponse;

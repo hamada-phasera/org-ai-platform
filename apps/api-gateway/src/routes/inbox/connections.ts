@@ -11,8 +11,7 @@ import { getBotInfo } from '../../services/inbox/line-client';
 import { getChannelAdapter } from '../../services/inbox/adapter';
 import { config } from '../../config/env';
 import { sendError } from '../../utils/http-error';
-
-type AuthPayload = { orgId: string; sub?: string };
+import type { AuthPayload } from '../../types/auth';
 
 const createSchema = z.object({
   channelSecret: z.string().min(1).max(200),

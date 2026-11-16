@@ -10,7 +10,7 @@ import { indexFile } from '../services/rag';
 import { aiEngineHeaders } from '../services/ai-engine-auth';
 import { tracked } from '../services/lifecycle-core';
 import { config } from '../config/env';
-import { sendError } from '../utils/http-error';
+import { sendError, upstreamStatus } from '../utils/http-error';
 import { createLogger, errorMessage } from '../utils/logger';
 
 const filesLog = createLogger('files');
@@ -250,7 +250,7 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
 
     const text = await res.text();
     if (!res.ok) {
-      return sendError(reply, res.status >= 500 ? 502 : res.status, 'ANALYZE_UPSTREAM_ERROR', text.slice(0, 800));
+      return sendError(reply, upstreamStatus(res.status), 'ANALYZE_UPSTREAM_ERROR', text.slice(0, 800));
     }
 
     let data: Record<string, unknown>;

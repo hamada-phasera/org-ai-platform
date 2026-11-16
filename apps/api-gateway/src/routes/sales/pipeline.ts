@@ -4,6 +4,7 @@ import { prisma } from '../../utils/prisma';
 import { requireAuth } from '../../middleware/auth';
 import { PIPELINE_STAGES, STAGE_LABEL, isPipelineStage, canTransition } from './pipeline-core';
 import { sendError } from '../../utils/http-error';
+import type { AuthPayload } from '../../types/auth';
 
 /**
  * 営業パイプライン（商談ステージ）API。
@@ -41,8 +42,6 @@ const updateDealSchema = z
     stage: z.enum(PIPELINE_STAGES).optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: '更新する項目がありません' });
-
-type AuthPayload = { orgId: string; sub?: string };
 
 /**
  * 営業パイプライン ルートプラグイン。

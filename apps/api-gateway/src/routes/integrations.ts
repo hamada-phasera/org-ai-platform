@@ -11,8 +11,7 @@ import { authTest } from '../services/adapters/slack-client';
 import { revokeGoogleToken } from '../services/google-auth';
 import { syncRequiredCredentialStatus } from '../services/integration-sync';
 import { sendError } from '../utils/http-error';
-
-type AuthPayload = { orgId: string; sub?: string };
+import type { AuthPayload } from '../types/auth';
 
 // xoxb 限定: xoxp（ユーザートークン）の誤貼付を入口で弾く
 const slackSchema = z.object({
