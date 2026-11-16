@@ -2,7 +2,7 @@
 
 | 項目 | 内容 |
 |---|---|
-| 状態 | Draft（レビュー待ち） |
+| 状態 | **Phase 1 実装済み**（ブランチ `feat/multi-tenancy`。§14 は推奨案を仮採用・オーナー確認待ち） |
 | 作成日 | 2026-11-16 |
 | 調査したブランチ | `refactor/cleanup-2026-11`（HEAD `cbfe046`） |
 | 対象 | `apps/api-gateway`, `apps/ai-engine`, `apps/web`, `packages/db-schema`, `packages/shared-types` |
@@ -10,6 +10,9 @@
 
 > この設計書は現状コードを読んで確かめた事実をもとに書いている。ファイル名と行番号は調査した時点（HEAD `cbfe046`）のもの。
 > 推測や未検証のものには **（要確認）** と付けた。
+>
+> **実装後の追記（2026-11-16）**: 実装で設計から変えた点は §16 にまとめた（コードを正とした）。
+> §2 の行番号は調査時点のままで、実装後のコードとはずれている。
 
 ---
 
@@ -138,6 +141,11 @@
 | **E10** | `apps/web/src/store/deliverablesStore.ts:145` | persist の key `flow-deliverables-v1` に組織が入っていない。react-query の key（`['org-me']`, `['org-usage']` など）にも org が無い | 組織を切り替えると、前の組織のフォルダ構成やキャッシュが一瞬見えるか、そのまま残る |
 | **E11** | `routes/analytics/index.ts:26-33` | usage-metrics-svc に `tenant_id` をクエリで渡し、認証ヘッダは付けていない | svc の URL を知っていれば、任意のテナントの利用統計が読める（要確認: svc 側の認証） |
 | **E12** | ai-engine `main.py` 全体 | body の `org_id` / `plan` / `user_email` をそのまま信じる（`ai-engine-auth.ts:7` と `main.py:109` のコメントもそれを認めている）。`plan` でモデル単価が決まり、`user_email` で admin（常に Claude）かどうかが決まる | 内部トークンが漏れると、他組織の AILog を汚せるうえ、高いモデルを無制限に使える |
+
+**対応状況（Phase 1）**: E1〜E7・E9・E10・E12（X-Org-Id の照合まで。plan/user_email を DB で確かめるのは Q5 で見送り）は対応済み。
+E8 は組織の作成時に既定のノードを入れるようにした。E11 は記録のみ（スコープ外）。
+実装中に**もう1件**見つかった: `services/rag.ts` の再索引前の `DELETE FROM "FileChunk" WHERE "fileId" = …` に org 条件が無かった
+（アーキテクチャテスト A2 で検出し修正）。
 
 補足:
 - n8n が生成するワークフローの ai-engine 呼び出しノード（`services/n8n-workflow-builder.ts:115-117, 209`）は `Content-Type` しか送っていない。
@@ -573,9 +581,11 @@ export const requireRole = (r) => async (req, reply) => {
   - **今回入れない（a にしない）理由**: 上の 1 と 3（ロールと接続文字列を分けること）が本番の Supabase と Render の設定変更を伴う。アプリの改修と同じ PR に載せると、ロールバックの単位が大きくなりすぎる。
 - **結果**: Phase 1 の tenantDb は、Phase 2 で「`$allOperations` の中で `set_config` + 本体を batch transaction にする」ように中身だけ差し替えられる形で作っておく（呼び出し側は変えない）。
 
-### ADR-5: routes から素の prisma を使わせない（アーキテクチャテストで止める）
+### ADR-5: routes から素の prisma を使わせない（アーキテクチャテストと ESLint で止める）
 - **選択肢**: ESLint の `no-restricted-imports` / **vitest のアーキテクチャテスト** / 規約だけ
-- **事実**: api-gateway の `package.json` に ESLint は無い（scripts は `typecheck` と `test` だけ）。
+- **事実**: 調査時点では api-gateway に ESLint は無かった。実装時点のブランチにはルートの `eslint.config.js` が入っていたので、
+  **両方**で止める（ESLint の `no-restricted-imports` で `src/routes/**` からの `utils/prisma` を禁止し、allowlist は `ignores`。
+  サービスを含む全体の allowlist はアーキテクチャテスト側に理由付きで持つ）。
 - **決定**: **vitest のアーキテクチャテスト**（`src/__tests__/architecture.test.ts`）。`src/routes/**` と `src/services/**` を読んで、`from '../utils/prisma'` / `'../../utils/prisma'` の import が **allowlist** のファイルにしか無いことを検査する。DB 無しで回り、既存の `npm test` に乗る。
   - allowlist（システム経路）: `routes/webhooks.ts`, `routes/inbox/line-webhook.ts`, `routes/billing-webhook.ts`, `routes/members.ts`（招待のプレビューと受諾だけ。分けられるなら `routes/invitations-public.ts` に切り出す）, `routes/auth.ts`, `services/schedule-dispatcher.ts`（claim だけ）, `services/billing/*`, `services/lifecycle.ts`, `services/step-runner.ts`（`recoverStaleRunningTasks` だけ）, `middleware/auth.ts`, `tenancy/*`, `index.ts`（`/ready`）。
   - raw SQL（`$queryRaw|$executeRaw`）は `services/rag.ts` と `routes/files.ts` だけ。どちらも `"orgId"` か `"Organization"` を含むこと。
@@ -838,6 +848,12 @@ async function switchOrg(orgId: string) {
 | 14 | `feat(web): 組織スイッチャーと組織作成、組織別キャッシュ` | §10.1〜10.2、E10 | |
 | 15 | `docs: マルチテナント運用を CLAUDE.md / supabase-migration.md に反映` | 不変条件 I1〜I12、allowlist、`ORG_HEADER_MODE` の切り替え手順 | |
 
+**実装状況**: 1〜15 すべてコミット済み（コミットの対応は PR の説明を参照）。
+ただし 9 の「services の tenantDb 化」は部分的: 定期実行・LINE webhook・step-runner を `runAsTenant` で包み、定期実行の
+エージェント/Task はテナントクライアントで引くようにしたが、`task-executor` / `capability-resolver` / `adapters` / `rag` /
+`inbox/*` などは素の prisma のまま（受け取った orgId を where/data に書いている）で、アーキテクチャテストの allowlist に
+理由付きで載せてある（**Phase 1.5 で tenantDb へ移す**）。
+
 **本番に出した後**: `ORG_HEADER_MODE=warn` のままで、ai-engine のログに「ヘッダ無し」が0件になったのを確認 → `enforce` に切り替える（環境変数だけで済む）。
 
 ---
@@ -861,22 +877,26 @@ async function switchOrg(orgId: string) {
 
 ## 14. オーナーに確認したい判断点
 
-| # | 質問 | 推奨 | 決めないと止まるもの |
-|---|---|---|---|
-| **Q1** | 毎リクエストで所属を確認する（+1 クエリ、30 秒キャッシュ）ことにしてよいか。今は「読み取りでは DB を引かない」方針 | **はい**。外したメンバーを 30 秒以内に締め出すため | コミット 6 |
-| **Q2** | 既存ユーザーを招待できるようにすると、招待リンクを持っている人には「そのメールが登録済みか」が分かる。許容するか | **許容する**（リンク＝トークンを持つ人だけ） | コミット 12 |
-| **Q3** | 組織を自分で作れるようにすると、トライアル（組織ごとに1回）を組織を作るたびに取れてしまう。「**作成者（ユーザー）ごとに1回**」に変えるか | **作成者ごとに1回**（`Organization.createdBy` で判定）。2つ目以降の組織は、課金を始めるまで梅の上限 | コミット 11 |
-| **Q4** | `User.orgId` が null の既存ユーザーがいた場合（件数は要確認）、組織を作ってあげるか・所属組織なしのままにするか | 所属組織なしのまま（ログインして自分で作る） | コミット 4 |
-| **Q5** | ai-engine は body の `plan` を信じている。ai-engine が DB から `Organization.plan` を読むようにするか | **Phase 1.5 でやる**（60 秒キャッシュ。読めなければ body を使う） | なし（後でもよい） |
-| **Q6** | n8n コールバックの orgId 照合を最初から強制するか、移行期間を置くか。今の n8n ワークフローを全部作り直せるか | 移行期間を1週間置く。その間に `agent-*` と部署ワークフローを作り直す | コミット 2 |
-| **Q7** | 子モデル（Message / TaskLog）に `orgId` を持たせるか（RLS の Phase 2 では必要になる） | Phase 2 で RLS と一緒に | なし |
-| **Q8** | 連携の資格情報の暗号文を orgId に縛る（AAD）か | Phase 2。既存の暗号文の再暗号化が要るので、単独の PR で | なし |
-| **Q9** | `User.orgId` の名前を `lastActiveOrgId` に変えるか | Phase 3（二重書き込みをやめるとき） | なし |
-| **Q10** | 1人が所属できる組織の数に上限を置くか（悪用・コストの対策） | 作成できるのは1ユーザー10組織まで。招待での所属は上限なし | コミット 11 |
+> **実装では推奨案を「仮採用（オーナー確認待ち）」として入れてある。** 決定が変わった場合の差し替え箇所を「仮採用の実装」列に書いた。
+
+| # | 質問 | 推奨 | 決めないと止まるもの | 仮採用の実装 |
+|---|---|---|---|---|
+| **Q1** | 毎リクエストで所属を確認する（+1 クエリ、30 秒キャッシュ）ことにしてよいか。今は「読み取りでは DB を引かない」方針 | **はい**。外したメンバーを 30 秒以内に締め出すため | コミット 6 | 仮採用（オーナー確認待ち）: `middleware/auth.ts` + `tenancy/membership-cache.ts`（TTL 30 秒） |
+| **Q2** | 既存ユーザーを招待できるようにすると、招待リンクを持っている人には「そのメールが登録済みか」が分かる。許容するか | **許容する**（リンク＝トークンを持つ人だけ） | コミット 12 | 仮採用（オーナー確認待ち）: プレビューの `requiresLogin`、`POST /members/invitations/accept-existing` |
+| **Q3** | 組織を自分で作れるようにすると、トライアル（組織ごとに1回）を組織を作るたびに取れてしまう。「**作成者（ユーザー）ごとに1回**」に変えるか | **作成者ごとに1回**（`Organization.createdBy` で判定）。2つ目以降の組織は、課金を始めるまで梅の上限 | コミット 11 | 仮採用（オーナー確認待ち）: `Organization.createdBy` + `services/organizations.ts` の `creatorTrialUsed` |
+| **Q4** | `User.orgId` が null の既存ユーザーがいた場合（件数は要確認）、組織を作ってあげるか・所属組織なしのままにするか | 所属組織なしのまま（ログインして自分で作る） | コミット 4 | 仮採用（オーナー確認待ち）: Membership を作らない。ログインすると `/no-org`（作成 or 招待） |
+| **Q5** | ai-engine は body の `plan` を信じている。ai-engine が DB から `Organization.plan` を読むようにするか | **Phase 1.5 でやる**（60 秒キャッシュ。読めなければ body を使う） | なし（後でもよい） | 見送り（Phase 1.5）。X-Org-Id と body.org_id の照合だけ入れた |
+| **Q6** | n8n コールバックの orgId 照合を最初から強制するか、移行期間を置くか。今の n8n ワークフローを全部作り直せるか | 移行期間を1週間置く。その間に `agent-*` と部署ワークフローを作り直す | コミット 2 | 仮採用（オーナー確認待ち）: `N8N_CALLBACK_ORG_REQUIRED`（既定 false=警告して通す）。dept-*.json と生成ワークフローは orgId を送る |
+| **Q7** | 子モデル（Message / TaskLog）に `orgId` を持たせるか（RLS の Phase 2 では必要になる） | Phase 2 で RLS と一緒に | なし | スコープ外 |
+| **Q8** | 連携の資格情報の暗号文を orgId に縛る（AAD）か | Phase 2。既存の暗号文の再暗号化が要るので、単独の PR で | なし | スコープ外 |
+| **Q9** | `User.orgId` の名前を `lastActiveOrgId` に変えるか | Phase 3（二重書き込みをやめるとき） | なし | スコープ外 |
+| **Q10** | 1人が所属できる組織の数に上限を置くか（悪用・コストの対策） | 作成できるのは1ユーザー10組織まで。招待での所属は上限なし | コミット 11 | 仮採用（オーナー確認待ち）: `MAX_ORGS_CREATED_PER_USER = 10`（409 `ORG_LIMIT_REACHED`） |
 
 ---
 
 ## 15. 未解決の質問（技術的に確認が要るもの）
+
+> 2・7・8 は実装で解決した（§16）。ai-engine の X-Org-Id は `ORG_HEADER_MODE`（off|warn|enforce、既定 warn）で仮採用。
 
 1. Supabase の `postgres` ロールの `rolbypassrls`（ADR-4）。`SELECT rolname, rolbypassrls, rolsuper FROM pg_roles WHERE rolname IN ('postgres', current_user);`
 2. Prisma 5.22 で、`$extends` の query 拡張が interactive transaction の `tx` にも効くか（§7.1.2）。テストで固定する。
@@ -887,3 +907,33 @@ async function switchOrg(orgId: string) {
 7. apps/web にフロントのテストの仕組みはあるか（§11.8）。
 8. `$extends` をリクエストごとに作るときのオーバーヘッド（ベンチ。必要なら orgId ごとの LRU）。
 9. Render の api-gateway を2インスタンス以上にする予定はあるか（membership-cache の 30 秒の遅れがインスタンスごとにずれる。今は1台の想定）。
+
+---
+
+## 16. 実装で設計から変えた点（コードを正とした）
+
+| 箇所 | 設計 | 実装 | 理由 |
+|---|---|---|---|
+| §7.1.2 テナントクライアント | Prisma の `$extends` | **薄い Proxy**（`tenancy/tenant-db.ts`）。書き換えは純粋関数 `scopeArgs`（`tenancy/scope.ts`） | 既存テストの `utils/prisma` モック（素のオブジェクト）がそのまま使える / interactive transaction の `tx` を自分で包むので §15-2 の不確実性が消える / リクエストごとの生成コストがほぼ無い（§15-8）。Phase 2 の `set_config` もここに差し込める |
+| where の足し方 | `{ AND: [where, { orgId }] }` | `{ ...where, orgId }`（トップレベルのキーは AND。`where.orgId` がフィルタ（`{ in }` 等）なら AND で包む / 別の文字列なら `TenantViolationError`） | 出る SQL は同じで、既存テストの `where.orgId` の検査がそのまま通る。`OR: [{ orgId: B }]` の抜け道も外側の orgId で塞がる（T7） |
+| Organization | 読み取り専用ファサード（`db.currentOrg()`） | `db.organization` を `id = orgId` の1行に固定（find / update / updateMany だけ。create / delete は例外） | ルートの `organization.findUnique({ where: { id: orgId } })` をそのまま移せる。条件付き加算（ストレージ・Stripe 顧客ID）に updateMany が要った |
+| テナントの取り出し | `request.tenant` | `authOf(request)`（= `{ orgId, sub, role, email, db }`）。無ければ例外 | `request.user as {...}` の 108 箇所を機械的に置き換えるため |
+| ALS の配線 | `als.enterWith` | `registerTenantContext(app)`: onRequest で入れ物ごと `als.run`、preValidation で本文読み取り後に文脈を戻す（`@fastify/request-context` と同じ手当て）。`requireAuth` は入れ物に tenant を書く | `enterWith` は Fastify のフックの境界でハンドラに伝わらないことがある（実験で確認） |
+| 組織分離テストの DB | 偽 Prisma | 同じ（`tests/helpers/fake-prisma.ts`）。本物の requireAuth / tenantDb を通す | 本物の Postgres の統合テストは見送り（apt 不可・pgvector 無し） |
+| `/n8n/task-log` | 照合のみ | 存在しない Task も 404 にした（以前は FK 違反で 500） | |
+| `PATCH /members/:userId/status` の二重書き込み | （記述なし） | Membership.status だけを変える（User.status には写さない） | User.status に写すと他の組織からも締め出す。⚠️ ロールバック時は §9.4 の SQL で写し直す |
+| Google 連携（§10.2） | pendingLink に start 時の orgId を保存 | state（HMAC 署名）に開始組織を入れて callback で pendingLink に移し、confirm で照合（409 `ORG_SWITCHED`、リンクは消費しない） | start は認証あり / callback は無認証なので、運ぶ手段が署名済み state しかない。保存先は従来どおり confirm のセッション |
+| web の切り替え | `navigate('/')` | `window.location.assign('/')`（ページを読み直す） | メモリ上のストア（チャット等）に前の組織のデータが残るのを一括で消すため。組織別 persist も読み直しで切り替わる |
+| E8 の Capability | `seed-capabilities.ts` から関数を切り出す | カタログを `apps/api-gateway/src/services/default-capabilities.ts` に移し、seed スクリプトがそれを import | gateway のビルド（rootDir=src）から packages/db-schema を参照できないため |
+
+### 9.4 追記: Membership 単位の無効化をロールバックするとき
+
+前のバージョンは `User.status` しか見ないので、新しいバージョンで「この組織から外した」人は前のバージョンでは入れてしまう。
+ロールバックの直後に次を流す（`User.orgId` の組織で無効化されている人だけをアカウントごと止める）:
+
+```sql
+UPDATE "User" u SET "status" = 'DISABLED'
+FROM "Membership" m
+WHERE m."userId" = u."id" AND m."orgId" = u."orgId" AND m."status" = 'DISABLED';
+```
+

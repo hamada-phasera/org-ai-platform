@@ -193,6 +193,10 @@ END $$;
 > このアプリは**独自 JWT** で認証し、テナント分離は gateway 側の `where: { orgId }` で行っている。
 > `auth.uid()` は常に NULL なので、ポリシーを書いても意味を成さない。
 > ここでの RLS は「Data API 経由の直アクセスを塞ぐ蓋」としてのみ使う。
+>
+> **マルチテナント（2026-11）**: テナント分離はアプリ層の `tenantDb(orgId)`（gateway `src/tenancy/`）で強制している。
+> RLS ポリシーによる多層防御は Phase 2 で、`NOBYPASSRLS` の専用ロールを作ってから入れる
+> （docs/design/multi-tenancy.md ADR-4、草案は docs/design/rls-phase2-draft.sql。**まだ流さないこと**）。
 
 > n8n を `n8n` スキーマに隔離してあるのも効いている。Data API が公開するのは既定で `public`
 > だけなので、n8n のテーブルは最初から露出しない。

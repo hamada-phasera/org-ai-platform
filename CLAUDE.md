@@ -63,11 +63,13 @@ AI_ENGINE_URL=http://localhost:8000
 # n8n (任意。未設定なら AI Engine フォールバックで動作)
 N8N_CLOUD_URL=        # or N8N_URL。エージェント実行・ワークフロー生成の宛先
 N8N_API_KEY=          # n8n Public API キー。エージェント専用ワークフローの動的生成にも使用
-N8N_WEBHOOK_AUTH_TOKEN=org-ai-n8n-secret-token   # Webhook Header Auth
+N8N_WEBHOOK_AUTH_TOKEN=       # Webhook Header Auth。⚠️ 既定値は公開されているので本番では必ず変える
+N8N_CALLBACK_ORG_REQUIRED=false  # n8n コールバックの orgId 必須化（移行期間は false＝無ければ警告して通す）
 # セルフサーブ連携 (設定 > 連携)
 CHANNEL_CREDENTIAL_ENC_KEY=   # 外部サービスの資格情報の暗号化鍵(32byteをhex/base64)。未設定時はJWT_SECRETから導出
 GOOGLE_OAUTH_CLIENT_ID=       # GCP の OAuth クライアント (ウェブアプリ)。docs/self-serve-integrations.md
 GOOGLE_OAUTH_CLIENT_SECRET=
+ORG_HEADER_MODE=warn          # ai-engine: X-Org-Id と body.org_id の照合 off|warn|enforce
 CAPABILITY_CONFIDENCE_THRESHOLD=0.7   # 推論の確信度がこれ未満なら実行せず確認を返す
 INTERNAL_SCHEDULER_ENABLED=true       # 定期実行の gateway 内 tick (5分間隔)
 # ファイル保存 (本番必須。未設定ならローカル保存＝Renderでは再デプロイで消える)
@@ -78,6 +80,24 @@ SUPABASE_STORAGE_BUCKET=org-files
 STRIPE_SECRET_KEY= / STRIPE_WEBHOOK_SECRET= / STRIPE_PRICE_{STARTER,PRO,MAX}_{MONTHLY,YEARLY}=
 STRIPE_PRICE_STORAGE_ADDON= / STRIPE_TAX_RATE_ID= / BILLING_TRIAL_DAYS=30 / APP_BASE_URL=
 ```
+
+## マルチテナント（組織の分離）— docs/design/multi-tenancy.md
+
+- **テナント = Organization**。1人が複数の組織に所属できる。**所属と権限の正本は `Membership(userId, orgId, role, status)`**。
+  `User.orgId` は「最後に選んだ組織」、`User.role` は移行期間中の写し（判定に使わない。Phase 3 で削除）。
+- **操作する組織は JWT の orgId**（トークン1本 = 1組織）。切り替えは `POST /api/auth/switch-org` で新しいトークンを発行。
+  `requireAuth` は毎リクエスト `Membership(sub, orgId)` が ACTIVE かを確認する（30 秒キャッシュ、メンバー管理 API で即破棄）。
+  `requireRole` はキャッシュを通さない。エラーは 401(アカウント停止) / 403 `TENANT_ACCESS_REVOKED` / 403 `TENANT_REQUIRED` / 403 `TENANT_NOT_MEMBER`。
+- **ルートは `authOf(request).db`（= `tenantDb(orgId)`）だけを使う**。`findUnique({ where: { id } })` にも orgId が自動で付き、
+  他組織の id は 404 になる。`create` の orgId も自動、別の orgId を指定すると例外。**ルートから `utils/prisma` を import しない**
+  （ESLint の no-restricted-imports と `src/__tests__/architecture.test.ts` で止める。allowlist は理由付きでそこに書く）。
+- 別の行を指す参照（agentId / projectId / vendorId など）は `assertSameOrg` か、テナントクライアントでの取得で同じ組織か確かめる。
+- raw SQL は `routes/files.ts` と `services/rag.ts` だけ。文には必ず `"orgId"` か `"Organization"` を含める（テストで検査）。
+- **新しいモデルに orgId を足したら `src/tenancy/tenant-models.ts` にも足す**（schema.prisma と突き合わせるテストが落ちる）。
+- 認証の無い経路（定期実行・LINE webhook・step-runner）は、組織が決まったら `runAsTenant({ orgId, source })` で包む。
+  ai-engine への呼び出しは `aiEngineHeaders()` が `X-Org-Id` を付け、ai-engine が body の `org_id` と照合する（`ORG_HEADER_MODE`）。
+- 組織分離テスト: `apps/api-gateway/tests/tenancy/tenant-isolation.test.ts`。ルートを足したら IDOR / 一覧の表に足す。
+- RLS ポリシーはまだ入れない（ADR-4。Phase 2 で専用ロールを作ってから）。
 
 ## 自動化の実行モデル (2026-09 スプリント)
 
