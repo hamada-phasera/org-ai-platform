@@ -5,6 +5,7 @@
     "migrate:dev": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
     "generate": "prisma generate",
+    "typecheck": "tsc --noEmit",
     "seed": "ts-node prisma/seed.ts",
     "studio": "prisma studio"
   },

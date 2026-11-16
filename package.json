@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "concurrently \"npm run dev --workspace=apps/api-gateway\" \"npm run dev --workspace=apps/web\"",
     "build": "turbo build",
+    "typecheck": "npm run typecheck --workspaces --if-present",
     "n8n:status": "node scripts/n8n-status.mjs",
     "n8n:convert": "node scripts/n8n-convert-webhook.mjs",
     "n8n:import": "node scripts/n8n-import-workflows.mjs",

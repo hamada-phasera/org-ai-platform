@@ -1,0 +1,9 @@
+{
+  // 本番ビルド用（npm run build）。出力レイアウト dist/index.js を保つため rootDir=src に固定し、
+  // shared-types は通常の解決（node_modules → dist）に戻す。実行時も dist/index.js を require する。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "paths": {}
+  }
+}
