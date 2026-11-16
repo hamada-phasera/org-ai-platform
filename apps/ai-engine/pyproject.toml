@@ -1,0 +1,59 @@
+# ai-engine の開発ツール設定（ruff / pytest / coverage / mypy）。
+# ランタイム依存は requirements.txt、開発用は requirements-dev.txt で管理する
+# （Dockerfile は requirements.txt だけを読むので、ここはパッケージ定義を持たない）。
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    # 日本語の文面・コメントで全角記号（：（）！など）を意図して使っている
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# プロンプト本文は長い日本語の1行をそのまま LLM に渡すため、折り返すと文面が変わる
+"app/agents/*.py" = ["E501"]
+"app/planner/prompts.py" = ["E501"]
+"app/planner/receipt_vision.py" = ["E501"]
+# load_dotenv() を他モジュールの import より先に実行する必要がある（import 時に env を読むモジュールがある）
+"app/main.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.ruff.format]
+quote-style = "preserve"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra"
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["app"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+# 緩めで開始。段階的に disallow_untyped_defs などを足していく

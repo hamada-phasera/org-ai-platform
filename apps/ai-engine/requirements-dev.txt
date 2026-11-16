@@ -1,0 +1,8 @@
+# 開発・CI 用（本番イメージには入れない。Dockerfile は requirements.txt だけを読む）
+-r requirements.txt
+pytest>=8.0
+pytest-asyncio>=0.23
+pytest-cov>=5.0
+ruff>=0.6
+vulture>=2.11
+mypy>=1.10
