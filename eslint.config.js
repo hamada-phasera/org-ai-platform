@@ -18,7 +18,6 @@ module.exports = tseslint.config(
       '**/coverage/**',
       'apps/ai-engine/**',
       'apps/n8n-workflows/**',
-      'apps/n8n-workflows.bak.*/**',
       'apps/web/demo/**',
       'apps/web/scripts/**',
       'design-canvas/**',
