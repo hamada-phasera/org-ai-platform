@@ -2,6 +2,11 @@ import { prisma } from '../utils/prisma';
 import { agentWorkflowName } from './n8n-workflow-builder';
 import { aiEngineHeaders } from './ai-engine-auth';
 import { config } from '../config/env';
+import { createLogger } from '../utils/logger';
+
+const n8nLog = createLogger('n8n');
+const aiEngineFallbackLog = createLogger('ai-engine-fallback');
+const agentEngineFallbackLog = createLogger('agent-engine-fallback');
 
 const N8N_URL = config.n8nUrl.replace(/\/$/, '');
 const N8N_API_KEY = config.n8nApiKey;
@@ -64,7 +69,7 @@ async function isWebhookAvailable(department: string): Promise<boolean> {
     );
     return setCachedWebhook(department, !!hit);
   } catch (e) {
-    console.error(`[n8n] isWebhookAvailable(${department}) failed:`, e);
+    n8nLog.error(`isWebhookAvailable(${department}) failed:`, e);
     return setCachedWebhook(department, false);
   }
 }
@@ -137,13 +142,13 @@ export async function triggerN8nWorkflowByPath(
     });
     if (!res.ok) {
       const body = await res.text();
-      console.error(`[n8n] webhook ${path} failed: ${res.status} ${body}`);
+      n8nLog.error(`webhook ${path} failed: ${res.status} ${body}`);
       return false;
     }
-    console.log(`[n8n] webhook ${path} accepted (taskId=${task.id})`);
+    n8nLog.info(`webhook ${path} accepted (taskId=${task.id})`);
     return true;
   } catch (e) {
-    console.error(`[n8n] webhook ${path} trigger failed:`, e);
+    n8nLog.error(`webhook ${path} trigger failed:`, e);
     return false;
   }
 }
@@ -151,7 +156,7 @@ export async function triggerN8nWorkflowByPath(
 export async function triggerN8nWorkflow(task: TriggerableTask): Promise<boolean> {
   const path = DEPT_WEBHOOK_PATHS[task.department];
   if (!path) {
-    console.warn(`[n8n] webhook path not defined for ${task.department}`);
+    n8nLog.warn(`webhook path not defined for ${task.department}`);
     return false;
   }
   return triggerN8nWorkflowByPath(path, task);
@@ -194,7 +199,7 @@ export async function executeTaskViaAiEngine(task: {
       data: { taskId: task.id, message: 'AI Engineで実行完了', level: 'INFO' },
     });
   } catch (e) {
-    console.error('[ai-engine-fallback] failed:', e);
+    aiEngineFallbackLog.error('failed:', e);
     await prisma.task.update({
       where: { id: task.id },
       data: { status: 'FAILED', lastError: String(e) },
@@ -218,7 +223,7 @@ export async function dispatchQueuedTask(task: {
   if (useN8n) {
     const ok = await triggerN8nWorkflow(task);
     if (ok) return;
-    console.warn(`[n8n] webhook 呼び出し失敗 → AI Engine にフォールバック (task=${task.id})`);
+    n8nLog.warn(`webhook 呼び出し失敗 → AI Engine にフォールバック (task=${task.id})`);
   }
   await executeTaskViaAiEngine(task);
 }
@@ -244,7 +249,7 @@ async function isWebhookAvailableByName(workflowName: string): Promise<boolean> 
     const json = (await res.json()) as { data: { name: string; active: boolean }[] };
     return setCachedWebhook(workflowName, json.data.some((w) => w.active && w.name === workflowName));
   } catch (e) {
-    console.error(`[n8n] isWebhookAvailableByName(${workflowName}) failed:`, e);
+    n8nLog.error(`isWebhookAvailableByName(${workflowName}) failed:`, e);
     return setCachedWebhook(workflowName, false);
   }
 }
@@ -296,7 +301,7 @@ export async function executeTaskViaAgentEngine(
       data: { taskId: task.id, message: 'AI Engine で実行完了', level: 'INFO' },
     });
   } catch (e) {
-    console.error('[agent-engine-fallback] failed:', e);
+    agentEngineFallbackLog.error('failed:', e);
     await prisma.task.update({
       where: { id: task.id },
       data: { status: 'FAILED', lastError: String(e) },

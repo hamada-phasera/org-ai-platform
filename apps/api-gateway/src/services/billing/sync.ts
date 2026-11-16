@@ -2,6 +2,9 @@
 
 import { prisma } from '../../utils/prisma';
 import { customerIdOf, subscriptionSnapshot, type BillingConfig, type StripeSubscription } from './billing-core';
+import { createLogger } from '../../utils/logger';
+
+const billingLog = createLogger('billing');
 
 export type ApplyOutcome = 'applied' | 'org_not_found' | 'customer_mismatch' | 'stale_subscription';
 
@@ -19,7 +22,7 @@ export async function applySubscription(
 
   // ⚠️ 別の顧客のサブスクリプションを写さない（metadata の取り違えに対する防御）
   if (org.stripeCustomerId && org.stripeCustomerId !== snap.customerId) {
-    console.error('[billing] 組織の顧客IDと一致しないサブスクリプションを無視しました:', snap.subscriptionId);
+    billingLog.error('組織の顧客IDと一致しないサブスクリプションを無視しました:', snap.subscriptionId);
     return 'customer_mismatch';
   }
   // ⚠️ 契約し直した組織に、古いサブスクリプションの「解約済み」が遅れて届くことがある。それで現行の契約を落とさない
@@ -43,7 +46,7 @@ export async function applySubscription(
     },
   });
   if (snap.unknownPrice) {
-    console.warn('[billing] 設定に無い price のサブスクリプションです。プランは変更していません:', snap.subscriptionId);
+    billingLog.warn('設定に無い price のサブスクリプションです。プランは変更していません:', snap.subscriptionId);
   }
   return 'applied';
 }

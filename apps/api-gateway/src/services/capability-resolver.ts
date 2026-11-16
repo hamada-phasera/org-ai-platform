@@ -7,6 +7,9 @@ import { httpMethodOf } from './http-node/template';
 import { scrubJson } from './secret-scrubber';
 import { aiEngineHeaders } from './ai-engine-auth';
 import { config } from '../config/env';
+import { createLogger } from '../utils/logger';
+
+const capabilityResolverLog = createLogger('capability-resolver');
 
 // 型は capability-executor に移設済み。既存 import 互換のため re-export する。
 export type { ErrorType, N8nEnvelope } from './capability-executor';
@@ -187,10 +190,10 @@ async function fetchPlanFromAiEngine(message: string, orgId: string, plan: strin
       });
       if (res.ok) return (await res.json()) as PlanFromAi;
       lastReason = `AI Engine /plan ${res.status}`;
-      console.error(`[capability-resolver] AI Engine /plan returned ${res.status} (attempt ${attempt + 1})`);
+      capabilityResolverLog.error(`AI Engine /plan returned ${res.status} (attempt ${attempt + 1})`);
     } catch (e) {
       lastReason = 'AI Engine 到達不可';
-      console.error(`[capability-resolver] fetchPlanFromAiEngine failed (attempt ${attempt + 1}):`, e);
+      capabilityResolverLog.error(`fetchPlanFromAiEngine failed (attempt ${attempt + 1}):`, e);
     }
     if (attempt === 0) await new Promise((r) => setTimeout(r, 1200));
   }
@@ -269,7 +272,7 @@ async function refreshCredentialFromN8n(provider: string): Promise<boolean | nul
     n8nCredsCache.set(provider, { ok: hit, at: Date.now() });
     return hit;
   } catch (e) {
-    console.error(`[capability-resolver] n8n credentials check failed (${provider}):`, e);
+    capabilityResolverLog.error(`n8n credentials check failed (${provider}):`, e);
     return null;
   }
 }
@@ -316,7 +319,7 @@ async function notifyAdmins(orgId: string, rawRequest: string, inferredName: str
       orgId,
     });
   } catch (e) {
-    console.error('[capability-resolver] notifyAdmins failed:', e);
+    capabilityResolverLog.error('notifyAdmins failed:', e);
   } finally {
     resolvingNotifySlack = false;
   }

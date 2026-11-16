@@ -17,6 +17,9 @@ import {
 } from './template';
 import { assertSafeUrl } from './url-guard';
 import { config as appConfig } from '../../config/env';
+import { createLogger } from '../../utils/logger';
+
+const httpNodeLog = createLogger('http-node');
 
 export interface HttpCapabilityRow {
   id?: string;
@@ -166,8 +169,8 @@ export async function executeHttpCapabilityDetailed(
   });
   const durationMs = Date.now() - startedAt;
   // ログは宛先ホストまで。展開後 URL とヘッダは出さない
-  console.log(
-    `[http-node] ${capability.name} ${config.method} ${verdict.url.host} ` +
+  httpNodeLog.info(
+    `${capability.name} ${config.method} ${verdict.url.host} ` +
       `${res.ok ? res.statusCode : res.kind} ${durationMs}ms`,
   );
 

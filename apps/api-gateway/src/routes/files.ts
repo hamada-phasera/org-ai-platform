@@ -11,6 +11,9 @@ import { aiEngineHeaders } from '../services/ai-engine-auth';
 import { tracked } from '../services/lifecycle-core';
 import { config } from '../config/env';
 import { sendError } from '../utils/http-error';
+import { createLogger, errorMessage } from '../utils/logger';
+
+const filesLog = createLogger('files');
 
 const ALLOWED_DEPARTMENTS = new Set(['SALES', 'MARKETING', 'ACCOUNTING', 'ANALYTICS', 'GENERAL']);
 
@@ -46,7 +49,7 @@ async function loadBody(file: { storagePath: string; storageDriver: string; orgI
   try {
     return await readDriver(file.storageDriver).get(file.storagePath);
   } catch (e) {
-    console.error('[files] 本体の取得に失敗:', e instanceof Error ? e.message : e);
+    filesLog.error('本体の取得に失敗:', errorMessage(e));
     return null;
   }
 }
@@ -110,7 +113,7 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     try {
       await driver.put(key, body, data.mimetype);
     } catch (e) {
-      console.error('[files] 保存に失敗:', e instanceof Error ? e.message : e);
+      filesLog.error('保存に失敗:', errorMessage(e));
       return sendError(reply, 502, 'STORAGE_FAILED', 'ファイルを保存できませんでした。時間をおいて再度お試しください。');
     }
 
@@ -284,12 +287,12 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
        ローカルは再デプロイで消える前提の置き場なので、失敗しても行の削除は止めない。 */
     if (file.storageDriver === 'supabase' && !keyBelongsToOrg(file.storagePath, file.orgId)) {
       // 他組織の区切りを指す行。本体には触らず、行だけ片付ける
-      console.error('[files] 組織の区切り外を指す行を検出したため、本体の削除を見送りました:', file.id);
+      filesLog.error('組織の区切り外を指す行を検出したため、本体の削除を見送りました:', file.id);
     } else {
       try {
         await readDriver(file.storageDriver).delete(file.storagePath);
       } catch (e) {
-        console.error('[files] 本体の削除に失敗:', e instanceof Error ? e.message : e);
+        filesLog.error('本体の削除に失敗:', errorMessage(e));
         if (file.storageDriver !== 'local') {
           return sendError(reply, 502, 'STORAGE_FAILED', 'ファイルを削除できませんでした。時間をおいて再度お試しください。');
         }

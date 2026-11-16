@@ -31,6 +31,9 @@ import {
 import { StripeClient } from '../services/billing/stripe-client';
 import { applySubscription } from '../services/billing/sync';
 import { sendError } from '../utils/http-error';
+import { createLogger, errorMessage } from '../utils/logger';
+
+const billingLog = createLogger('billing');
 
 /** 追加容量の上限（1口 = 1GB）。桁の打ち間違いで高額な請求を作らないための柵 */
 const MAX_ADDON_UNITS = 50;
@@ -55,7 +58,7 @@ async function priceAmount(stripe: StripeClient, priceId: string | null): Promis
     priceCache.set(priceId, { amount, at: Date.now() });
     return amount;
   } catch (e) {
-    console.error('[billing] 価格の取得に失敗:', e instanceof Error ? e.message : e);
+    billingLog.error('価格の取得に失敗:', errorMessage(e));
     return null;
   }
 }
@@ -126,7 +129,7 @@ const notConfigured = (reply: FastifyReply) =>
 
 /** ⚠️ Stripe のエラー文言は利用者へ返さない（決済の文脈が混じる）。ログにだけ残す */
 const upstreamFailed = (reply: FastifyReply, e: unknown) => {
-  console.error('[billing] Stripe の呼び出しに失敗:', e instanceof Error ? e.message : e);
+  billingLog.error('Stripe の呼び出しに失敗:', errorMessage(e));
   return sendError(reply, 502, 'BILLING_UPSTREAM_ERROR', '決済サービスに接続できませんでした。時間をおいて再度お試しください。');
 };
 

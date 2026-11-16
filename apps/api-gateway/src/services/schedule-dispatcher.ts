@@ -10,6 +10,9 @@ import { prisma } from '../utils/prisma';
 import { dispatchQueuedTask, dispatchAgentTask } from './task-executor';
 import { runAgentTask } from './step-runner';
 import { config } from '../config/env';
+import { createLogger } from '../utils/logger';
+
+const scheduleLog = createLogger('schedule');
 
 /** 現在時刻の「時」の頭（UTC）。この時刻以降に lastRunAt があれば当該時間帯は実行済み。 */
 export function startOfCurrentHourUtc(now: Date = new Date()): Date {
@@ -44,7 +47,7 @@ function fireAndForget(taskId: string, label: string, start: () => Promise<void>
 
 /** 発火に失敗した Task を FAILED + TaskLog(ERROR) に落とす。この更新自体の失敗も握りつぶす。 */
 async function markDispatchFailed(taskId: string, label: string, error: unknown): Promise<void> {
-  console.error(`[schedule] ${label} failed (task=${taskId}):`, error);
+  scheduleLog.error(`${label} failed (task=${taskId}):`, error);
   try {
     await prisma.task.update({
       where: { id: taskId },
@@ -55,7 +58,7 @@ async function markDispatchFailed(taskId: string, label: string, error: unknown)
     });
   } catch (e) {
     // DB 側が死んでいるときはここも失敗する。プロセスを落とさないことを最優先にして諦める。
-    console.error(`[schedule] FAILED マークにも失敗 (task=${taskId}):`, e);
+    scheduleLog.error(`FAILED マークにも失敗 (task=${taskId}):`, e);
   }
 }
 
@@ -93,7 +96,7 @@ export async function claimAndEnqueueScheduledTask(
   if (st.agentId) {
     const agent = await prisma.agent.findUnique({ where: { id: st.agentId } });
     if (!agent || !agent.enabled) {
-      console.warn(`[schedule] agent ${st.agentId} が削除/無効のため skip (scheduledTask=${st.id})`);
+      scheduleLog.warn(`agent ${st.agentId} が削除/無効のため skip (scheduledTask=${st.id})`);
       return { enqueued: false, reason: 'agent_gone' };
     }
     const task = await prisma.task.create({
@@ -180,7 +183,7 @@ export async function enqueueDueScheduledTasks(now: Date = new Date()): Promise<
       const result = await claimAndEnqueueScheduledTask(st.id, now);
       if (result.enqueued) count += 1;
     } catch (e) {
-      console.error(`[schedule] scheduledTask=${st.id} の発火に失敗（残りは続行）:`, e);
+      scheduleLog.error(`scheduledTask=${st.id} の発火に失敗（残りは続行）:`, e);
     }
   }
   return count;
@@ -191,20 +194,20 @@ const TICK_INTERVAL_MS = 5 * 60_000;
 /** gateway 内の定期 tick。INTERNAL_SCHEDULER_ENABLED=false で無効化できる。 */
 export function startInternalScheduler(): void {
   if (!config.internalSchedulerEnabled) {
-    console.log('[schedule] internal scheduler disabled (INTERNAL_SCHEDULER_ENABLED=false)');
+    scheduleLog.info('internal scheduler disabled (INTERNAL_SCHEDULER_ENABLED=false)');
     return;
   }
   const tick = async (): Promise<void> => {
     try {
       const n = await enqueueDueScheduledTasks();
-      if (n > 0) console.log(`[schedule] ${n} 件の定期タスクを発火`);
+      if (n > 0) scheduleLog.info(`${n} 件の定期タスクを発火`);
     } catch (e) {
-      console.error('[schedule] tick failed:', e);
+      scheduleLog.error('tick failed:', e);
     }
   };
   // tick 内でも catch しているが、万一こぼれても unhandled rejection にしない（上の方針と同じ）。
   const safeTick = (): void => {
-    void tick().catch((e) => console.error('[schedule] tick crashed:', e));
+    void tick().catch((e) => scheduleLog.error('tick crashed:', e));
   };
   safeTick();
   setInterval(safeTick, TICK_INTERVAL_MS).unref?.();

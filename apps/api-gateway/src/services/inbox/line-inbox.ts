@@ -11,6 +11,9 @@ import type { LineMentionee, LineWebhookEvent } from './line-types';
 import { captureReceiptFromLine } from './receipt-capture';
 import { tracked } from '../lifecycle-core';
 import { config } from '../../config/env';
+import { createLogger, errorMessage } from '../../utils/logger';
+
+const lineInboxLog = createLogger('line-inbox');
 
 /** processLineEvents が必要とする最小形（Prisma の ChannelConnection 互換）。 */
 export interface InboxConnection {
@@ -113,9 +116,9 @@ async function captureReceipt(
     });
   } catch (e) {
     // ⚠️ e の中身をそのまま出さない（アクセストークンや messageId が混ざりうる）
-    console.error('[line-inbox] 領収書の読み取りに失敗しました');
+    lineInboxLog.error('領収書の読み取りに失敗しました');
     if (!config.isProduction) {
-      console.error(e instanceof Error ? e.message : e);
+      console.error(errorMessage(e));
     }
     await prisma.inboundMessage
       .update({
@@ -143,14 +146,14 @@ export async function processLineEvents(
       data: { lastEventAt: new Date() },
     });
   } catch (e) {
-    console.error('[line-inbox] lastEventAt の更新に失敗:', e instanceof Error ? e.message : e);
+    lineInboxLog.error('lastEventAt の更新に失敗:', errorMessage(e));
   }
 
   for (const event of events) {
     try {
       if (event.type === 'leave') {
-        console.log(
-          `[line-inbox] bot left source (connection=${connection.id}, sourceType=${event.source?.type ?? 'unknown'})`,
+        lineInboxLog.info(
+          `bot left source (connection=${connection.id}, sourceType=${event.source?.type ?? 'unknown'})`,
         );
         continue;
       }
@@ -240,9 +243,9 @@ export async function processLineEvents(
         tracked('inbox-draft', created.id, () => generateInboxDraft(created.id));
       }
     } catch (e) {
-      console.error(
-        `[line-inbox] event 処理に失敗 (webhookEventId=${event.webhookEventId}):`,
-        e instanceof Error ? e.message : e,
+      lineInboxLog.error(
+        `event 処理に失敗 (webhookEventId=${event.webhookEventId}):`,
+        errorMessage(e),
       );
     }
   }
