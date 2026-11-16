@@ -225,6 +225,7 @@ export default function DeliverablesPage() {
   );
 
   // 未評価の成果物を自動で重要度づけ
+  // lint(react-hooks/set-state-in-effect): 残置。effect 外（描画中の導出やイベント）へ移すと描画タイミングが変わるため
   useEffect(() => {
     if (ranking) return;
     const unranked = tasks.filter((t) => !(t.id in importance) && !(t.id in importanceOverride));

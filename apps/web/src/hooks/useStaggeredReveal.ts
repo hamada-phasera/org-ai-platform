@@ -12,6 +12,7 @@ export function useStaggeredReveal(total: number, stepMs = 180): number {
   const reduced = usePrefersReducedMotion();
   const [visible, setVisible] = useState(() => (reduced ? total : 0));
 
+  // lint(react-hooks/set-state-in-effect): 残置。effect 外（描画中の導出やイベント）へ移すと描画タイミングが変わるため
   useEffect(() => {
     if (reduced) {
       setVisible(total);

@@ -264,7 +264,7 @@ export function CostApproval() {
     onError: (err) => setActionError(describeError(err, '削除できませんでした')),
   });
 
-  const costs = costsQ.data ?? [];
+  const costs = useMemo(() => costsQ.data ?? [], [costsQ.data]);
   const draftCount = useMemo(() => costs.filter((c) => c.status === 'DRAFT').length, [costs]);
 
   function toggle(id: string) {
