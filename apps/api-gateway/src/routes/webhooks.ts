@@ -4,11 +4,39 @@ import { prisma } from '../utils/prisma';
 import { claimAndEnqueueScheduledTask, startOfCurrentHourUtc } from '../services/schedule-dispatcher';
 import { config } from '../config/env';
 import { sendError } from '../utils/http-error';
+import { createLogger } from '../utils/logger';
 
 const WEBHOOK_AUTH_TOKEN = config.n8nWebhookAuthToken;
+const webhookLog = createLogger('webhooks/n8n');
+
+/* ⚠️ トークンの既定値はコードとドキュメントに書いてある＝公開されている。
+   本番でこのまま動かすと、誰でも全テナントの Task を書き換えられる（E1）。
+   起動は止めない（今のワークフローを壊さないため）が、必ず目に付くように出す。 */
+if (config.isProduction && config.n8nWebhookAuthTokenIsDefault) {
+  webhookLog.error(
+    'N8N_WEBHOOK_AUTH_TOKEN が既定値のままです。本番では必ず推測できない値に変えてください（n8n 側の Header Auth も同じ値に）',
+  );
+}
+
+/**
+ * コールバックが名乗る orgId と、対象の行の orgId を照合する（E1）。
+ *
+ *   * orgId が付いていて食い違う → false（呼び出し側は 404。存在を漏らさない）
+ *   * orgId が無い → N8N_CALLBACK_ORG_REQUIRED=true なら false、既定（移行期間）は警告して true
+ *
+ * 共有トークン1本で全テナントの行を触れる経路なので、トークンが漏れても
+ * 「行の id と org の両方を知っていないと触れない」ようにする。
+ */
+function callbackOrgMatches(claimedOrgId: string | undefined, rowOrgId: string, what: string): boolean {
+  if (claimedOrgId) return claimedOrgId === rowOrgId;
+  if (config.n8nCallbackOrgRequired) return false;
+  webhookLog.warn(`${what}: コールバックに orgId がありません（古いワークフロー）。ワークフローを再生成してください`);
+  return true;
+}
 
 const taskCompleteSchema = z.object({
   taskId: z.string(),
+  orgId: z.string().min(1).optional(),
   status: z.enum(['DONE', 'FAILED']),
   output: z.string().optional(),
   error: z.string().optional(),
@@ -28,15 +56,19 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
     }
 
-    const { taskId, status, output, error, workflowId } = result.data;
+    const { taskId, orgId, status, output, error, workflowId } = result.data;
+    if (!orgId && config.n8nCallbackOrgRequired) {
+      return sendError(reply, 400, 'VALIDATION_ERROR', 'orgId は必須です');
+    }
 
     const task = await prisma.task.findUnique({ where: { id: taskId } });
-    if (!task) {
+    if (!task || !callbackOrgMatches(orgId, task.orgId, `task-complete(task=${taskId})`)) {
       return sendError(reply, 404, 'NOT_FOUND', 'タスクが見つかりません');
     }
 
     const updated = await prisma.task.update({
-      where: { id: taskId },
+      // 照合済みの org を書き込みの条件にも入れる（照合と書き込みの間で行が入れ替わることはないが、念のため）
+      where: { id: taskId, orgId: task.orgId },
       data: {
         status,
         output: output ?? null,
@@ -69,6 +101,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
 
     const schema = z.object({
       taskId: z.string(),
+      orgId: z.string().min(1).optional(),
       message: z.string(),
       level: z.enum(['INFO', 'WARN', 'ERROR']).default('INFO'),
     });
@@ -76,6 +109,16 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     const result = schema.safeParse(request.body);
     if (!result.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
+    }
+    if (!result.data.orgId && config.n8nCallbackOrgRequired) {
+      return sendError(reply, 400, 'VALIDATION_ERROR', 'orgId は必須です');
+    }
+    const task = await prisma.task.findUnique({
+      where: { id: result.data.taskId },
+      select: { id: true, orgId: true },
+    });
+    if (!task || !callbackOrgMatches(result.data.orgId, task.orgId, `task-log(task=${result.data.taskId})`)) {
+      return sendError(reply, 404, 'NOT_FOUND', 'タスクが見つかりません');
     }
 
     const log = await prisma.taskLog.create({
@@ -89,7 +132,9 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(201).send({ success: true, data: log });
   });
 
-  // QUEUEDタスク一覧（n8n ポーリング用）
+  // QUEUEDタスク一覧（n8n ポーリング用）。
+  // ⚠️ 全テナントを横断する経路なので、中身（input など）は返さない（E2）。
+  //    リポジトリ内のワークフローはこのポーリングを使っていない。使っていないと確認できたら廃止する。
   app.get('/n8n/queued-tasks', async (request, reply) => {
     const authToken = request.headers['x-webhook-token'];
     if (authToken !== WEBHOOK_AUTH_TOKEN) {
@@ -100,6 +145,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
       where: { status: 'QUEUED' },
       orderBy: { createdAt: 'asc' },
       take: 10,
+      select: { id: true, orgId: true, status: true, createdAt: true },
     });
 
     return reply.send({ success: true, data: tasks });
@@ -190,6 +236,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     }
     const schema = z.object({
       scheduledTaskId: z.string(),
+      orgId: z.string().min(1).optional(),
       status: z.enum(['DONE', 'FAILED']),
       error: z.string().optional(),
     });
@@ -197,8 +244,18 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     if (!result.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
     }
-    const updated = await prisma.scheduledTask.update({
+    if (!result.data.orgId && config.n8nCallbackOrgRequired) {
+      return sendError(reply, 400, 'VALIDATION_ERROR', 'orgId は必須です');
+    }
+    const st = await prisma.scheduledTask.findUnique({
       where: { id: result.data.scheduledTaskId },
+      select: { id: true, orgId: true },
+    });
+    if (!st || !callbackOrgMatches(result.data.orgId, st.orgId, `scheduled-job-complete(st=${st?.id})`)) {
+      return sendError(reply, 404, 'NOT_FOUND', '定期タスクが見つかりません');
+    }
+    const updated = await prisma.scheduledTask.update({
+      where: { id: st.id, orgId: st.orgId },
       data: { lastRunAt: new Date() },
     });
     return reply.send({ success: true, data: updated });

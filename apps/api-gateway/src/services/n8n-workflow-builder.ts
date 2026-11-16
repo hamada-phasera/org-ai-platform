@@ -141,6 +141,8 @@ export function buildAgentWorkflowJson(agent: AgentWorkflowInput): Record<string
           bodyParameters: {
             parameters: [
               { name: 'taskId', value: '={{ $(\'Webhook\').item.json.body.taskId }}' },
+              // 組織の照合用（E1）。gateway は webhook body に orgId を入れて起動する
+              { name: 'orgId', value: '={{ $(\'Webhook\').item.json.body.orgId }}' },
               { name: 'status', value: 'DONE' },
               { name: 'output', value: '={{ $(\'AI Engine Chat\').item.json.content }}' },
               { name: 'workflowId', value: '={{ $workflow.id }}' },
@@ -248,6 +250,7 @@ export function buildChainedAgentWorkflowJson(
       bodyParameters: {
         parameters: [
           { name: 'taskId', value: "={{ $('Webhook').item.json.body.taskId }}" },
+          { name: 'orgId', value: "={{ $('Webhook').item.json.body.orgId }}" },
           { name: 'status', value: 'DONE' },
           { name: 'output', value: "={{ JSON.stringify({ docUrl: 'https://docs.google.com/document/d/' + ($('Create Doc').item.json.documentId || $('Create Doc').item.json.id) + '/edit', title: $('Parse Args').item.json.docTitle }) }}" },
           { name: 'workflowId', value: '={{ $workflow.id }}' },

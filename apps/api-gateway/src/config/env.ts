@@ -47,6 +47,7 @@ export const envSchema = z.object({
   N8N_API_KEY: optional,
   N8N_WEBHOOK_AUTH_TOKEN: optional,
   N8N_TIMEOUT_MS: optional,
+  N8N_CALLBACK_ORG_REQUIRED: optional,
 
   // 連携
   CHANNEL_CREDENTIAL_ENC_KEY: optional,
@@ -226,6 +227,19 @@ export const config = {
   },
   get n8nWebhookAuthToken(): string {
     return readEnv().N8N_WEBHOOK_AUTH_TOKEN ?? ENV_DEFAULTS.N8N_WEBHOOK_AUTH_TOKEN;
+  },
+  /**
+   * n8n コールバック（task-complete / task-log / scheduled-job-complete）の body に orgId を必須にするか。
+   * 'true' のときだけ必須。既定は移行期間（orgId が無い古いワークフローは警告を出して通す）。
+   * orgId が**ある**ときは既定でも照合し、食い違えば 404 にする（docs/design/multi-tenancy.md E1 / Q6）。
+   */
+  get n8nCallbackOrgRequired(): boolean {
+    return readEnv().N8N_CALLBACK_ORG_REQUIRED === 'true';
+  },
+  /** N8N_WEBHOOK_AUTH_TOKEN が未設定（＝公開されている既定値のまま）か。 */
+  get n8nWebhookAuthTokenIsDefault(): boolean {
+    const v = readEnv().N8N_WEBHOOK_AUTH_TOKEN;
+    return v === undefined || v === ENV_DEFAULTS.N8N_WEBHOOK_AUTH_TOKEN;
   },
   get n8nTimeoutMs(): number {
     return Number(readEnv().N8N_TIMEOUT_MS ?? ENV_DEFAULTS.N8N_TIMEOUT_MS);
