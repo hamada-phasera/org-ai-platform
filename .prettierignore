@@ -1,0 +1,10 @@
+# Prettier は「新規/変更ファイルに任意で使う」前提。全体への一括適用はしない。
+node_modules
+dist
+coverage
+package-lock.json
+apps/ai-engine
+apps/n8n-workflows*
+design-canvas
+marketing
+docs
