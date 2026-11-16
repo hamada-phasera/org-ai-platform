@@ -9,6 +9,7 @@ import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.config import settings
+from app.llm.providers.common import JSON_MODE_HINT, MAX_TOKENS, RETRYABLE_STATUS_CODES
 from app.models.llm import ChatMessage, LLMResponse
 
 logger = logging.getLogger(__name__)
@@ -24,11 +25,7 @@ MODEL_TAKE = settings.gemini_model_take
 # 構造化処理（json_mode: 意図分類・capability選択等）は常に最安モデルで十分。
 MODEL_JSON = settings.gemini_model_json
 
-MAX_TOKENS = 4096
 
-JSON_MODE_HINT = (
-    "\n\n出力は有効な JSON オブジェクト 1 つのみとし、前後に説明文・コードブロックを含めないこと。"
-)
 
 
 def _is_retryable(exc: BaseException) -> bool:
@@ -36,7 +33,7 @@ def _is_retryable(exc: BaseException) -> bool:
     if isinstance(exc, (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout)):
         return True
     if isinstance(exc, httpx.HTTPStatusError):
-        return exc.response.status_code in (408, 409, 429, 500, 502, 503, 529)
+        return exc.response.status_code in RETRYABLE_STATUS_CODES
     return False
 
 

@@ -129,8 +129,7 @@ async def read_receipt(image_base64: str, media_type: str) -> dict[str, Any]:
     ⚠️ provider は router のシングルトンを使う。ここで AnthropicProvider() を new すると
     領収書が来るたびに httpx のコネクションプールが増え、閉じられずに積み上がる。
     """
-    from app.llm.providers.anthropic_provider import MODEL_SONNET
-    from app.llm.router import _get_anthropic
+    from app.llm.router import EXTRACT_MODEL, _get_anthropic
     from app.planner.planner import _safe_parse_json
 
     provider = _get_anthropic()
@@ -139,7 +138,7 @@ async def read_receipt(image_base64: str, media_type: str) -> dict[str, Any]:
         prompt=PROMPT,
         image_base64=image_base64,
         media_type=media_type,
-        model=MODEL_SONNET,
+        model=EXTRACT_MODEL,
     )
     # 前置きテキストやコードブロックを剥がす処理は planner と共通のものを使う
     raw = _safe_parse_json(response.content or "")

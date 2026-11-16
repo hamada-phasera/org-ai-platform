@@ -127,8 +127,17 @@ def _get_gemini() -> GeminiProvider:
     return _gemini
 
 
+def _provider_for(provider_name: str) -> AnthropicProvider | GeminiProvider:
+    """プロバイダ名から（遅延生成した）シングルトンを返す。gemini 以外はすべて anthropic。"""
+    if provider_name == "gemini":
+        return _get_gemini()
+    return _get_anthropic()
+
+
 def _is_admin(user_email: str | None) -> bool:
-    return bool(user_email) and user_email.strip().lower() in settings.admin_emails
+    if not user_email:
+        return False
+    return user_email.strip().lower() in settings.admin_emails
 
 
 def resolve_provider_model(
@@ -248,12 +257,12 @@ class LLMRouter:
 
         if provider_name == "gemini":
             _warn_if_gemini_free_tier()
-        provider = _get_gemini() if provider_name == "gemini" else _get_anthropic()
+        provider = _provider_for(provider_name)
         response = await provider.chat(screened_messages, model=model, json_mode=json_mode)
         note_call(org_id)
         logger.info(
-            f"[LLMRouter] task={task.value if task else '-'} plan={plan} "
-            f"admin={_is_admin(user_email)} -> {provider_name} ({response.model})"
+            "[LLMRouter] task=%s plan=%s admin=%s -> %s (%s)",
+            task.value if task else "-", plan, _is_admin(user_email), provider_name, response.model,
         )
         response.pii_detected = pii_detected
         return response, pii_detected, pii_types
@@ -273,7 +282,7 @@ class LLMRouter:
         note_call(org_id)
         if provider_name == "gemini":
             _warn_if_gemini_free_tier()
-        provider = _get_gemini() if provider_name == "gemini" else _get_anthropic()
+        provider = _provider_for(provider_name)
         async for token in provider.chat_stream(screened_messages, model=model):
             yield token
 
