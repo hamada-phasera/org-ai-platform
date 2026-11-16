@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import AsyncIterator
 from enum import Enum
 
+from app.config import settings
 from app.governance.pii_screener import screen
 from app.governance.usage import is_over_limit, note_call
 from app.llm.providers.anthropic_provider import (
@@ -127,13 +127,8 @@ def _get_gemini() -> GeminiProvider:
     return _gemini
 
 
-def _admin_emails() -> set[str]:
-    raw = os.getenv("ADMIN_EMAILS", "")
-    return {e.strip().lower() for e in raw.split(",") if e.strip()}
-
-
 def _is_admin(user_email: str | None) -> bool:
-    return bool(user_email) and user_email.strip().lower() in _admin_emails()
+    return bool(user_email) and user_email.strip().lower() in settings.admin_emails
 
 
 def resolve_provider_model(
@@ -151,7 +146,7 @@ def resolve_provider_model(
         model = MODEL_HAIKU if json_mode else _PLAN_CONTENT_MODEL.get(plan, MODEL_SONNET)
         return "anthropic", model
 
-    if not os.getenv("GEMINI_API_KEY"):
+    if not settings.gemini_api_key:
         if not _warned_no_gemini_key:
             logger.warning(
                 "[LLMRouter] GEMINI_API_KEY 未設定のため 梅/竹 プランも Anthropic にフォールバックします"
@@ -196,7 +191,7 @@ def _warn_if_gemini_free_tier() -> None:
     global _warned_free_tier
     if _warned_free_tier:
         return
-    if os.getenv("GEMINI_PAID_TIER", "").strip().lower() in ("1", "true", "yes"):
+    if settings.gemini_paid_tier:
         return
     _warned_free_tier = True
     logger.warning(
@@ -215,7 +210,7 @@ async def _degrade_if_over_limit(
     """
     if not await is_over_limit(org_id, plan):
         return provider_name, model
-    cheap = ("gemini", GEMINI_UME) if os.getenv("GEMINI_API_KEY") else ("anthropic", MODEL_HAIKU)
+    cheap = ("gemini", GEMINI_UME) if settings.gemini_api_key else ("anthropic", MODEL_HAIKU)
     if (provider_name, model) == cheap:
         return provider_name, model
     logger.warning(

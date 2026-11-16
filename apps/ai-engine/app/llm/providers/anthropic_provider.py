@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import time
 from collections.abc import AsyncIterator
 
@@ -14,6 +13,7 @@ from anthropic import (
 )
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
+from app.config import settings
 from app.models.llm import ChatMessage, LLMResponse
 
 
@@ -69,7 +69,7 @@ def _with_cache(system_content: str, user_messages: list[dict]):
 
 class AnthropicProvider:
     def __init__(self) -> None:
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        api_key = settings.anthropic_api_key
         self.client = AsyncAnthropic(api_key=api_key) if api_key else None
 
     @retry(

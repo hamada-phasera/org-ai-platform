@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 from collections.abc import AsyncIterator
 
 import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
+from app.config import settings
 from app.models.llm import ChatMessage, LLMResponse
 
 logger = logging.getLogger(__name__)
@@ -19,10 +19,10 @@ _BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 # 松竹梅のうち 梅/竹 用の既定モデル（env で上書き可）。
 # 無料枠の RPM/RPD を考慮し、梅=flash-lite（最も寛い枠）、竹=flash（上位品質）。
-MODEL_UME = os.getenv("GEMINI_MODEL_UME", "gemini-2.5-flash-lite")
-MODEL_TAKE = os.getenv("GEMINI_MODEL_TAKE", "gemini-2.5-flash")
+MODEL_UME = settings.gemini_model_ume
+MODEL_TAKE = settings.gemini_model_take
 # 構造化処理（json_mode: 意図分類・capability選択等）は常に最安モデルで十分。
-MODEL_JSON = os.getenv("GEMINI_MODEL_JSON", MODEL_UME)
+MODEL_JSON = settings.gemini_model_json
 
 MAX_TOKENS = 4096
 
@@ -81,7 +81,7 @@ class GeminiProvider:
     """AnthropicProvider と同一インターフェース（chat / chat_stream）の Gemini 実装。"""
 
     def __init__(self) -> None:
-        api_key = os.getenv("GEMINI_API_KEY", "")
+        api_key = settings.gemini_api_key
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY が未設定です")
         self._headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}

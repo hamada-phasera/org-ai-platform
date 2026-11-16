@@ -1,5 +1,4 @@
 import json
-import os
 import secrets
 import time
 
@@ -14,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+from app.config import settings
 from app.governance.audit_logger import schedule_llm_log
 from app.governance.pii_screener import screen
 from app.llm.router import (
@@ -92,7 +92,7 @@ class PlanAgentResponse(BaseModel):
 
 app = FastAPI(title="AI Engine", version="1.0.0")
 
-allowed_origins = os.getenv("API_GATEWAY_URL", "http://localhost:4000").split(",")
+allowed_origins = settings.allowed_origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -111,7 +111,7 @@ app.add_middleware(
 #
 # INTERNAL_API_TOKEN が未設定なら素通しする。gateway 側も未設定なら送らないので、
 # 「片方だけ先にデプロイして全部落ちる」ことがない。**設定して初めて有効になる**。
-INTERNAL_API_TOKEN = os.getenv("INTERNAL_API_TOKEN", "").strip()
+INTERNAL_API_TOKEN = settings.internal_api_token
 
 # 認証を求めないパス（Render のヘルスチェックと、ドキュメント類）
 PUBLIC_PATHS = frozenset({"/health", "/docs", "/redoc", "/openapi.json"})
@@ -148,14 +148,14 @@ async def health() -> dict:
 
 @app.get("/ready")
 async def ready() -> dict:
-    has_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
-    has_gemini = bool(os.environ.get("GEMINI_API_KEY"))
+    has_key = bool(settings.anthropic_api_key)
+    has_gemini = bool(settings.gemini_api_key)
     return {
         "status": "ok" if has_key else "degraded",
         "anthropic": has_key,
         # 松竹梅ルーティング: 梅/竹=Gemini。未設定なら全プラン Anthropic フォールバック
         "gemini": has_gemini,
-        "admin_emails_configured": bool(os.environ.get("ADMIN_EMAILS")),
+        "admin_emails_configured": bool(settings.admin_emails_raw),
         "timestamp": __import__("datetime").datetime.utcnow().isoformat(),
     }
 
