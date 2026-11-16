@@ -62,6 +62,6 @@ warn_redundant_casts = true
 
 [[tool.mypy.overrides]]
 # Anthropic SDK の TypedDict（MessageParam 等）に dict リテラルを渡している箇所。
-# 実行時は問題ないが、型を合わせるには SDK の型を import して組み立て直す必要がある（HOLD_LIST 参照）
+# 実行時は問題ないが、型を合わせるには SDK の型を import して組み立て直す必要がある（docs/maintenance/cleanup-hold-list.md 参照）
 module = "app.llm.providers.anthropic_provider"
 disable_error_code = ["arg-type", "misc", "list-item"]
