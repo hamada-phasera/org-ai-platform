@@ -16,7 +16,7 @@ async function main(): Promise<void> {
     },
   });
 
-  await prisma.user.upsert({
+  const admin = await prisma.user.upsert({
     where: { email: 'admin@demo.com' },
     update: {},
     create: {
@@ -26,6 +26,12 @@ async function main(): Promise<void> {
       role: 'OWNER',
       orgId: org.id,
     },
+  });
+  // 所属の正本は Membership（User.role / User.orgId は移行期間中の写し）
+  await prisma.membership.upsert({
+    where: { userId_orgId: { userId: admin.id, orgId: org.id } },
+    update: {},
+    create: { userId: admin.id, orgId: org.id, role: 'OWNER' },
   });
 
   console.log('Seed data created successfully');
