@@ -44,7 +44,3 @@ export async function getAllProjects(): Promise<ProjectMemory[]> {
 export async function upsertProjectMemory(memory: ProjectMemory): Promise<void> {
   await db.projectMemories.put(memory);
 }
-
-export async function getProjectMemory(projectId: string): Promise<ProjectMemory | undefined> {
-  return db.projectMemories.get(projectId);
-}

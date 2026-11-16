@@ -43,27 +43,6 @@ export async function syncCreateTask(task: Task): Promise<void> {
   }
 }
 
-/** バックエンドのタスクステータスを更新（失敗は無視） */
-export async function syncUpdateTaskStatus(localId: string, patch: Partial<Task>): Promise<void> {
-  if (!patch.status && !patch.title) return;
-  // ローカルIDとバックエンドIDは異なるため、タイトルで照合してIDを取得
-  try {
-    const res = await api.get<{ success: boolean; data: { id: string; title: string }[] }>('/tasks');
-    const tasks = res.data.data;
-    // rawInputや作成タイミングで厳密には一致しないため、
-    // 直近タスクのID照合はスキップし、タイトルベースで最初にマッチしたものを更新
-    const match = tasks.find((t) => t.title === patch.title);
-    if (!match) return;
-
-    const updateBody: Record<string, string> = {};
-    if (patch.status) updateBody.status = toBackendStatus(patch.status);
-    if (patch.title) updateBody.title = patch.title;
-    await api.patch(`/tasks/${match.id}`, updateBody);
-  } catch {
-    // 無視
-  }
-}
-
 /** バックエンドのタスクを削除（失敗は無視） */
 export async function syncDeleteTask(title: string): Promise<void> {
   try {

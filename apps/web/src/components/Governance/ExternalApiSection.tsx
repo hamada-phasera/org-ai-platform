@@ -295,5 +295,3 @@ export function ExternalApiSection() {
     </div>
   );
 }
-
-export default ExternalApiSection;

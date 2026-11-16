@@ -10,13 +10,6 @@
 export const COST_CATEGORIES = ['MATERIAL', 'LABOR', 'SUBCON', 'OTHER'] as const;
 export type CostCategory = (typeof COST_CATEGORIES)[number];
 
-export const COST_CATEGORY_LABEL: Record<CostCategory, string> = {
-  MATERIAL: '材料費',
-  LABOR: '労務費',
-  SUBCON: '外注費',
-  OTHER: '経費',
-};
-
 /** 工事の進行状態。 */
 export const PROJECT_STATUSES = [
   'ESTIMATING',
@@ -28,15 +21,6 @@ export const PROJECT_STATUSES = [
 ] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
-export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
-  ESTIMATING: '見積中',
-  ORDERED: '受注',
-  IN_PROGRESS: '施工中',
-  COMPLETED: '完成',
-  BILLED: '請求済',
-  PAID: '入金済',
-};
-
 /** 完成していない＝未成工事（原価は資産計上する対象）。 */
 export function isUnfinished(status: string): boolean {
   return status === 'ESTIMATING' || status === 'ORDERED' || status === 'IN_PROGRESS';
@@ -44,13 +28,6 @@ export function isUnfinished(status: string): boolean {
 
 export const VENDOR_KINDS = ['SUBCON', 'SUPPLIER', 'SOLO', 'OTHER'] as const;
 export type VendorKind = (typeof VENDOR_KINDS)[number];
-
-export const VENDOR_KIND_LABEL: Record<VendorKind, string> = {
-  SUBCON: '下請',
-  SUPPLIER: '資材業者',
-  SOLO: '一人親方',
-  OTHER: 'その他',
-};
 
 export interface CostLike {
   category: string;

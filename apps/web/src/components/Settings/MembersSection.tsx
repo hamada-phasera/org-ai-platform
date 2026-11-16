@@ -332,5 +332,3 @@ export function MembersSection() {
     </div>
   );
 }
-
-export default MembersSection;

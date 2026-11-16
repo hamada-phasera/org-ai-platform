@@ -90,5 +90,3 @@ export function ExpandableCard({
     </AnimatePresence>
   );
 }
-
-export default ExpandableCard;

@@ -60,7 +60,7 @@ const statusChip = (connected: boolean, labelOn = '接続済み', labelOff = '�
     <span className="rounded-full bg-warning/10 px-2.5 py-1 text-micro font-bold text-warning">{labelOff}</span>
   );
 
-export function IntegrationsSection() {
+function IntegrationsSection() {
   const qc = useQueryClient();
   const [secret, setSecret] = useState('');
   const [token, setToken] = useState('');

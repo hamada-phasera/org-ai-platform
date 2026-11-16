@@ -85,5 +85,3 @@ export function StepNode({ data }: NodeProps<Node<StepNodeData>>) {
     </div>
   );
 }
-
-export default StepNode;

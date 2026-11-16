@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { DEPT_ACCENT, DEPT_LABEL } from '../../constants/departments';
+import { DEPT_ACCENT } from '../../constants/departments';
 
 type Variant = 'solid' | 'glass' | 'outline' | 'soft';
 type Size = 'xs' | 'sm' | 'md';
@@ -95,22 +95,5 @@ export function Badge({
       {icon}
       {children}
     </span>
-  );
-}
-
-/** 部署バッジ: ラベルと部署色をまとめて出す */
-export function DeptBadge({
-  dept,
-  size = 'sm',
-  variant = 'soft',
-}: {
-  dept: string;
-  size?: Size;
-  variant?: Variant;
-}) {
-  return (
-    <Badge tone={dept} size={size} variant={variant}>
-      {DEPT_LABEL[dept] ?? dept}
-    </Badge>
   );
 }

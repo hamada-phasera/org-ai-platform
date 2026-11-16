@@ -65,5 +65,3 @@ export function ChatProgress({ phase, chars, lastEventAt }: Props) {
     </div>
   );
 }
-
-export default ChatProgress;

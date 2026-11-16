@@ -126,5 +126,3 @@ export function WorkflowCanvas({
     </div>
   );
 }
-
-export default WorkflowCanvas;

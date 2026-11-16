@@ -191,7 +191,3 @@ export const useStore = create<AppStore>((set, get) => ({
   setShowTaskInput: (v) => set({ showTaskInput: v }),
   setSidebarPage: (p) => set({ sidebarPage: p }),
 }));
-
-// Convenience selectors
-export const selectTasksByStatus = (tasks: Task[], status: Task['status']) =>
-  tasks.filter((t) => t.status === status);

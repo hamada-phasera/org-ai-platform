@@ -98,5 +98,3 @@ export function LiquidTabs<T extends string>({
     </div>
   );
 }
-
-export default LiquidTabs;

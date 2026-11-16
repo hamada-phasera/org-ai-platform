@@ -446,5 +446,3 @@ export function CostApproval() {
     </div>
   );
 }
-
-export default CostApproval;
