@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { Sparkles, ArrowRight, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
 import { useAuthStore } from '../store/authStore';
-import type { User } from '@org-ai/shared-types';
+import type { MembershipSummary, User } from '@org-ai/shared-types';
 import { AmbientBackground, Card, Input, Button } from '../components/ui';
 
 export default function LoginPage() {
@@ -20,12 +20,15 @@ export default function LoginPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await api.post<{ success: boolean; data: { token: string; user: User } }>(
+      const res = await api.post<{ success: boolean; data: { token: string; user: User; memberships?: MembershipSummary[] } }>(
         '/auth/login',
         { email, password },
       );
-      login(res.data.data.token, res.data.data.user);
-      navigate('/');
+      login(res.data.data.token, res.data.data.user, res.data.data.memberships);
+      // 招待リンクから来た既存ユーザーは、ログイン後に招待画面へ戻す（参加はそこで行う）
+      const back = new URLSearchParams(window.location.search).get('next');
+      if (back && back.startsWith('/invite/')) navigate(back);
+      else navigate(res.data.data.user.orgId ? '/' : '/no-org');
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
       setError(msg ?? 'ログインに失敗しました');

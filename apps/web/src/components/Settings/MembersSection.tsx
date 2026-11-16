@@ -314,7 +314,7 @@ export function MembersSection() {
                           statusMut.mutate({ id: m.id, status: disabled ? 'ACTIVE' : 'DISABLED' })
                         }
                       >
-                        {disabled ? '復帰させる' : '無効にする'}
+                        {disabled ? '復帰させる' : 'この組織から外す'}
                       </Button>
                     )}
                   </li>
@@ -325,8 +325,8 @@ export function MembersSection() {
         )}
 
         <p className="text-micro leading-relaxed text-text-muted">
-          無効にした人はログインできなくなりますが、記録（誰が作ったか）は残ります。
-          そのため削除ではなく無効化にしています。
+          外した人はこの組織のデータを見られなくなります（30 秒以内に反映）。他の組織での利用には影響しません。
+          記録（誰が作ったか）は残るので、削除ではなく無効化にしています。
         </p>
       </section>
     </div>

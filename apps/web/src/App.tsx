@@ -4,6 +4,7 @@ import { useAuthStore } from './store/authStore';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import InvitePage from './pages/InvitePage';
+import NoOrgPage from './pages/NoOrgPage';
 import InboxPage from './pages/InboxPage';
 import ChatPage from './pages/ChatPage';
 import HomePage from './pages/HomePage';
@@ -25,6 +26,15 @@ import { Spinner } from './components/ui';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
+  const orgId = useAuthStore((s) => s.user?.orgId ?? null);
+  if (!token) return <Navigate to="/login" replace />;
+  // 所属組織が無い（UC7）。トークンはあるが、組織のデータは何も見られない
+  if (!orgId) return <Navigate to="/no-org" replace />;
+  return <>{children}</>;
+}
+
+function RequireToken({ children }: { children: React.ReactNode }) {
+  const token = useAuthStore((s) => s.token);
   return token ? <>{children}</> : <Navigate to="/login" replace />;
 }
 
@@ -35,6 +45,14 @@ export default function App() {
       <Route path="/register" element={<RegisterPage />} />
       {/* 招待の受諾。ログイン前に踏むので RequireAuth の外に置く */}
       <Route path="/invite/:token" element={<InvitePage />} />
+      <Route
+        path="/no-org"
+        element={
+          <RequireToken>
+            <NoOrgPage />
+          </RequireToken>
+        }
+      />
       <Route
         element={
           <RequireAuth>
