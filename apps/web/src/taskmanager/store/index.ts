@@ -65,7 +65,7 @@ const DEFAULT_STEPS: AgentStep[] = [
   { role: 'risk', label: 'リスクマネジメント社員AI：リスクを分析中...', status: 'pending' },
 ];
 
-export const useStore = create<AppStore>((set, get) => ({
+export const useStore = create<AppStore>((set) => ({
   tasks: [],
   projects: [],
   executionState: {

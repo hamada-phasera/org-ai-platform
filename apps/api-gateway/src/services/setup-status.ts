@@ -60,7 +60,7 @@ async function checkAiEngine(): Promise<SetupItem> {
   const base = config.aiEngineUrl;
   const label = 'AI エンジンの保護';
 
-  let status: number | null = null;
+  let status: number;
   try {
     const res = await fetch(`${base}/llm/chat`, {
       method: 'POST',

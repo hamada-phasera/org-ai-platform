@@ -62,7 +62,6 @@ export async function resolveAndExecute(input: {
 }): Promise<ResolveOutcome> {
   let { name, args = {} } = input;
   let reasoning = '';
-  let inferredName: string | null = null;
   // name 明示指定（承認後の確定実行・step-runner）は confidence ゲートを素通りさせる。
   // rawInput からの推論時のみ確信度を見る。
   let inferredConfidence: number | null = null;
@@ -72,7 +71,7 @@ export async function resolveAndExecute(input: {
     name = planResult.capability_name ?? null;
     args = planResult.args ?? {};
     reasoning = planResult.reasoning;
-    inferredName = planResult.inferred_name ?? null;
+    const inferredName = planResult.inferred_name ?? null;
     inferredConfidence = typeof planResult.confidence === 'number' ? planResult.confidence : null;
     if (!name) {
       const gap = await recordGap({

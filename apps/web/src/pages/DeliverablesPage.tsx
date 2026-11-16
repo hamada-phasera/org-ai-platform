@@ -49,7 +49,13 @@ function summaryOf(output: string | null): string {
 function linkOf(output: string | null): string | null {
   if (!output) return null;
   try {
-    const o = JSON.parse(output) as Record<string, any>;
+    const o = JSON.parse(output) as {
+      url?: unknown;
+      docUrl?: unknown;
+      webViewLink?: unknown;
+      spreadsheetUrl?: unknown;
+      data?: { url?: unknown };
+    };
     const u = o.url ?? o.docUrl ?? o.webViewLink ?? o.spreadsheetUrl ?? o?.data?.url;
     if (typeof u === 'string' && u.startsWith('http')) return u;
   } catch {

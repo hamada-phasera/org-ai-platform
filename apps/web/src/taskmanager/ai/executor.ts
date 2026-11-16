@@ -188,7 +188,8 @@ export async function executeTask(
       throw e;
     }
 
-    const risks = await runRiskAssessment(
+    // メール型には risks フィールドが無いので、評価は進捗表示のために走らせるだけ（結果は返さない）
+    await runRiskAssessment(
       task,
       `${draft.subject} 宛先:${draft.to}`,
       onStep
@@ -199,8 +200,6 @@ export async function executeTask(
       email: { to: draft.to, cc: draft.cc, subject: draft.subject, body: draft.body },
       generatedAt: new Date().toISOString(),
     };
-    // メール型にはrisksフィールドがないので返却のみ
-    void risks;
   }
 
   // ── Step 2-3: エンジニアリング課長AI → コーディング社員AI ───────────────────

@@ -61,7 +61,7 @@ async function start(): Promise<void> {
     origin: (origin, cb) => {
       // 同一オリジン / 非ブラウザ (origin 無し) は許可
       if (!origin) return cb(null, true);
-      let host = '';
+      let host: string;
       try {
         host = new URL(origin).hostname;
       } catch {

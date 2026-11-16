@@ -4,8 +4,15 @@ const MAX_EXTRACT_CHARS = 20000;
 
 // 任意インストール依存を型エラーなく動的 import するためのヘルパー
 // (pdf-parse / mammoth は optional dependency で、未インストールでもビルドできるようにする)
-const optionalImport = (name: string): Promise<any> =>
-  (new Function('m', 'return import(m)')(name) as Promise<any>).catch(() => null);
+const optionalImport = <T>(name: string): Promise<T | null> =>
+  (new Function('m', 'return import(m)')(name) as Promise<T>).catch(() => null);
+
+/** 使う部分だけの最小の型（依存の型定義を入れずに済ませる）。 */
+type PdfParseFn = (data: Buffer) => Promise<{ text?: unknown }>;
+type PdfParseModule = PdfParseFn & { default?: PdfParseFn };
+interface MammothModule {
+  extractRawText(input: { path: string } | { buffer: Buffer }): Promise<{ value?: unknown }>;
+}
 
 export interface ExtractResult {
   text: string;
@@ -42,7 +49,7 @@ export async function extractText(
 
   if (mimeType === 'application/pdf') {
     try {
-      const mod = await optionalImport('pdf-parse');
+      const mod = await optionalImport<PdfParseModule>('pdf-parse');
       if (!mod) return unsupported('pdf-parse がインストールされていません (npm i pdf-parse)');
       const parser = mod.default ?? mod;
       const buf = await load();
@@ -55,7 +62,7 @@ export async function extractText(
 
   if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
     try {
-      const mod = await optionalImport('mammoth');
+      const mod = await optionalImport<MammothModule>('mammoth');
       if (!mod) return unsupported('mammoth がインストールされていません (npm i mammoth)');
       const out = await mod.extractRawText(
         typeof source === 'string' ? { path: source } : { buffer: source },

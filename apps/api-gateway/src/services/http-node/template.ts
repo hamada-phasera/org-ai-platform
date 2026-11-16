@@ -10,6 +10,7 @@ import type { HttpNodeParam } from '@org-ai/shared-types';
 const PLACEHOLDER_RE = /\{\{\s*([a-zA-Z][a-zA-Z0-9_]{0,39})\s*\}\}/g;
 const WHOLE_PLACEHOLDER_RE = /^\{\{\s*([a-zA-Z][a-zA-Z0-9_]{0,39})\s*\}\}$/;
 /** ヘッダ値に混ぜてはいけない文字（CR/LF を含む制御文字）。 */
+// eslint-disable-next-line no-control-regex -- 制御文字を検出するのが目的
 const CONTROL_CHAR_RE = /[\u0000-\u001f\u007f]/;
 
 /** 1 パラメータ値の上限（展開爆発を防ぐ） */

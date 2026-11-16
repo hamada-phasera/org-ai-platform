@@ -24,6 +24,7 @@ async function completeLlm(messages: Message[], jsonMode: boolean): Promise<stri
     }
     throw new Error(data.error?.message ?? 'LLM gateway returned empty response');
   } catch (e) {
+    // eslint-disable-next-line preserve-caught-error -- 利用者向けの文言に変換して投げ直す（lib が ES2020 で ErrorOptions 未対応）
     throw new Error(humanizeTaskManagerError(e));
   }
 }
