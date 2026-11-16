@@ -56,6 +56,7 @@ export function TaskProgressSidebar({ open, onClose, inlineTasks }: TaskProgress
   }, []);
 
   // Fetch org tasks on mount and poll every 10s
+  // lint(react-hooks/set-state-in-effect): 残置。effect 外（描画中の導出やイベント）へ移すと描画タイミングが変わるため
   useEffect(() => {
     if (!open) return;
     fetchOrgTasks();

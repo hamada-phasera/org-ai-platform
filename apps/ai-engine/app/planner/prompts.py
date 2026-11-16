@@ -1,6 +1,9 @@
 from __future__ import annotations
+
 import json
 from typing import Any
+
+from app.departments import DEPARTMENTS
 
 
 def build_planner_system_prompt(capabilities: list[dict[str, Any]]) -> str:
@@ -36,7 +39,7 @@ def build_planner_user_prompt(message: str) -> str:
     return f"ユーザー要望:\n{message}\n\n上記に対する JSON を返してください。"
 
 
-_DEPARTMENTS = ["SALES", "MARKETING", "ACCOUNTING", "ANALYTICS", "GENERAL"]
+_DEPARTMENTS = DEPARTMENTS
 
 
 def _format_params(input_schema: dict[str, Any] | None) -> str:

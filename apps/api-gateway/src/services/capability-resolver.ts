@@ -6,17 +6,21 @@ import { nativeProviderFor } from './adapters/provider-map';
 import { httpMethodOf } from './http-node/template';
 import { scrubJson } from './secret-scrubber';
 import { aiEngineHeaders } from './ai-engine-auth';
+import { config } from '../config/env';
+import { createLogger } from '../utils/logger';
+
+const capabilityResolverLog = createLogger('capability-resolver');
 
 // 型は capability-executor に移設済み。既存 import 互換のため re-export する。
 export type { ErrorType, N8nEnvelope } from './capability-executor';
 
-const AI_ENGINE_URL = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
-const N8N_URL = process.env.N8N_CLOUD_URL ?? process.env.N8N_URL ?? 'http://localhost:5678';
-const N8N_API_KEY = process.env.N8N_API_KEY ?? '';
+const AI_ENGINE_URL = config.aiEngineUrl;
+const N8N_URL = config.n8nUrl;
+const N8N_API_KEY = config.n8nApiKey;
 const CREDS_CACHE_TTL_MS = 3 * 60 * 1000;
-const ADMIN_SLACK_CHANNEL = process.env.ADMIN_SLACK_CHANNEL ?? '#org-ai-admin';
+const ADMIN_SLACK_CHANNEL = config.adminSlackChannel;
 // rawInput 推論の確信度がこれ未満なら実行せず NEEDS_CONFIRMATION を返す（人が確認して確定実行）。
-const CONFIDENCE_THRESHOLD = Number(process.env.CAPABILITY_CONFIDENCE_THRESHOLD ?? 0.7);
+const CONFIDENCE_THRESHOLD = config.capabilityConfidenceThreshold;
 
 const ajv = new Ajv({ allErrors: true, strict: false });
 addFormats(ajv);
@@ -58,7 +62,6 @@ export async function resolveAndExecute(input: {
 }): Promise<ResolveOutcome> {
   let { name, args = {} } = input;
   let reasoning = '';
-  let inferredName: string | null = null;
   // name 明示指定（承認後の確定実行・step-runner）は confidence ゲートを素通りさせる。
   // rawInput からの推論時のみ確信度を見る。
   let inferredConfidence: number | null = null;
@@ -68,7 +71,7 @@ export async function resolveAndExecute(input: {
     name = planResult.capability_name ?? null;
     args = planResult.args ?? {};
     reasoning = planResult.reasoning;
-    inferredName = planResult.inferred_name ?? null;
+    const inferredName = planResult.inferred_name ?? null;
     inferredConfidence = typeof planResult.confidence === 'number' ? planResult.confidence : null;
     if (!name) {
       const gap = await recordGap({
@@ -186,10 +189,10 @@ async function fetchPlanFromAiEngine(message: string, orgId: string, plan: strin
       });
       if (res.ok) return (await res.json()) as PlanFromAi;
       lastReason = `AI Engine /plan ${res.status}`;
-      console.error(`[capability-resolver] AI Engine /plan returned ${res.status} (attempt ${attempt + 1})`);
+      capabilityResolverLog.error(`AI Engine /plan returned ${res.status} (attempt ${attempt + 1})`);
     } catch (e) {
       lastReason = 'AI Engine 到達不可';
-      console.error(`[capability-resolver] fetchPlanFromAiEngine failed (attempt ${attempt + 1}):`, e);
+      capabilityResolverLog.error(`fetchPlanFromAiEngine failed (attempt ${attempt + 1}):`, e);
     }
     if (attempt === 0) await new Promise((r) => setTimeout(r, 1200));
   }
@@ -268,7 +271,7 @@ async function refreshCredentialFromN8n(provider: string): Promise<boolean | nul
     n8nCredsCache.set(provider, { ok: hit, at: Date.now() });
     return hit;
   } catch (e) {
-    console.error(`[capability-resolver] n8n credentials check failed (${provider}):`, e);
+    capabilityResolverLog.error(`n8n credentials check failed (${provider}):`, e);
     return null;
   }
 }
@@ -315,7 +318,7 @@ async function notifyAdmins(orgId: string, rawRequest: string, inferredName: str
       orgId,
     });
   } catch (e) {
-    console.error('[capability-resolver] notifyAdmins failed:', e);
+    capabilityResolverLog.error('notifyAdmins failed:', e);
   } finally {
     resolvingNotifySlack = false;
   }

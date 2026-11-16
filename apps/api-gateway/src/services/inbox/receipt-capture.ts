@@ -14,6 +14,7 @@ import { splitTaxInclusive } from '../../routes/accounting/accounting-core';
 import { parseDateOnly } from '../../routes/accounting/shared';
 import { fetchLineMessageContent } from './line-client';
 import { aiEngineHeaders } from '../ai-engine-auth';
+import { config } from '../../config/env';
 
 export interface ReceiptExtraction {
   amountIncludingTax: number | null;
@@ -50,7 +51,7 @@ async function extractReceipt(
   orgId: string,
   plan: string,
 ): Promise<ReceiptExtraction | null> {
-  const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
+  const aiEngineUrl = config.aiEngineUrl;
   try {
     const res = await fetch(`${aiEngineUrl}/vision/receipt`, {
       method: 'POST',

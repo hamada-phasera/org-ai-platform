@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../utils/prisma';
 import { requireAdmin } from '../middleware/auth';
+import { sendError } from '../utils/http-error';
 
 export async function governanceRoutes(app: FastifyInstance): Promise<void> {
   app.get('/logs', { preHandler: requireAdmin }, async (request, reply) => {
@@ -53,9 +54,7 @@ export async function governanceRoutes(app: FastifyInstance): Promise<void> {
       data: { resolved: true },
     });
     if (result.count === 0) {
-      return reply
-        .code(404)
-        .send({ success: false, error: { code: 'NOT_FOUND', message: 'リスクイベントが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'リスクイベントが見つかりません');
     }
 
     const updated = await prisma.riskEvent.findFirst({ where: { id, orgId: payload.orgId } });

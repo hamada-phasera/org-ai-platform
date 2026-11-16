@@ -5,9 +5,15 @@ import { requireAuth } from '../middleware/auth';
 import { retrieveContext, indexMessages } from '../services/rag';
 import { scrubSecrets } from '../services/secret-scrubber';
 import { aiEngineHeaders } from '../services/ai-engine-auth';
+import { config } from '../config/env';
+import { sendError } from '../utils/http-error';
+import { createLogger } from '../utils/logger';
 
-const N8N_CLOUD_URL = process.env.N8N_CLOUD_URL ?? 'https://hamahiro.app.n8n.cloud';
-const N8N_API_KEY = process.env.N8N_API_KEY ?? '';
+const chatLog = createLogger('chat');
+const chatStreamLog = createLogger('chat-stream');
+
+const N8N_CLOUD_URL = config.n8nChatCloudUrl;
+const N8N_API_KEY = config.n8nApiKey;
 const N8N_CHAT_WORKFLOW_NAME = 'org-ai Chat Response';
 
 let cachedChatWorkflowId: string | null = null;
@@ -157,15 +163,12 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
     const result = sendMessageSchema.safeParse(request.body);
     if (!result.success) {
-      return reply.code(400).send({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: result.error.message },
-      });
+      return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
     }
 
     const session = await prisma.chatSession.findUnique({ where: { id } });
     if (!session || session.orgId !== payload.orgId) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'セッションが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'セッションが見つかりません');
     }
 
     const org = await prisma.organization.findUnique({ where: { id: payload.orgId } });
@@ -177,8 +180,8 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     const scrubbed = scrubSecrets(result.data.content);
     if (scrubbed.found) {
       // 出せるのはマスク後の文字列だけ。元の値は絶対にログに出さない。
-      console.warn(
-        `[chat] 資格情報らしき文字列をマスクしました kinds=${scrubbed.kinds.join(',')} masked=${JSON.stringify(scrubbed.text.slice(0, 300))}`,
+      chatLog.warn(
+        `資格情報らしき文字列をマスクしました kinds=${scrubbed.kinds.join(',')} masked=${JSON.stringify(scrubbed.text.slice(0, 300))}`,
       );
     }
     const userContent = scrubbed.text;
@@ -194,7 +197,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     });
     const history = recentMessages.reverse().map((m) => ({ role: m.role, content: m.content }));
 
-    const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://ai-engine:8000';
+    const aiEngineUrl = config.aiEngineUrlComposeDefault;
     let aiResponse: { content: string; department: string };
     const n8nResult = await generateViaN8n({
       message: userContent,
@@ -208,7 +211,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
     if (n8nResult) {
       aiResponse = n8nResult;
-      console.log('[chat] responded via n8n cloud');
+      chatLog.info('responded via n8n cloud');
     } else {
       let ragContext: string | undefined;
       try {
@@ -236,7 +239,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         });
         if (!res.ok) {
           const errBody = await res.text().catch(() => '');
-          console.error(`[chat] ai-engine returned ${res.status}: ${errBody}`);
+          chatLog.error(`ai-engine returned ${res.status}: ${errBody}`);
           aiResponse = {
             content: `AI処理でエラーが発生しました (${res.status})。GROQ_API_KEYが正しく設定されているか確認してください。`,
             department: result.data.department ?? 'GENERAL',
@@ -244,10 +247,10 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         } else {
           const json = await res.json() as { content: string; department: string };
           aiResponse = { content: json.content, department: json.department ?? 'GENERAL' };
-          console.log('[chat] responded via ai-engine (fallback)');
+          chatLog.info('responded via ai-engine (fallback)');
         }
       } catch (err) {
-        console.error('[chat] ai-engine connection error:', err);
+        chatLog.error('ai-engine connection error:', err);
         aiResponse = {
           content: 'AIエンジンに接続できません。サービスが起動しているか確認してください。',
           department: result.data.department ?? 'GENERAL',
@@ -285,15 +288,12 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
     const body = sendMessageSchema.safeParse(request.body);
     if (!body.success) {
-      return reply.code(400).send({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: body.error.message },
-      });
+      return sendError(reply, 400, 'VALIDATION_ERROR', body.error.message);
     }
 
     const session = await prisma.chatSession.findUnique({ where: { id } });
     if (!session || session.orgId !== payload.orgId) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'セッションが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'セッションが見つかりません');
     }
 
     const org = await prisma.organization.findUnique({ where: { id: payload.orgId } });
@@ -305,8 +305,8 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     const scrubbed = scrubSecrets(body.data.content);
     if (scrubbed.found) {
       // 出せるのはマスク後の文字列だけ。元の値は絶対にログに出さない。
-      console.warn(
-        `[chat-stream] 資格情報らしき文字列をマスクしました kinds=${scrubbed.kinds.join(',')} masked=${JSON.stringify(scrubbed.text.slice(0, 300))}`,
+      chatStreamLog.warn(
+        `資格情報らしき文字列をマスクしました kinds=${scrubbed.kinds.join(',')} masked=${JSON.stringify(scrubbed.text.slice(0, 300))}`,
       );
     }
     const userContent = scrubbed.text;
@@ -326,7 +326,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',
-      'Access-Control-Allow-Origin': request.headers.origin || process.env.FRONTEND_URL?.split(',')[0] || '*',
+      'Access-Control-Allow-Origin': request.headers.origin || config.frontendUrlRaw?.split(',')[0] || '*',
       'Access-Control-Allow-Credentials': 'true',
     });
 
@@ -355,7 +355,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     };
     sendProgress('RECEIVED', undefined, true);
 
-    const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://ai-engine:8000';
+    const aiEngineUrl = config.aiEngineUrlComposeDefault;
     let fullContent = '';
     let department = body.data.department ?? 'GENERAL';
     /** 上流がエラーを送ってきたか。空メッセージを DB に作らないための旗 */
@@ -450,9 +450,9 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
          そのまま進むと空メッセージを作って done を送ってしまうので、
          例外にして下のフォールバック（n8n → 定型文）へ落とす。 */
       if (upstreamError && !fullContent) throw new Error(upstreamError);
-      console.log('[chat-stream] responded via ai-engine streaming');
+      chatStreamLog.info('responded via ai-engine streaming');
     } catch (err) {
-      console.error('[chat-stream] ai-engine stream failed, trying n8n fallback:', err);
+      chatStreamLog.error('ai-engine stream failed, trying n8n fallback:', err);
       const orgRow = await prisma.organization.findUnique({ where: { id: payload.orgId }, select: { plan: true } });
       const n8nResult = await generateViaN8n({
         message: userContent,
@@ -461,7 +461,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         sessionId: id,
         history: [],
         plan: orgRow?.plan ?? 'STARTER',
-        aiEngineUrl: process.env.AI_ENGINE_URL ?? 'http://ai-engine:8000',
+        aiEngineUrl: config.aiEngineUrlComposeDefault,
       });
       if (n8nResult) {
         fullContent = n8nResult.content;
@@ -469,7 +469,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         if (!bufferedDelivery) {
           reply.raw.write(`data: ${JSON.stringify({ type: 'token', content: fullContent })}\n\n`);
         }
-        console.log('[chat-stream] responded via n8n fallback');
+        chatStreamLog.info('responded via n8n fallback');
       } else {
         /* n8n も落ちている。ここは「回答」ではなく障害なので、
            空メッセージを残さず error として返し、画面に再試行を出させる。 */
@@ -503,7 +503,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
     const session = await prisma.chatSession.findUnique({ where: { id } });
     if (!session || session.orgId !== payload.orgId) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'セッションが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'セッションが見つかりません');
     }
 
     const messages = await prisma.message.findMany({
@@ -526,7 +526,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
     const session = await prisma.chatSession.findUnique({ where: { id } });
     if (!session || session.orgId !== payload.orgId) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'セッションが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'セッションが見つかりません');
     }
 
     const recent = await prisma.message.findMany({
@@ -558,7 +558,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       select: { name: true, displayName: true, description: true, department: true, inputSchema: true },
     });
 
-    const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://ai-engine:8000';
+    const aiEngineUrl = config.aiEngineUrlComposeDefault;
     try {
       const res = await fetch(`${aiEngineUrl}/plan/agent`, {
         method: 'POST',

@@ -9,6 +9,11 @@ import { extractText } from '../utils/fileExtractor';
 import { indexFile } from '../services/rag';
 import { aiEngineHeaders } from '../services/ai-engine-auth';
 import { tracked } from '../services/lifecycle-core';
+import { config } from '../config/env';
+import { sendError, upstreamStatus } from '../utils/http-error';
+import { createLogger, errorMessage } from '../utils/logger';
+
+const filesLog = createLogger('files');
 
 const ALLOWED_DEPARTMENTS = new Set(['SALES', 'MARKETING', 'ACCOUNTING', 'ANALYTICS', 'GENERAL']);
 
@@ -44,7 +49,7 @@ async function loadBody(file: { storagePath: string; storageDriver: string; orgI
   try {
     return await readDriver(file.storageDriver).get(file.storagePath);
   } catch (e) {
-    console.error('[files] 本体の取得に失敗:', e instanceof Error ? e.message : e);
+    filesLog.error('本体の取得に失敗:', errorMessage(e));
     return null;
   }
 }
@@ -67,28 +72,24 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     const maxFileBytes = PLAN_LIMITS[plan].maxFileBytes;
 
     const tooLarge = () =>
-      reply.code(413).send({
-        success: false,
-        error: { code: 'FILE_TOO_LARGE', message: `1ファイルの上限は ${formatBytes(maxFileBytes)} です。` },
-      });
+      sendError(reply, 413, 'FILE_TOO_LARGE', `1ファイルの上限は ${formatBytes(maxFileBytes)} です。`);
     const quotaExceeded = (quota: number) =>
-      reply.code(413).send({
-        success: false,
-        error: {
-          code: 'QUOTA_EXCEEDED',
-          message: `保存容量の上限（${formatBytes(quota)}）に達しています。不要なファイルを削除すると、また保存できます。`,
-        },
-      });
+      sendError(
+        reply,
+        413,
+        'QUOTA_EXCEEDED',
+        `保存容量の上限（${formatBytes(quota)}）に達しています。不要なファイルを削除すると、また保存できます。`,
+      );
 
     /* ⚠️ 上限は読み取りの時点で効かせる。読み切ってから判定すると、上限を大きく超える
        ファイルでも一度メモリに載る（Render の starter は RAM が小さい）。 */
     const data = await request.file({ limits: { fileSize: maxFileBytes } });
     if (!data) {
-      return reply.code(400).send({ success: false, error: { code: 'NO_FILE', message: 'ファイルが選択されていません' } });
+      return sendError(reply, 400, 'NO_FILE', 'ファイルが選択されていません');
     }
 
     if (!ALLOWED_MIME_TYPES.has(data.mimetype)) {
-      return reply.code(400).send({ success: false, error: { code: 'INVALID_MIME', message: 'このファイル形式は許可されていません' } });
+      return sendError(reply, 400, 'INVALID_MIME', 'このファイル形式は許可されていません');
     }
 
     let body: Buffer;
@@ -112,10 +113,8 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     try {
       await driver.put(key, body, data.mimetype);
     } catch (e) {
-      console.error('[files] 保存に失敗:', e instanceof Error ? e.message : e);
-      return reply
-        .code(502)
-        .send({ success: false, error: { code: 'STORAGE_FAILED', message: 'ファイルを保存できませんでした。時間をおいて再度お試しください。' } });
+      filesLog.error('保存に失敗:', errorMessage(e));
+      return sendError(reply, 502, 'STORAGE_FAILED', 'ファイルを保存できませんでした。時間をおいて再度お試しください。');
     }
 
     /* ⚠️ 使用量の加算と行の作成は同じトランザクションで。別々にすると
@@ -179,12 +178,12 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
 
     const file = await prisma.uploadedFile.findUnique({ where: { id: fileId } });
     if (!file || file.orgId !== payload.orgId) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'ファイルが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'ファイルが見つかりません');
     }
 
     const content = await loadBody(file);
     if (!content) {
-      return reply.code(404).send({ success: false, error: { code: 'FILE_MISSING', message: MISSING_MESSAGE } });
+      return sendError(reply, 404, 'FILE_MISSING', MISSING_MESSAGE);
     }
 
     reply.header('Content-Disposition', `attachment; filename="${encodeURIComponent(file.originalName)}"`);
@@ -199,20 +198,17 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
 
     const file = await prisma.uploadedFile.findUnique({ where: { id: fileId } });
     if (!file || file.orgId !== payload.orgId) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'ファイルが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'ファイルが見つかりません');
     }
 
     const content = await loadBody(file);
     if (!content) {
-      return reply.code(404).send({ success: false, error: { code: 'FILE_MISSING', message: MISSING_MESSAGE } });
+      return sendError(reply, 404, 'FILE_MISSING', MISSING_MESSAGE);
     }
 
     const extracted = await extractText(content, file.mimeType);
     if (extracted.extractor === 'unsupported') {
-      return reply.code(415).send({
-        success: false,
-        error: { code: 'UNSUPPORTED_FILE_TYPE', message: extracted.text },
-      });
+      return sendError(reply, 415, 'UNSUPPORTED_FILE_TYPE', extracted.text);
     }
 
     const department = body.department && ALLOWED_DEPARTMENTS.has(body.department) ? body.department : 'GENERAL';
@@ -233,7 +229,7 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
       question,
     ].filter(Boolean).join('\n');
 
-    const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
+    const aiEngineUrl = config.aiEngineUrl;
     let res: Response;
     try {
       res = await fetch(`${aiEngineUrl}/orchestrate`, {
@@ -249,28 +245,19 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
       });
     } catch (e) {
       request.log.error({ err: e }, '[files] ai-engine unreachable');
-      return reply.code(502).send({
-        success: false,
-        error: { code: 'AI_ENGINE_UNAVAILABLE', message: 'AI エンジンに接続できません' },
-      });
+      return sendError(reply, 502, 'AI_ENGINE_UNAVAILABLE', 'AI エンジンに接続できません');
     }
 
     const text = await res.text();
     if (!res.ok) {
-      return reply.code(res.status >= 500 ? 502 : res.status).send({
-        success: false,
-        error: { code: 'ANALYZE_UPSTREAM_ERROR', message: text.slice(0, 800) },
-      });
+      return sendError(reply, upstreamStatus(res.status), 'ANALYZE_UPSTREAM_ERROR', text.slice(0, 800));
     }
 
     let data: Record<string, unknown>;
     try {
       data = JSON.parse(text);
     } catch {
-      return reply.code(502).send({
-        success: false,
-        error: { code: 'ANALYZE_BAD_RESPONSE', message: 'AI エンジンの応答を解釈できませんでした' },
-      });
+      return sendError(reply, 502, 'ANALYZE_BAD_RESPONSE', 'AI エンジンの応答を解釈できませんでした');
     }
 
     return reply.send({
@@ -291,7 +278,7 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
 
     const file = await prisma.uploadedFile.findUnique({ where: { id: fileId } });
     if (!file || file.orgId !== payload.orgId) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'ファイルが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'ファイルが見つかりません');
     }
 
     /* 本体を先に消す。消せなかったら行を残して失敗を返す（行だけ消すと、
@@ -300,16 +287,14 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
        ローカルは再デプロイで消える前提の置き場なので、失敗しても行の削除は止めない。 */
     if (file.storageDriver === 'supabase' && !keyBelongsToOrg(file.storagePath, file.orgId)) {
       // 他組織の区切りを指す行。本体には触らず、行だけ片付ける
-      console.error('[files] 組織の区切り外を指す行を検出したため、本体の削除を見送りました:', file.id);
+      filesLog.error('組織の区切り外を指す行を検出したため、本体の削除を見送りました:', file.id);
     } else {
       try {
         await readDriver(file.storageDriver).delete(file.storagePath);
       } catch (e) {
-        console.error('[files] 本体の削除に失敗:', e instanceof Error ? e.message : e);
+        filesLog.error('本体の削除に失敗:', errorMessage(e));
         if (file.storageDriver !== 'local') {
-          return reply
-            .code(502)
-            .send({ success: false, error: { code: 'STORAGE_FAILED', message: 'ファイルを削除できませんでした。時間をおいて再度お試しください。' } });
+          return sendError(reply, 502, 'STORAGE_FAILED', 'ファイルを削除できませんでした。時間をおいて再度お試しください。');
         }
       }
     }

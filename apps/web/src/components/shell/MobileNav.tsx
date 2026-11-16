@@ -143,5 +143,3 @@ export function MobileNav() {
     </>
   );
 }
-
-export default MobileNav;

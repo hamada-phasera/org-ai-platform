@@ -16,6 +16,10 @@ import {
   pickOutput,
 } from './template';
 import { assertSafeUrl } from './url-guard';
+import { config as appConfig } from '../../config/env';
+import { createLogger } from '../../utils/logger';
+
+const httpNodeLog = createLogger('http-node');
 
 export interface HttpCapabilityRow {
   id?: string;
@@ -87,7 +91,7 @@ export async function executeHttpCapabilityDetailed(
   args: Record<string, unknown>,
   orgId: string,
 ): Promise<ExecuteHttpResult> {
-  if ((process.env.HTTP_NODE_ENABLED ?? 'true') === 'false') {
+  if (!appConfig.httpNodeEnabled) {
     return {
       envelope: envelope('error', 'NODE_FAILED', 'カスタムノードの実行は現在停止されています。'),
       authDead: false,
@@ -165,8 +169,8 @@ export async function executeHttpCapabilityDetailed(
   });
   const durationMs = Date.now() - startedAt;
   // ログは宛先ホストまで。展開後 URL とヘッダは出さない
-  console.log(
-    `[http-node] ${capability.name} ${config.method} ${verdict.url.host} ` +
+  httpNodeLog.info(
+    `${capability.name} ${config.method} ${verdict.url.host} ` +
       `${res.ok ? res.statusCode : res.kind} ${durationMs}ms`,
   );
 

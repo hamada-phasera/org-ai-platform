@@ -164,6 +164,7 @@ export default function ChatPage() {
   }, [setSessions]);
 
   // Load messages when session changes
+  // lint(react-hooks/set-state-in-effect): 残置。effect 外（描画中の導出やイベント）へ移すと描画タイミングが変わるため
   useEffect(() => {
     if (id && id !== currentSessionId) {
       setCurrentSession(id);
@@ -181,6 +182,7 @@ export default function ChatPage() {
 
   // 実行確認カードはセッションに属する。id が変わったら必ず捨てる。
   // 残したまま別セッションで承認すると、前のセッションの内容で成果物が作られる。
+  // lint(react-hooks/set-state-in-effect): 残置。effect 外（描画中の導出やイベント）へ移すと描画タイミングが変わるため
   useEffect(() => {
     setPendingDeliverable(null);
     setConfirmingDeliverable(false);
@@ -200,9 +202,10 @@ export default function ChatPage() {
       };
       setSelectedDept(agentToDept[selectedAgentId] ?? 'GENERAL');
     }
-  }, [selectedAgentId]);
+  }, [selectedAgentId, setSelectedDept]);
 
   // Auto-close left sidebar on narrow screens when right sidebar opens
+  // lint(react-hooks/set-state-in-effect): 残置。effect 外（描画中の導出やイベント）へ移すと描画タイミングが変わるため
   useEffect(() => {
     if (showTaskSidebar && window.innerWidth < 1280) setShowSidebar(false);
   }, [showTaskSidebar]);
@@ -243,7 +246,7 @@ export default function ChatPage() {
       setSelectedDept(pendingDepartment);
       setPendingDepartment(null);
     }
-  }, [pendingDepartment, id, setPendingDepartment]);
+  }, [pendingDepartment, id, setPendingDepartment, setSelectedDept]);
 
   const sendMessage = async () => {
     if (!input.trim() || sending || !id) return;

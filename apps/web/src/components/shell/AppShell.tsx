@@ -72,5 +72,3 @@ export function AppShell() {
     </div>
   );
 }
-
-export default AppShell;

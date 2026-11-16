@@ -13,6 +13,7 @@
 
 import { BlockList, isIP, type LookupFunction } from 'net';
 import { lookup as systemLookup, type LookupAddress, type LookupAllOptions } from 'dns';
+import { config, readEnv } from '../../config/env';
 
 export type GuardReason =
   | 'SCHEME_NOT_ALLOWED'
@@ -210,14 +211,15 @@ function normalizeHostname(hostname: string): string {
 
 function buildInternalHostDenylist(): Set<string> {
   const hosts = new Set<string>();
+  const env = readEnv();
   for (const key of INTERNAL_HOST_ENV_KEYS) {
-    const value = process.env[key];
+    const value = env[key];
     if (!value) continue;
     const host = hostnameFromEnvValue(value);
     if (host) hosts.add(host);
   }
   // 運用側で足したいホストを追加できる逃げ道
-  for (const entry of (process.env.HTTP_NODE_BLOCKED_HOSTS ?? '').split(',')) {
+  for (const entry of config.httpNodeBlockedHostsRaw.split(',')) {
     const host = normalizeHostname(entry);
     if (host) hosts.add(host);
   }
@@ -253,7 +255,7 @@ function blockedHostReason(hostname: string): string | null {
 // ---------------------------------------------------------------------------
 
 function allowedPorts(): Set<number> {
-  const raw = process.env.HTTP_NODE_ALLOWED_PORTS?.trim() || DEFAULT_ALLOWED_PORTS;
+  const raw = config.httpNodeAllowedPortsRaw ?? DEFAULT_ALLOWED_PORTS;
   const ports = new Set<number>();
   for (const entry of raw.split(',')) {
     const port = Number(entry.trim());

@@ -60,7 +60,7 @@ const statusChip = (connected: boolean, labelOn = '接続済み', labelOff = '�
     <span className="rounded-full bg-warning/10 px-2.5 py-1 text-micro font-bold text-warning">{labelOff}</span>
   );
 
-export function IntegrationsSection() {
+function IntegrationsSection() {
   const qc = useQueryClient();
   const [secret, setSecret] = useState('');
   const [token, setToken] = useState('');
@@ -74,6 +74,7 @@ export function IntegrationsSection() {
   /* OAuth から戻ってきたときの処理。
      callback はトークンをどの org にも紐づけずに返してくるので、ここで confirm を叩いて
      「いまログインしているこの組織」に保存する（アカウント連結 CSRF を構造的に防ぐ設計）。 */
+  // lint(react-hooks/set-state-in-effect): 残置。effect 外（描画中の導出やイベント）へ移すと描画タイミングが変わるため
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const linkId = params.get('googleLink');

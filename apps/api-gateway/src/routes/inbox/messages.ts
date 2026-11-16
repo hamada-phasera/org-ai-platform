@@ -8,8 +8,8 @@ import { prisma } from '../../utils/prisma';
 import { requireAuth } from '../../middleware/auth';
 import { getChannelAdapter } from '../../services/inbox/adapter';
 import { generateInboxDraft } from '../../services/inbox/draft-generator';
-
-type AuthPayload = { orgId: string; sub?: string };
+import { sendError } from '../../utils/http-error';
+import type { AuthPayload } from '../../types/auth';
 
 export type InboxAction = 'regenerate' | 'approve' | 'reject';
 
@@ -49,9 +49,7 @@ export async function inboxMessagesRoutes(app: FastifyInstance): Promise<void> {
     const payload = request.user as AuthPayload;
     const parsed = listQuerySchema.safeParse(request.query ?? {});
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
     const { status, connectionId } = parsed.data;
     const take = Math.min(parsed.data.limit ?? 50, 100);
@@ -73,15 +71,10 @@ export async function inboxMessagesRoutes(app: FastifyInstance): Promise<void> {
     const { id } = request.params as { id: string };
     const msg = await loadMessage(payload.orgId, id);
     if (!msg) {
-      return reply
-        .code(404)
-        .send({ success: false, error: { code: 'NOT_FOUND', message: 'メッセージが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'メッセージが見つかりません');
     }
     if (!assertTransition(msg.status, 'regenerate')) {
-      return reply.code(409).send({
-        success: false,
-        error: { code: 'INVALID_STATE', message: `この状態では再生成できません(現在: ${msg.status})` },
-      });
+      return sendError(reply, 409, 'INVALID_STATE', `この状態では再生成できません(現在: ${msg.status})`);
     }
     await generateInboxDraft(id, { allowRegenerate: true });
     const updated = await prisma.inboundMessage.findUnique({ where: { id } });
@@ -94,30 +87,20 @@ export async function inboxMessagesRoutes(app: FastifyInstance): Promise<void> {
     const { id } = request.params as { id: string };
     const parsed = approveSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
     const msg = await loadMessage(payload.orgId, id);
     if (!msg) {
-      return reply
-        .code(404)
-        .send({ success: false, error: { code: 'NOT_FOUND', message: 'メッセージが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'メッセージが見つかりません');
     }
     if (!assertTransition(msg.status, 'approve')) {
-      return reply.code(409).send({
-        success: false,
-        error: { code: 'INVALID_STATE', message: `この状態では承認できません(現在: ${msg.status})` },
-      });
+      return sendError(reply, 409, 'INVALID_STATE', `この状態では承認できません(現在: ${msg.status})`);
     }
     const connection = msg.connectionId
       ? await prisma.channelConnection.findUnique({ where: { id: msg.connectionId } })
       : null;
     if (!connection) {
-      return reply.code(409).send({
-        success: false,
-        error: { code: 'INVALID_STATE', message: 'LINE 接続が削除されているため送信できません' },
-      });
+      return sendError(reply, 409, 'INVALID_STATE', 'LINE 接続が削除されているため送信できません');
     }
 
     const adapter = getChannelAdapter(msg.provider);
@@ -130,10 +113,7 @@ export async function inboxMessagesRoutes(app: FastifyInstance): Promise<void> {
           lastError: `LINE push failed (status=${result.status}): ${result.body}`.slice(0, 500),
         },
       });
-      return reply.code(502).send({
-        success: false,
-        error: { code: 'LINE_PUSH_FAILED', message: 'LINE への送信に失敗しました。再度承認するとリトライします。' },
-      });
+      return sendError(reply, 502, 'LINE_PUSH_FAILED', 'LINE への送信に失敗しました。再度承認するとリトライします。');
     }
 
     const updated = await prisma.inboundMessage.update({
@@ -171,21 +151,14 @@ export async function inboxMessagesRoutes(app: FastifyInstance): Promise<void> {
     const { id } = request.params as { id: string };
     const parsed = rejectSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
     const msg = await loadMessage(payload.orgId, id);
     if (!msg) {
-      return reply
-        .code(404)
-        .send({ success: false, error: { code: 'NOT_FOUND', message: 'メッセージが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'メッセージが見つかりません');
     }
     if (!assertTransition(msg.status, 'reject')) {
-      return reply.code(409).send({
-        success: false,
-        error: { code: 'INVALID_STATE', message: `この状態では却下できません(現在: ${msg.status})` },
-      });
+      return sendError(reply, 409, 'INVALID_STATE', `この状態では却下できません(現在: ${msg.status})`);
     }
     const updated = await prisma.inboundMessage.update({
       where: { id },

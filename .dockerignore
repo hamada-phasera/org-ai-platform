@@ -46,6 +46,3 @@ marketing
 tasks
 DEPLOYMENT_RUNBOOK.md
 DESIGN.md
-
-# Backups
-apps/n8n-workflows.bak.*

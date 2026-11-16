@@ -11,6 +11,7 @@
 //    keyBelongsToOrg で確認してから触る）。キーはログにも戻り値にも出さない。
 
 import type { PutResult, StorageDriver } from './index';
+import { config } from '../../config/env';
 
 const TIMEOUT_MS = 30_000;
 
@@ -22,9 +23,9 @@ export interface SupabaseStorageConfig {
 
 /** 環境変数から設定を読む。足りなければ null（呼び出し側がローカルに落とす）。 */
 export function supabaseConfigFromEnv(): SupabaseStorageConfig | null {
-  const url = process.env.SUPABASE_URL?.replace(/\/+$/, '');
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const bucket = process.env.SUPABASE_STORAGE_BUCKET ?? 'org-files';
+  const url = config.supabaseUrl?.replace(/\/+$/, '');
+  const serviceKey = config.supabaseServiceRoleKey;
+  const bucket = config.supabaseStorageBucket;
   if (!url || !serviceKey) return null;
   return { url, serviceKey, bucket };
 }

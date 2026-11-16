@@ -8,6 +8,10 @@
 import { prisma } from '../utils/prisma';
 import { sealSecret, openSecret } from './secret-box';
 import { syncRequiredCredentialStatus } from './integration-sync';
+import { config } from '../config/env';
+import { createLogger } from '../utils/logger';
+
+const googleAuthLog = createLogger('google-auth');
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const API_TIMEOUT_MS = 10_000;
@@ -76,7 +80,7 @@ export async function getGoogleAccessToken(orgId: string): Promise<GoogleTokenRe
     if (refreshed.failure === 'temporary') {
       // ネットワーク瞬断 / Google 側 5xx・429: 接続自体は生きているので状態は変えず、
       // 「再接続が必要」とも言わない。次回リトライで直る想定。
-      console.warn(`[google-auth] トークンのリフレッシュが一時的に失敗 (org=${orgId})`);
+      googleAuthLog.warn(`トークンのリフレッシュが一時的に失敗 (org=${orgId})`);
       return { ok: false, reason: 'TEMPORARY_FAILURE' };
     }
     // invalid_client / unauthorized_client / OAuth クライアント未設定など、
@@ -111,8 +115,8 @@ type RefreshResult =
   | { ok: false; failure: RefreshFailure };
 
 async function requestRefresh(refreshToken: string): Promise<RefreshResult> {
-  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID ?? '';
-  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET ?? '';
+  const clientId = config.googleOAuthClientId ?? '';
+  const clientSecret = config.googleOAuthClientSecret ?? '';
   if (!clientId || !clientSecret) return { ok: false, failure: 'permanent' };
   try {
     const res = await fetch(TOKEN_URL, {

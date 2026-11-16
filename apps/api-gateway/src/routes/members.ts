@@ -5,6 +5,8 @@ import bcrypt from 'bcryptjs';
 import { isUserRole } from '@org-ai/shared-types';
 import { prisma } from '../utils/prisma';
 import { requireAuth, requireOwner } from '../middleware/auth';
+import { config } from '../config/env';
+import { sendError } from '../utils/http-error';
 
 /**
  * メンバーと招待。prefix: `/api/members`
@@ -20,7 +22,7 @@ import { requireAuth, requireOwner } from '../middleware/auth';
  */
 
 /** 招待リンクの既定の有効期限（日）。手渡し前提なので当日中に踏まれるとは限らない。 */
-const INVITE_TTL_DAYS = Number(process.env.INVITE_TTL_DAYS ?? 7);
+const INVITE_TTL_DAYS = config.inviteTtlDays;
 
 const createInviteSchema = z.object({
   email: z.string().email().max(200).optional(),
@@ -72,10 +74,7 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
     const payload = request.user as { orgId: string; sub: string };
     const parsed = createInviteSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
-      return reply.code(400).send({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: parsed.error.errors[0]?.message ?? '入力が不正です' },
-      });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.errors[0]?.message ?? '入力が不正です');
     }
 
     /* 既に同じメールの利用者がいるなら招待しない（重複アカウントを作らせない）。
@@ -86,10 +85,7 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
         select: { id: true },
       });
       if (existing) {
-        return reply.code(409).send({
-          success: false,
-          error: { code: 'CONFLICT', message: 'このメールアドレスは既に登録されています' },
-        });
+        return sendError(reply, 409, 'CONFLICT', 'このメールアドレスは既に登録されています');
       }
     }
 
@@ -124,9 +120,7 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
       data: { revokedAt: new Date() },
     });
     if (result.count === 0) {
-      return reply
-        .code(404)
-        .send({ success: false, error: { code: 'NOT_FOUND', message: '招待が見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', '招待が見つかりません');
     }
     return reply.send({ success: true, data: { id: invitationId } });
   });
@@ -145,10 +139,7 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
 
     /* 無効な理由を細かく返さない（トークンの当てずっぽうに情報を与えない） */
     if (!invitation || invitation.acceptedAt || invitation.revokedAt || invitation.expiresAt < new Date()) {
-      return reply.code(404).send({
-        success: false,
-        error: { code: 'NOT_FOUND', message: 'この招待リンクは使えません（期限切れ、または既に使用済みです）' },
-      });
+      return sendError(reply, 404, 'NOT_FOUND', 'この招待リンクは使えません（期限切れ、または既に使用済みです）');
     }
 
     return reply.send({
@@ -166,36 +157,25 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
   app.post('/invitations/accept', async (request, reply) => {
     const parsed = acceptSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: parsed.error.errors[0]?.message ?? '入力が不正です' },
-      });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.errors[0]?.message ?? '入力が不正です');
     }
     const { token, name, password } = parsed.data;
     const tokenHash = hashToken(token);
 
     const invitation = await prisma.invitation.findUnique({ where: { tokenHash } });
     if (!invitation || invitation.acceptedAt || invitation.revokedAt || invitation.expiresAt < new Date()) {
-      return reply.code(404).send({
-        success: false,
-        error: { code: 'NOT_FOUND', message: 'この招待リンクは使えません（期限切れ、または既に使用済みです）' },
-      });
+      return sendError(reply, 404, 'NOT_FOUND', 'この招待リンクは使えません（期限切れ、または既に使用済みです）');
     }
 
     /* メールは招待に書いてあればそれを使う。無ければ受諾者が名乗る必要があるが、
        今回は「招待にメールが無ければ受諾できない」ことにして曖昧さを消す。 */
     if (!invitation.email) {
-      return reply.code(400).send({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'この招待にはメールアドレスが設定されていません。管理者に再発行を依頼してください。' },
-      });
+      return sendError(reply, 400, 'VALIDATION_ERROR', 'この招待にはメールアドレスが設定されていません。管理者に再発行を依頼してください。');
     }
 
     const existing = await prisma.user.findUnique({ where: { email: invitation.email }, select: { id: true } });
     if (existing) {
-      return reply
-        .code(409)
-        .send({ success: false, error: { code: 'CONFLICT', message: 'このメールアドレスは既に登録されています' } });
+      return sendError(reply, 409, 'CONFLICT', 'このメールアドレスは既に登録されています');
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -225,15 +205,12 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
     });
 
     if (!created) {
-      return reply.code(409).send({
-        success: false,
-        error: { code: 'CONFLICT', message: 'この招待は既に使用されています' },
-      });
+      return sendError(reply, 409, 'CONFLICT', 'この招待は既に使用されています');
     }
 
     const jwtToken = app.jwt.sign(
       { sub: created.id, orgId: created.orgId, role: created.role, email: created.email },
-      { expiresIn: process.env.JWT_EXPIRES_IN ?? '24h' },
+      { expiresIn: config.jwtExpiresIn },
     );
     return reply.code(201).send({ success: true, data: { token: jwtToken, user: created } });
   });
@@ -244,18 +221,13 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
     const { userId } = request.params as { userId: string };
     const parsed = changeRoleSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: '不正な役割です' } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', '不正な役割です');
     }
 
     /* ⚠️ 自分を降格させない。オーナーが0人の組織ができると、
        以降そこに誰も追加できなくなる（復旧手段が DB 直編集しか無くなる）。 */
     if (userId === payload.sub) {
-      return reply.code(400).send({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: '自分自身の役割は変更できません' },
-      });
+      return sendError(reply, 400, 'VALIDATION_ERROR', '自分自身の役割は変更できません');
     }
 
     const result = await prisma.user.updateMany({
@@ -263,9 +235,7 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
       data: { role: parsed.data.role },
     });
     if (result.count === 0) {
-      return reply
-        .code(404)
-        .send({ success: false, error: { code: 'NOT_FOUND', message: 'メンバーが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'メンバーが見つかりません');
     }
     return reply.send({ success: true, data: { id: userId, role: parsed.data.role } });
   });
@@ -280,15 +250,10 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
     const { userId } = request.params as { userId: string };
     const body = request.body as { status?: string };
     if (body?.status !== 'ACTIVE' && body?.status !== 'DISABLED') {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: '不正な状態です' } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', '不正な状態です');
     }
     if (userId === payload.sub) {
-      return reply.code(400).send({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: '自分自身を無効化することはできません' },
-      });
+      return sendError(reply, 400, 'VALIDATION_ERROR', '自分自身を無効化することはできません');
     }
 
     const result = await prisma.user.updateMany({
@@ -296,9 +261,7 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
       data: { status: body.status },
     });
     if (result.count === 0) {
-      return reply
-        .code(404)
-        .send({ success: false, error: { code: 'NOT_FOUND', message: 'メンバーが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'メンバーが見つかりません');
     }
     return reply.send({ success: true, data: { id: userId, status: body.status } });
   });

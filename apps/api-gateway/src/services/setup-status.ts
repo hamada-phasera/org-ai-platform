@@ -8,6 +8,7 @@
 import { billingConfigFromEnv, INTERNALS_FOR_TEST } from './billing/billing-core';
 import { aiEngineHeaders } from './ai-engine-auth';
 import { currentDriverName, readDriver } from './storage/driver';
+import { config } from '../config/env';
 
 export type Health = 'ok' | 'warn' | 'error' | 'unknown';
 
@@ -55,11 +56,11 @@ async function checkStorage(): Promise<SetupItem> {
  *   422/400 → 本文の検証まで到達した = 認証は通った（こちらが未設定なら「誰でも通る」状態）
  */
 async function checkAiEngine(): Promise<SetupItem> {
-  const tokenConfigured = !!process.env.INTERNAL_API_TOKEN?.trim();
-  const base = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
+  const tokenConfigured = !!config.internalApiToken?.trim();
+  const base = config.aiEngineUrl;
   const label = 'AI エンジンの保護';
 
-  let status: number | null = null;
+  let status: number;
   try {
     const res = await fetch(`${base}/llm/chat`, {
       method: 'POST',
@@ -100,9 +101,9 @@ async function checkAiEngine(): Promise<SetupItem> {
 }
 
 function checkBilling(): SetupItem {
-  const config = billingConfigFromEnv();
+  const billing = billingConfigFromEnv();
   const label = '決済（Stripe）';
-  if (!config) {
+  if (!billing) {
     return {
       key: 'billing',
       label,
@@ -111,13 +112,13 @@ function checkBilling(): SetupItem {
       action: 'docs/billing.md の手順で Stripe 側を用意し、STRIPE_SECRET_KEY などを設定してください。',
     };
   }
-  const prices = INTERNALS_FOR_TEST.allPriceIds(config);
+  const prices = INTERNALS_FOR_TEST.allPriceIds(billing);
   const missing = prices.filter((p) => !p).length;
   const problems: string[] = [];
-  if (!config.webhookSecret) problems.push('webhook の署名鍵が未設定（契約状態が反映されません）');
+  if (!billing.webhookSecret) problems.push('webhook の署名鍵が未設定（契約状態が反映されません）');
   if (missing > 0) problems.push(`価格が ${prices.length - missing}/${prices.length} 件しか設定されていません`);
-  if (!config.taxRateId) problems.push('消費税の税率が未設定（税が上乗せされません）');
-  if (!config.storageAddonPrice) problems.push('追加ストレージの価格が未設定');
+  if (!billing.taxRateId) problems.push('消費税の税率が未設定（税が上乗せされません）');
+  if (!billing.storageAddonPrice) problems.push('追加ストレージの価格が未設定');
 
   if (problems.length === 0) {
     return { key: 'billing', label, health: 'ok', detail: '価格・税率・webhook がそろっています。', action: '' };
@@ -132,7 +133,7 @@ function checkBilling(): SetupItem {
 }
 
 function checkEmbeddings(): SetupItem {
-  const configured = !!(process.env.EMBEDDING_API_KEY?.trim() || process.env.GEMINI_API_KEY?.trim());
+  const configured = !!(config.embeddingApiKey?.trim() || config.geminiApiKey?.trim());
   return configured
     ? { key: 'embeddings', label: 'ファイル検索（RAG）', health: 'ok', detail: '埋め込みの生成が有効です。', action: '' }
     : {

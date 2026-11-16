@@ -223,5 +223,3 @@ export function NodeCtaCard({ draft, busy = false, error, onCreate, onDismiss }:
     </motion.div>
   );
 }
-
-export default NodeCtaCard;

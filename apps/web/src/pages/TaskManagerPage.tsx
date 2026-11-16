@@ -77,6 +77,7 @@ export default function TaskManagerPage() {
     } catch { /* ignore */ }
   }, []);
 
+  // lint(react-hooks/set-state-in-effect): 残置。effect 外（描画中の導出やイベント）へ移すと描画タイミングが変わるため
   useEffect(() => {
     fetchBackendTasks();
     const interval = setInterval(fetchBackendTasks, 10000);
@@ -87,7 +88,7 @@ export default function TaskManagerPage() {
     (t) => taskFilter === 'ALL' || t.status === taskFilter,
   );
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { loadAll(); }, [loadAll]);
 
   const handleExecute = async (task: Task) => {
     startExecution(task.id);

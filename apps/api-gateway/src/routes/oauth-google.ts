@@ -30,6 +30,9 @@ import { prisma } from '../utils/prisma';
 import { requireAdmin } from '../middleware/auth';
 import { sealSecret } from '../services/secret-box';
 import { syncRequiredCredentialStatus } from '../services/integration-sync';
+import { config } from '../config/env';
+import { sendError } from '../utils/http-error';
+import type { AuthPayload } from '../types/auth';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -38,16 +41,14 @@ const API_TIMEOUT_MS = 10_000;
 const STATE_TTL_MS = 10 * 60_000;
 const PENDING_LINK_TTL_MS = 10 * 60_000;
 
-type AuthPayload = { orgId: string; sub?: string };
-
 const confirmSchema = z.object({ linkId: z.string().min(1).max(100) });
 
 /** state 署名用の鍵。ログイン JWT とは必ず別の鍵にする（用途分離）。 */
 function stateKey(): Buffer {
-  const explicit = process.env.OAUTH_STATE_SECRET;
+  const explicit = config.oauthStateSecret;
   if (explicit) return createHash('sha256').update(explicit).digest();
   // 独立設定が無い場合も、JWT_SECRET そのものではなく用途ラベル付きで派生させる
-  return createHash('sha256').update(`oauth-state:${process.env.JWT_SECRET ?? ''}`).digest();
+  return createHash('sha256').update(`oauth-state:${config.jwtSecret ?? ''}`).digest();
 }
 
 function signState(payload: { nonce: string; exp: number }): string {
@@ -92,7 +93,7 @@ function prunePendingLinks(): void {
 }
 
 function gatewayBase(): string {
-  return (process.env.API_GATEWAY_URL ?? 'http://localhost:4000').replace(/\/$/, '');
+  return config.apiGatewayUrl.replace(/\/$/, '');
 }
 
 /** リダイレクト先は自分のフロント固定（returnTo は受け取らない = オープンリダイレクト封じ）。
@@ -107,7 +108,7 @@ function gatewayBase(): string {
  *  CORS で許可しているホストは「自分のフロント」と判っているので、そこへ戻すのが安全。 */
 function frontendBase(): string {
   const fallback = 'http://localhost:3000';
-  const candidates = (process.env.FRONTEND_URL ?? '').split(',').map((s) => s.trim());
+  const candidates = (config.frontendUrlRaw ?? '').split(',').map((s) => s.trim());
   for (const c of candidates) {
     if (!c || c === '*') continue;
     try {
@@ -117,10 +118,7 @@ function frontendBase(): string {
       // 次の候補へ
     }
   }
-  const allowedHost = (process.env.ALLOWED_ORIGIN_HOSTS ?? 'org-ai-platform.vercel.app')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)[0];
+  const allowedHost = config.allowedOriginHosts[0];
   if (allowedHost) return `https://${allowedHost}`;
   return fallback;
 }
@@ -143,15 +141,14 @@ function decodeIdTokenEmail(idToken: string | undefined): string | null {
 export async function oauthGoogleRoutes(app: FastifyInstance): Promise<void> {
   // ── 認可 URL の発行 ──────────────────────────────────
   app.post('/start', { preHandler: requireAdmin }, async (_request, reply) => {
-    const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
-    if (!clientId || !process.env.GOOGLE_OAUTH_CLIENT_SECRET) {
-      return reply.code(503).send({
-        success: false,
-        error: {
-          code: 'NOT_CONFIGURED',
-          message: 'Google 連携が未設定です（GOOGLE_OAUTH_CLIENT_ID / SECRET を環境変数に設定してください）。',
-        },
-      });
+    const clientId = config.googleOAuthClientId;
+    if (!clientId || !config.googleOAuthClientSecret) {
+      return sendError(
+        reply,
+        503,
+        'NOT_CONFIGURED',
+        'Google 連携が未設定です（GOOGLE_OAUTH_CLIENT_ID / SECRET を環境変数に設定してください）。',
+      );
     }
     // state に orgId は入れない（保存先は confirm 時のセッションで決まるため不要）
     const state = signState({ nonce: randomUUID(), exp: Date.now() + STATE_TTL_MS });
@@ -196,8 +193,8 @@ export async function oauthGoogleRoutes(app: FastifyInstance): Promise<void> {
         body: new URLSearchParams({
           grant_type: 'authorization_code',
           code: q.code,
-          client_id: process.env.GOOGLE_OAUTH_CLIENT_ID ?? '',
-          client_secret: process.env.GOOGLE_OAUTH_CLIENT_SECRET ?? '',
+          client_id: config.googleOAuthClientId ?? '',
+          client_secret: config.googleOAuthClientSecret ?? '',
           redirect_uri: `${gatewayBase()}/api/oauth/google/callback`,
         }),
         signal: AbortSignal.timeout(API_TIMEOUT_MS),
@@ -231,20 +228,12 @@ export async function oauthGoogleRoutes(app: FastifyInstance): Promise<void> {
     const payload = request.user as AuthPayload;
     const parsed = confirmSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
     prunePendingLinks();
     const link = pendingLinks.get(parsed.data.linkId);
     if (!link) {
-      return reply.code(410).send({
-        success: false,
-        error: {
-          code: 'LINK_EXPIRED',
-          message: '接続の確認期限が切れました。もう一度「Google で接続」からやり直してください。',
-        },
-      });
+      return sendError(reply, 410, 'LINK_EXPIRED', '接続の確認期限が切れました。もう一度「Google で接続」からやり直してください。');
     }
     // ワンタイム消費（同じ linkId で二重に紐づけられないように）
     pendingLinks.delete(parsed.data.linkId);

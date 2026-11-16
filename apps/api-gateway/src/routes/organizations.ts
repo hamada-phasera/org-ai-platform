@@ -4,6 +4,7 @@ import { prisma } from '../utils/prisma';
 import { requireAuth, requireOwner } from '../middleware/auth';
 import { collectSetupStatus } from '../services/setup-status';
 import { PLAN_LIMITS, storageQuotaBytes, usageState, type Plan } from '@org-ai/shared-types';
+import { sendError } from '../utils/http-error';
 
 const updateOrgSchema = z.object({
   name: z.string().min(1).max(120).optional(),
@@ -34,10 +35,7 @@ export async function organizationRoutes(app: FastifyInstance): Promise<void> {
       },
     });
     if (!org) {
-      return reply.code(404).send({
-        success: false,
-        error: { code: 'NOT_FOUND', message: '組織が見つかりません' },
-      });
+      return sendError(reply, 404, 'NOT_FOUND', '組織が見つかりません');
     }
     return reply.send({
       success: true,
@@ -56,17 +54,11 @@ export async function organizationRoutes(app: FastifyInstance): Promise<void> {
   app.patch('/me', { preHandler: requireAuth }, async (request, reply) => {
     const payload = request.user as { orgId: string; role: string };
     if (payload.role !== 'OWNER') {
-      return reply.code(403).send({
-        success: false,
-        error: { code: 'FORBIDDEN', message: 'この操作にはOWNER権限が必要です' },
-      });
+      return sendError(reply, 403, 'FORBIDDEN', 'この操作にはOWNER権限が必要です');
     }
     const result = updateOrgSchema.safeParse(request.body);
     if (!result.success) {
-      return reply.code(400).send({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: result.error.message },
-      });
+      return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
     }
     const updated = await prisma.organization.update({
       where: { id: payload.orgId },

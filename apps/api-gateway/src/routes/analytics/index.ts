@@ -11,11 +11,13 @@
 // 環境変数: METRICS_URL — usage-metrics-svc のベースURL（既定 http://localhost:8080）
 import type { FastifyInstance } from 'fastify';
 import { requireAuth } from '../../middleware/auth';
+import { config } from '../../config/env';
+import { sendError } from '../../utils/http-error';
 
 const REQUEST_TIMEOUT_MS = 5_000;
 
 function metricsBaseUrl(): string {
-  return (process.env.METRICS_URL || 'http://localhost:8080').replace(/\/+$/, '');
+  return config.metricsUrl;
 }
 
 export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
@@ -36,13 +38,12 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
       // svc は既にプラットフォーム封筒 { success, data|error } を返すのでパススルー
       return reply.status(res.status).send(body);
     } catch {
-      return reply.status(502).send({
-        success: false,
-        error: {
-          code: 'METRICS_UNAVAILABLE',
-          message: 'usage-metrics-svc に接続できません。サービスの起動状態と METRICS_URL を確認してください。',
-        },
-      });
+      return sendError(
+        reply,
+        502,
+        'METRICS_UNAVAILABLE',
+        'usage-metrics-svc に接続できません。サービスの起動状態と METRICS_URL を確認してください。',
+      );
     }
   });
 }

@@ -12,6 +12,7 @@ import { openSecret } from '../../services/secret-box';
 import { verifyLineSignature } from '../../services/inbox/line-client';
 import { processLineEvents } from '../../services/inbox/line-inbox';
 import type { LineWebhookBody } from '../../services/inbox/line-types';
+import { sendError } from '../../utils/http-error';
 
 interface RawBodyRequest extends FastifyRequest {
   rawBody?: Buffer;
@@ -34,10 +35,7 @@ export async function lineWebhookRoutes(app: FastifyInstance): Promise<void> {
     const body = (request.body ?? {}) as Partial<LineWebhookBody>;
     const destination = typeof body.destination === 'string' ? body.destination : '';
     if (!rawBody || !destination) {
-      return reply.code(400).send({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'webhook body が不正です' },
-      });
+      return sendError(reply, 400, 'VALIDATION_ERROR', 'webhook body が不正です');
     }
 
     const connection = await prisma.channelConnection.findUnique({
@@ -67,10 +65,7 @@ export async function lineWebhookRoutes(app: FastifyInstance): Promise<void> {
 
     const signature = request.headers['x-line-signature'];
     if (!verifyLineSignature(rawBody, channelSecret, typeof signature === 'string' ? signature : undefined)) {
-      return reply.code(401).send({
-        success: false,
-        error: { code: 'INVALID_SIGNATURE', message: '署名が不正です' },
-      });
+      return sendError(reply, 401, 'INVALID_SIGNATURE', '署名が不正です');
     }
 
     // 即 200 → 取り込みは完全非同期（LINE の応答タイムアウト・再送を防ぐ）

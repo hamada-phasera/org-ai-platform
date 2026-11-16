@@ -6,6 +6,10 @@
 
 import { prisma } from '../../utils/prisma';
 import { aiEngineHeaders } from '../ai-engine-auth';
+import { config } from '../../config/env';
+import { createLogger, errorMessage } from '../../utils/logger';
+
+const inboxDraftLog = createLogger('inbox/draft');
 
 const INBOX_DEPARTMENT = 'GENERAL';
 const MAX_INPUT_CHARS = 4000;
@@ -130,7 +134,7 @@ export async function generateInboxDraft(
       history,
     });
 
-    const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
+    const aiEngineUrl = config.aiEngineUrl;
     let llm: LLMChatResponse;
     try {
       const res = await fetch(`${aiEngineUrl}/llm/chat`, {
@@ -174,7 +178,7 @@ export async function generateInboxDraft(
     });
   } catch (e) {
     // void 呼び出し前提: ここで握って unhandled rejection にしない
-    console.error(`[inbox/draft] 下書き生成に失敗 (id=${id}):`, e instanceof Error ? e.message : e);
+    inboxDraftLog.error(`下書き生成に失敗 (id=${id}):`, errorMessage(e));
     try {
       await prisma.inboundMessage.update({
         where: { id },

@@ -357,5 +357,3 @@ export function VendorInvoice() {
     </div>
   );
 }
-
-export default VendorInvoice;

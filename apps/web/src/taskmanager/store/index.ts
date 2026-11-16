@@ -65,7 +65,7 @@ const DEFAULT_STEPS: AgentStep[] = [
   { role: 'risk', label: 'リスクマネジメント社員AI：リスクを分析中...', status: 'pending' },
 ];
 
-export const useStore = create<AppStore>((set, get) => ({
+export const useStore = create<AppStore>((set) => ({
   tasks: [],
   projects: [],
   executionState: {
@@ -191,7 +191,3 @@ export const useStore = create<AppStore>((set, get) => ({
   setShowTaskInput: (v) => set({ showTaskInput: v }),
   setSidebarPage: (p) => set({ sidebarPage: p }),
 }));
-
-// Convenience selectors
-export const selectTasksByStatus = (tasks: Task[], status: Task['status']) =>
-  tasks.filter((t) => t.status === status);

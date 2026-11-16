@@ -1,7 +1,6 @@
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -62,13 +61,13 @@ def _class_count(value: str) -> int:
     return count
 
 
-def _fixed(kind: str) -> Callable[[re.Match[str]], Optional[str]]:
-    def _replace(_m: re.Match[str]) -> Optional[str]:
+def _fixed(kind: str) -> Callable[[re.Match[str]], str | None]:
+    def _replace(_m: re.Match[str]) -> str | None:
         return f'[REDACTED_{kind}]'
     return _replace
 
 
-def _bearer(m: re.Match[str]) -> Optional[str]:
+def _bearer(m: re.Match[str]) -> str | None:
     token = m.group(3)
     # 「Bearer authentication」のような普通の英文を壊さないための条件
     looks_like_token = len(token) >= 8 and (
@@ -81,7 +80,7 @@ def _bearer(m: re.Match[str]) -> Optional[str]:
     return f'{m.group(1)}{m.group(2)}[REDACTED_BEARER]'
 
 
-def _generic(m: re.Match[str]) -> Optional[str]:
+def _generic(m: re.Match[str]) -> str | None:
     value = m.group(2)
     if value.lower() in _NON_SECRET_VALUES:
         return None
@@ -90,13 +89,13 @@ def _generic(m: re.Match[str]) -> Optional[str]:
     return f'{m.group(1)}[REDACTED_GENERIC_SECRET]'
 
 
-def _base64(m: re.Match[str]) -> Optional[str]:
+def _base64(m: re.Match[str]) -> str | None:
     if _class_count(m.group(0).rstrip('=')) != 3:
         return None
     return '[REDACTED_BASE64_TOKEN]'
 
 
-def _basic(m: 're.Match[str]') -> Optional[str]:
+def _basic(m: 're.Match[str]') -> str | None:
     """Authorization: Basic <base64>。「Basic authentication」のような英文は壊さない。"""
     token = m.group(3)
     looks_like_base64 = bool(re.search(r'[0-9+/=]', token)) or (
@@ -107,16 +106,16 @@ def _basic(m: 're.Match[str]') -> Optional[str]:
     return f'{m.group(1)}{m.group(2)}[REDACTED_BASIC_AUTH]'
 
 
-def _basic_arg(m: 're.Match[str]') -> Optional[str]:
+def _basic_arg(m: 're.Match[str]') -> str | None:
     return f'{m.group(1)}{m.group(2)}{m.group(3)}{m.group(4)}:[REDACTED_BASIC_AUTH]'
 
 
-def _url_userinfo(m: 're.Match[str]') -> Optional[str]:
+def _url_userinfo(m: 're.Match[str]') -> str | None:
     return f'{m.group(1)}{m.group(2)}:[REDACTED_URL_PASSWORD]@'
 
 
 # (種別, 正規表現, 置換関数) — 具体的なプロバイダのパターンから順に適用する
-CREDENTIAL_RULES: list[tuple[str, re.Pattern[str], Callable[[re.Match[str]], Optional[str]]]] = [
+CREDENTIAL_RULES: list[tuple[str, re.Pattern[str], Callable[[re.Match[str]], str | None]]] = [
     ('ANTHROPIC_KEY', re.compile(r'\bsk-ant-[A-Za-z0-9_-]{12,}'), _fixed('ANTHROPIC_KEY')),
     ('OPENAI_KEY', re.compile(r'\bsk-[A-Za-z0-9_-]{16,}'), _fixed('OPENAI_KEY')),
     # Stripe / SendGrid / Twilio — いずれも区切り文字の都合で汎用規則に当たらない。
@@ -125,11 +124,15 @@ CREDENTIAL_RULES: list[tuple[str, re.Pattern[str], Callable[[re.Match[str]], Opt
     ('SENDGRID_KEY', re.compile(r'\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}'), _fixed('SENDGRID_KEY')),
     ('TWILIO_SID', re.compile(r'\b(?:AC|SK)[0-9a-fA-F]{32}\b'), _fixed('TWILIO_SID')),
     ('SLACK_TOKEN', re.compile(r'\b(?:xox[abeprs]-[A-Za-z0-9-]{10,}|xapp-[A-Za-z0-9-]{10,})'), _fixed('SLACK_TOKEN')),
-    ('GITHUB_TOKEN', re.compile(r'\b(?:gh[oprsu]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,})'), _fixed('GITHUB_TOKEN')),
+    ('GITHUB_TOKEN',
+     re.compile(r'\b(?:gh[oprsu]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,})'),
+     _fixed('GITHUB_TOKEN')),
     ('AWS_ACCESS_KEY_ID', re.compile(r'\b(?:AKIA|ASIA)[0-9A-Z]{16}\b'), _fixed('AWS_ACCESS_KEY_ID')),
     ('GOOGLE_API_KEY', re.compile(r'\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])'), _fixed('GOOGLE_API_KEY')),
     # LINE 長期チャネルアクセストークン（実物は 170 文字前後の base64）
-    ('LINE_CHANNEL_TOKEN', re.compile(r'(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{140,}={0,2}(?![A-Za-z0-9+/=])'), _fixed('LINE_CHANNEL_TOKEN')),
+    ('LINE_CHANNEL_TOKEN',
+     re.compile(r'(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{140,}={0,2}(?![A-Za-z0-9+/=])'),
+     _fixed('LINE_CHANNEL_TOKEN')),
     # Authorization: Bearer xxx — "Bearer " は残してトークンだけ伏せる
     ('BEARER', re.compile(r'\b([Bb]earer)([ \t]+)([A-Za-z0-9\-._~+/]+=*)'), _bearer),
     ('BASIC_AUTH', re.compile(r'\b([Bb]asic)([ \t]+)([A-Za-z0-9+/]{8,}={0,2})'), _basic),
@@ -146,7 +149,9 @@ CREDENTIAL_RULES: list[tuple[str, re.Pattern[str], Callable[[re.Match[str]], Opt
         r'([A-Za-z0-9\-._~+/]{8,}=*)',
         re.IGNORECASE,
     ), _generic),
-    ('BASE64_TOKEN', re.compile(r'(?<!base64,)(?<![A-Za-z0-9+/\-_.])[A-Za-z0-9+/]{40,}={0,2}(?![A-Za-z0-9+/=])'), _base64),
+    ('BASE64_TOKEN',
+     re.compile(r'(?<!base64,)(?<![A-Za-z0-9+/\-_.])[A-Za-z0-9+/]{40,}={0,2}(?![A-Za-z0-9+/=])'),
+     _base64),
     ('HEX_TOKEN', re.compile(r'(?<![A-Za-z0-9\-._/])[0-9a-fA-F]{40,}(?![0-9a-fA-F])'), _fixed('HEX_TOKEN')),
 ]
 

@@ -10,8 +10,8 @@ import { sealSecret } from '../services/secret-box';
 import { authTest } from '../services/adapters/slack-client';
 import { revokeGoogleToken } from '../services/google-auth';
 import { syncRequiredCredentialStatus } from '../services/integration-sync';
-
-type AuthPayload = { orgId: string; sub?: string };
+import { sendError } from '../utils/http-error';
+import type { AuthPayload } from '../types/auth';
 
 // xoxb 限定: xoxp（ユーザートークン）の誤貼付を入口で弾く
 const slackSchema = z.object({
@@ -63,30 +63,26 @@ export async function integrationsRoutes(app: FastifyInstance): Promise<void> {
     const payload = request.user as AuthPayload;
     const parsed = slackSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
     const botToken = parsed.data.botToken.trim();
 
     const info = await authTest(botToken);
     if (!info) {
-      return reply.code(400).send({
-        success: false,
-        error: {
-          code: 'INVALID_SLACK_TOKEN',
-          message: 'Slack トークンを検証できませんでした。Bot User OAuth Token を確認してください。',
-        },
-      });
+      return sendError(
+        reply,
+        400,
+        'INVALID_SLACK_TOKEN',
+        'Slack トークンを検証できませんでした。Bot User OAuth Token を確認してください。',
+      );
     }
     if (!info.scopes.includes('chat:write')) {
-      return reply.code(400).send({
-        success: false,
-        error: {
-          code: 'MISSING_SCOPE',
-          message: 'このトークンに chat:write スコープがありません。Slack アプリの Bot Token Scopes に chat:write を追加して再インストールしてください。',
-        },
-      });
+      return sendError(
+        reply,
+        400,
+        'MISSING_SCOPE',
+        'このトークンに chat:write スコープがありません。Slack アプリの Bot Token Scopes に chat:write を追加して再インストールしてください。',
+      );
     }
     // chat:write.public 欠如は保存は許すが警告を返す（公開チャンネルへは /invite が必要になる）
     const warning = info.scopes.includes('chat:write.public')
@@ -123,17 +119,13 @@ export async function integrationsRoutes(app: FastifyInstance): Promise<void> {
     const payload = request.user as AuthPayload;
     const { provider } = request.params as { provider: string };
     if (!PROVIDERS.includes(provider as (typeof PROVIDERS)[number])) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: '不明なプロバイダです' } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', '不明なプロバイダです');
     }
     const conn = await prisma.providerConnection.findUnique({
       where: { orgId_provider: { orgId: payload.orgId, provider } },
     });
     if (!conn) {
-      return reply
-        .code(404)
-        .send({ success: false, error: { code: 'NOT_FOUND', message: '接続が見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', '接続が見つかりません');
     }
     if (provider === 'google') {
       // best-effort revoke（失敗しても解除は続行）

@@ -31,5 +31,3 @@ export function DesktopOnly({ what = 'この画面' }: DesktopOnlyProps) {
     </div>
   );
 }
-
-export default DesktopOnly;

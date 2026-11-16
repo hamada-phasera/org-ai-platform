@@ -4,7 +4,6 @@
    領収書や LINE のやり取りを扱う以上、有料プランの土台にはできない。
 """
 
-import os
 import sys
 import types
 from pathlib import Path
@@ -24,7 +23,9 @@ def _load_router():
             pass
 
         mod.AsyncAnthropic = lambda **_kw: None  # type: ignore[attr-defined]
-        for name in ("APIStatusError", "APIConnectionError", "APITimeoutError", "InternalServerError", "RateLimitError"):
+        for name in (
+            "APIStatusError", "APIConnectionError", "APITimeoutError", "InternalServerError", "RateLimitError",
+        ):
             setattr(mod, name, type(name, (_Err,), {}))
         sys.modules["anthropic"] = mod
     import app.llm.router as router_module  # noqa: PLC0415

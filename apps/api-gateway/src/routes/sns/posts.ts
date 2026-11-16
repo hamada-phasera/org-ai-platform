@@ -12,6 +12,9 @@ import {
 } from './format';
 import { groupDraftsByDate, type CalendarTask } from './calendar';
 import { aiEngineHeaders } from '../../services/ai-engine-auth';
+import { config } from '../../config/env';
+import { sendError, upstreamStatus } from '../../utils/http-error';
+import type { AuthPayload } from '../../types/auth';
 
 /**
  * SNS投稿 下書き生成 & 承認待ちキュー（N-1 / N-2）。
@@ -57,8 +60,6 @@ const scheduleSchema = z.object({
     .refine((s) => !Number.isNaN(new Date(s).getTime()), { message: '日付が不正です' }),
 });
 
-type AuthPayload = { orgId: string; sub?: string };
-
 /** LLM 応答本文から {content, hashtags} を取り出す。JSON でなければ全文を content 扱い。 */
 function parseDraftBody(raw: string): { content: string; hashtags: string[] } {
   try {
@@ -79,9 +80,7 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
     const payload = request.user as AuthPayload;
     const parsed = generateSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
 
     const { platform, topic, tone, keywords, hashtagCount } = parsed.data;
@@ -90,7 +89,7 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
     const plan = org?.plan ?? 'STARTER';
     const messages = buildSnsMessages(platform, inputs);
 
-    const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
+    const aiEngineUrl = config.aiEngineUrl;
     let res: Response;
     try {
       res = await fetch(`${aiEngineUrl}/llm/chat`, {
@@ -107,28 +106,19 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
       });
     } catch (e) {
       request.log.error({ err: e }, '[sns/posts] ai-engine unreachable');
-      return reply.code(502).send({
-        success: false,
-        error: { code: 'AI_ENGINE_UNAVAILABLE', message: 'AI エンジンに接続できません。' },
-      });
+      return sendError(reply, 502, 'AI_ENGINE_UNAVAILABLE', 'AI エンジンに接続できません。');
     }
 
     const text = await res.text();
     if (!res.ok) {
-      return reply.code(res.status >= 500 ? 502 : res.status).send({
-        success: false,
-        error: { code: 'LLM_UPSTREAM_ERROR', message: text.slice(0, 800) },
-      });
+      return sendError(reply, upstreamStatus(res.status), 'LLM_UPSTREAM_ERROR', text.slice(0, 800));
     }
 
     let llm: LLMChatResponse;
     try {
       llm = JSON.parse(text) as LLMChatResponse;
     } catch {
-      return reply.code(502).send({
-        success: false,
-        error: { code: 'LLM_BAD_RESPONSE', message: 'AI エンジンの応答を解釈できませんでした。' },
-      });
+      return sendError(reply, 502, 'LLM_BAD_RESPONSE', 'AI エンジンの応答を解釈できませんでした。');
     }
 
     const body = parseDraftBody(llm.content ?? '');
@@ -222,9 +212,7 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
     const { taskId } = request.params as { taskId: string };
     const parsed = rejectSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
     const found = await loadPendingSnsTask(payload.orgId, taskId);
     if (!found.ok) {
@@ -251,15 +239,11 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
     const { taskId } = request.params as { taskId: string };
     const parsed = scheduleSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
     const task = await prisma.task.findUnique({ where: { id: taskId } });
     if (!task || task.orgId !== payload.orgId || task.taskType !== SNS_TASK_TYPE) {
-      return reply
-        .code(404)
-        .send({ success: false, error: { code: 'NOT_FOUND', message: 'SNS下書きが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'SNS下書きが見つかりません');
     }
     // scheduledAt カラム（新方式）に予約日時を設定。output(下書きJSON)は汚さない。
     // status は変えない・投稿もしない（メタデータのみ）。

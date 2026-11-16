@@ -5,6 +5,7 @@ import { requireAuth } from '../middleware/auth';
 import { dispatchQueuedTask } from '../services/task-executor';
 import { resumeAgentTask, parseRunState } from '../services/step-runner';
 import { tracked } from '../services/lifecycle-core';
+import { sendError } from '../utils/http-error';
 
 const createTaskSchema = z.object({
   title: z.string().min(1).max(200),
@@ -64,7 +65,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       include: { logs: { orderBy: { createdAt: 'asc' }, take: 50 } },
     });
     if (!task || task.orgId !== payload.orgId) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'タスクが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'タスクが見つかりません');
     }
     return reply.send({ success: true, data: task });
   });
@@ -74,7 +75,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     const payload = request.user as { sub: string; orgId: string };
     const result = createTaskSchema.safeParse(request.body);
     if (!result.success) {
-      return reply.code(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: result.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
     }
     const task = await prisma.task.create({
       data: {
@@ -106,12 +107,12 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
 
     const task = await prisma.task.findUnique({ where: { id: taskId } });
     if (!task || task.orgId !== payload.orgId) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'タスクが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'タスクが見つかりません');
     }
 
     const result = updateTaskSchema.safeParse(request.body);
     if (!result.success) {
-      return reply.code(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: result.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
     }
 
     const updated = await prisma.task.update({
@@ -139,7 +140,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
 
     const task = await prisma.task.findUnique({ where: { id: taskId } });
     if (!task || task.orgId !== payload.orgId) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'タスクが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'タスクが見つかりません');
     }
 
     const body = approveTaskSchema.safeParse(request.body);
@@ -163,10 +164,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
         data: { status: 'RUNNING' },
       });
       if (claimed.count === 0) {
-        return reply.code(409).send({
-          success: false,
-          error: { code: 'INVALID_STATE', message: 'このタスクは承認待ちではありません' },
-        });
+        return sendError(reply, 409, 'INVALID_STATE', 'このタスクは承認待ちではありません');
       }
       await prisma.taskLog.create({
         data: { taskId, message: 'ステップを承認しました。実行を再開します', level: 'INFO' },
@@ -208,7 +206,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
 
     const task = await prisma.task.findUnique({ where: { id: taskId } });
     if (!task || task.orgId !== payload.orgId) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'タスクが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'タスクが見つかりません');
     }
     const body = rejectTaskSchema.safeParse(request.body ?? {});
     const reason = body.success ? body.data.reason : undefined;
@@ -230,10 +228,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       },
     });
     if (claimed.count === 0) {
-      return reply.code(409).send({
-        success: false,
-        error: { code: 'INVALID_STATE', message: 'このタスクは承認待ちではありません' },
-      });
+      return sendError(reply, 409, 'INVALID_STATE', 'このタスクは承認待ちではありません');
     }
     await prisma.taskLog.create({
       data: { taskId, message: `承認を却下しました${reason ? `: ${reason}` : ''}`, level: 'INFO' },
@@ -249,7 +244,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
 
     const task = await prisma.task.findUnique({ where: { id: taskId } });
     if (!task || task.orgId !== payload.orgId) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'タスクが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'タスクが見つかりません');
     }
 
     await prisma.taskLog.deleteMany({ where: { taskId } });
@@ -264,12 +259,12 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
 
     const task = await prisma.task.findUnique({ where: { id: taskId } });
     if (!task || task.orgId !== payload.orgId) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'タスクが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'タスクが見つかりません');
     }
 
     const result = addLogSchema.safeParse(request.body);
     if (!result.success) {
-      return reply.code(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: result.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
     }
 
     const log = await prisma.taskLog.create({

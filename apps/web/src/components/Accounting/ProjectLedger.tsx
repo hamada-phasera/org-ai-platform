@@ -306,5 +306,3 @@ export function ProjectLedger() {
     </div>
   );
 }
-
-export default ProjectLedger;

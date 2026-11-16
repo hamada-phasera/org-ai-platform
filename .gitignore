@@ -1,5 +1,6 @@
 node_modules/
 dist/
+coverage/
 .turbo/
 **/.turbo/
 .env
@@ -22,3 +23,10 @@ __pycache__/
 
 # オントロジー検査の生成物
 ontology/out/
+
+# Python のテスト生成物
+.coverage
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+coverage/

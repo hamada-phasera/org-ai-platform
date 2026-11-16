@@ -1,3 +1,6 @@
+import { createLogger, errorMessage } from '../utils/logger';
+
+const lifecycleLog = createLogger('lifecycle');
 // 走行中のバックグラウンド処理の在庫台帳。prisma / fastify を import しない（テストしやすさのため）。
 //
 // なぜ要るか:
@@ -137,12 +140,12 @@ export function tracked<T>(
   /* 終了処理が始まっていたら新規に走らせない。走らせても途中で殺されるだけで、
      「中断された」記録だけが増える */
   if (id === null) {
-    console.warn(`[lifecycle] 終了処理中のため ${kind} を開始しませんでした`);
+    lifecycleLog.warn(`終了処理中のため ${kind} を開始しませんでした`);
     return;
   }
   void run()
     .catch((e) => {
-      console.error(`[lifecycle] ${kind} が失敗:`, e instanceof Error ? e.message : e);
+      lifecycleLog.error(`${kind} が失敗:`, errorMessage(e));
     })
     .finally(() => registry.finish(id));
 }

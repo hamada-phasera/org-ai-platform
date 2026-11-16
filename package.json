@@ -10,6 +10,15 @@
   "scripts": {
     "dev": "concurrently \"npm run dev --workspace=apps/api-gateway\" \"npm run dev --workspace=apps/web\"",
     "build": "turbo build",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "test": "npm run test --workspaces --if-present",
+    "test:coverage": "npm run test:coverage --workspaces --if-present",
+    "prisma:generate": "npm run generate --workspace=packages/db-schema",
+    "lint:ai": "cd apps/ai-engine && .venv/bin/ruff check .",
+    "typecheck:ai": "cd apps/ai-engine && .venv/bin/mypy",
+    "test:ai": "cd apps/ai-engine && .venv/bin/python -m pytest -q",
+    "test:go": "cd usage-metrics-svc && go vet ./... && go test ./...",
     "n8n:status": "node scripts/n8n-status.mjs",
     "n8n:convert": "node scripts/n8n-convert-webhook.mjs",
     "n8n:import": "node scripts/n8n-import-workflows.mjs",
@@ -25,7 +34,12 @@
     "ontology:ttl": "mkdir -p ontology/out && node scripts/ontology-export-ttl.mjs ontology/org.json > ontology/out/org.ttl"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "concurrently": "^8.0.0",
-    "turbo": "^2.0.0"
+    "eslint": "^10.15.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.14.0",
+    "turbo": "^2.0.0",
+    "typescript-eslint": "^8.72.2"
   }
 }

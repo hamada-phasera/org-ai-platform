@@ -2,8 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma';
 import { claimAndEnqueueScheduledTask, startOfCurrentHourUtc } from '../services/schedule-dispatcher';
+import { config } from '../config/env';
+import { sendError } from '../utils/http-error';
 
-const WEBHOOK_AUTH_TOKEN = process.env.N8N_WEBHOOK_AUTH_TOKEN ?? 'org-ai-n8n-secret-token';
+const WEBHOOK_AUTH_TOKEN = config.n8nWebhookAuthToken;
 
 const taskCompleteSchema = z.object({
   taskId: z.string(),
@@ -18,19 +20,19 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
   app.post('/n8n/task-complete', async (request, reply) => {
     const authToken = request.headers['x-webhook-token'];
     if (authToken !== WEBHOOK_AUTH_TOKEN) {
-      return reply.code(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: '認証トークンが無効です' } });
+      return sendError(reply, 401, 'UNAUTHORIZED', '認証トークンが無効です');
     }
 
     const result = taskCompleteSchema.safeParse(request.body);
     if (!result.success) {
-      return reply.code(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: result.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
     }
 
     const { taskId, status, output, error, workflowId } = result.data;
 
     const task = await prisma.task.findUnique({ where: { id: taskId } });
     if (!task) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'タスクが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'タスクが見つかりません');
     }
 
     const updated = await prisma.task.update({
@@ -62,7 +64,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
   app.post('/n8n/task-log', async (request, reply) => {
     const authToken = request.headers['x-webhook-token'];
     if (authToken !== WEBHOOK_AUTH_TOKEN) {
-      return reply.code(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: '認証トークンが無効です' } });
+      return sendError(reply, 401, 'UNAUTHORIZED', '認証トークンが無効です');
     }
 
     const schema = z.object({
@@ -73,7 +75,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
 
     const result = schema.safeParse(request.body);
     if (!result.success) {
-      return reply.code(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: result.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
     }
 
     const log = await prisma.taskLog.create({
@@ -91,7 +93,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
   app.get('/n8n/queued-tasks', async (request, reply) => {
     const authToken = request.headers['x-webhook-token'];
     if (authToken !== WEBHOOK_AUTH_TOKEN) {
-      return reply.code(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: '認証トークンが無効です' } });
+      return sendError(reply, 401, 'UNAUTHORIZED', '認証トークンが無効です');
     }
 
     const tasks = await prisma.task.findMany({
@@ -108,7 +110,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
   app.get('/n8n/scheduled-jobs', async (request, reply) => {
     const authToken = request.headers['x-webhook-token'];
     if (authToken !== WEBHOOK_AUTH_TOKEN) {
-      return reply.code(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: '認証トークンが無効です' } });
+      return sendError(reply, 401, 'UNAUTHORIZED', '認証トークンが無効です');
     }
 
     const now = new Date();
@@ -145,8 +147,8 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
         input: s.input,
         recipientEmail: s.recipientEmail ?? s.org.billingEmail ?? null,
         plan: s.org.plan,
-        callbackUrl: `${process.env.API_GATEWAY_URL ?? 'http://localhost:4000'}/api/webhooks/n8n/scheduled-job-complete`,
-        aiEngineUrl: process.env.AI_ENGINE_URL ?? 'http://localhost:8000',
+        callbackUrl: `${config.apiGatewayUrl}/api/webhooks/n8n/scheduled-job-complete`,
+        aiEngineUrl: config.aiEngineUrl,
       })),
     });
   });
@@ -155,25 +157,19 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
   app.post('/n8n/enqueue-scheduled-task', async (request, reply) => {
     const authToken = request.headers['x-webhook-token'];
     if (authToken !== WEBHOOK_AUTH_TOKEN) {
-      return reply.code(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: '認証トークンが無効です' } });
+      return sendError(reply, 401, 'UNAUTHORIZED', '認証トークンが無効です');
     }
     const schema = z.object({ scheduledTaskId: z.string() });
     const result = schema.safeParse(request.body);
     if (!result.success) {
-      return reply.code(400).send({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: result.error.message },
-      });
+      return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
     }
     // atomic claim（lastRunAt の条件付き更新）+ エージェント分岐は schedule-dispatcher に集約。
     // 既に当該時間帯に走っていれば冪等 skip（success で返し、n8n 側の再送を止める）。
     const outcome = await claimAndEnqueueScheduledTask(result.data.scheduledTaskId);
     if (!outcome.enqueued) {
       if (outcome.reason === 'not_found') {
-        return reply.code(404).send({
-          success: false,
-          error: { code: 'NOT_FOUND', message: '有効な定期タスクが見つかりません' },
-        });
+        return sendError(reply, 404, 'NOT_FOUND', '有効な定期タスクが見つかりません');
       }
       return reply.send({
         success: true,
@@ -190,7 +186,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
   app.post('/n8n/scheduled-job-complete', async (request, reply) => {
     const authToken = request.headers['x-webhook-token'];
     if (authToken !== WEBHOOK_AUTH_TOKEN) {
-      return reply.code(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: '認証トークンが無効です' } });
+      return sendError(reply, 401, 'UNAUTHORIZED', '認証トークンが無効です');
     }
     const schema = z.object({
       scheduledTaskId: z.string(),
@@ -199,10 +195,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     });
     const result = schema.safeParse(request.body);
     if (!result.success) {
-      return reply.code(400).send({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: result.error.message },
-      });
+      return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
     }
     const updated = await prisma.scheduledTask.update({
       where: { id: result.data.scheduledTaskId },

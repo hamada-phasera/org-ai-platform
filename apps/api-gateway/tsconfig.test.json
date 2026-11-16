@@ -1,0 +1,13 @@
+{
+  // テストの型チェック用（npm run typecheck から tsconfig.json の後に実行）。
+  // テストは vitest が ESM として実行し、vi.mock の後に top-level await で import する形が多いので、
+  // module だけ ESM 系に切り替える。src 本体の型チェック（CommonJS 前提）は tsconfig.json が担う。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "noEmit": true
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": []
+}

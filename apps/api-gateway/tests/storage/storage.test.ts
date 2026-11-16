@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { storageKey, keyBelongsToOrg } from '../../src/services/storage';
+import { storageKey, keyBelongsToOrg, type StorageDriver } from '../../src/services/storage';
 import { LocalStorageDriver } from '../../src/services/storage/local-driver';
 import { SupabaseStorageDriver, supabaseConfigFromEnv } from '../../src/services/storage/supabase-driver';
 
@@ -45,7 +45,8 @@ describe('keyBelongsToOrg', () => {
 
 describe('LocalStorageDriver', () => {
   let base: string;
-  let driver: LocalStorageDriver;
+  // put は StorageDriver の契約どおり contentType 付きで呼ぶ（local 実装は使わない）
+  let driver: StorageDriver;
 
   beforeEach(async () => {
     base = await mkdtemp(join(tmpdir(), 'flow-storage-'));

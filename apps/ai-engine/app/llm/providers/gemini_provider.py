@@ -1,13 +1,15 @@
 from __future__ import annotations
+
 import json
-import os
-import time
 import logging
-from typing import AsyncIterator, List
+import time
+from collections.abc import AsyncIterator
 
 import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
+from app.config import settings
+from app.llm.providers.common import JSON_MODE_HINT, MAX_TOKENS, RETRYABLE_STATUS_CODES
 from app.models.llm import ChatMessage, LLMResponse
 
 logger = logging.getLogger(__name__)
@@ -18,16 +20,12 @@ _BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 # 松竹梅のうち 梅/竹 用の既定モデル（env で上書き可）。
 # 無料枠の RPM/RPD を考慮し、梅=flash-lite（最も寛い枠）、竹=flash（上位品質）。
-MODEL_UME = os.getenv("GEMINI_MODEL_UME", "gemini-2.5-flash-lite")
-MODEL_TAKE = os.getenv("GEMINI_MODEL_TAKE", "gemini-2.5-flash")
+MODEL_UME = settings.gemini_model_ume
+MODEL_TAKE = settings.gemini_model_take
 # 構造化処理（json_mode: 意図分類・capability選択等）は常に最安モデルで十分。
-MODEL_JSON = os.getenv("GEMINI_MODEL_JSON", MODEL_UME)
+MODEL_JSON = settings.gemini_model_json
 
-MAX_TOKENS = 4096
 
-JSON_MODE_HINT = (
-    "\n\n出力は有効な JSON オブジェクト 1 つのみとし、前後に説明文・コードブロックを含めないこと。"
-)
 
 
 def _is_retryable(exc: BaseException) -> bool:
@@ -35,11 +33,11 @@ def _is_retryable(exc: BaseException) -> bool:
     if isinstance(exc, (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout)):
         return True
     if isinstance(exc, httpx.HTTPStatusError):
-        return exc.response.status_code in (408, 409, 429, 500, 502, 503, 529)
+        return exc.response.status_code in RETRYABLE_STATUS_CODES
     return False
 
 
-def _to_gemini_payload(messages: List[ChatMessage], json_mode: bool) -> dict:
+def _to_gemini_payload(messages: list[ChatMessage], json_mode: bool) -> dict:
     """ChatMessage 列を Gemini generateContent ボディへ変換。
     - system ロールは systemInstruction に集約
     - assistant → model / user → user
@@ -80,7 +78,7 @@ class GeminiProvider:
     """AnthropicProvider と同一インターフェース（chat / chat_stream）の Gemini 実装。"""
 
     def __init__(self) -> None:
-        api_key = os.getenv("GEMINI_API_KEY", "")
+        api_key = settings.gemini_api_key
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY が未設定です")
         self._headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
@@ -93,7 +91,7 @@ class GeminiProvider:
     )
     async def chat(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         model: str = MODEL_UME,
         json_mode: bool = False,
     ) -> LLMResponse:
@@ -119,29 +117,28 @@ class GeminiProvider:
 
     async def chat_stream(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         model: str = MODEL_UME,
     ) -> AsyncIterator[str]:
         """SSE ストリーミング（:streamGenerateContent?alt=sse）。トークン断片を逐次 yield。"""
         payload = _to_gemini_payload(messages, json_mode=False)
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            async with client.stream(
-                "POST",
-                f"{_BASE_URL}/models/{model}:streamGenerateContent",
-                params={"alt": "sse"},
-                headers=self._headers,
-                json=payload,
-            ) as res:
-                res.raise_for_status()
-                async for line in res.aiter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    chunk = line[len("data:"):].strip()
-                    if not chunk or chunk == "[DONE]":
-                        continue
-                    try:
-                        piece = _extract_text(json.loads(chunk))
-                    except json.JSONDecodeError:
-                        continue
-                    if piece:
-                        yield piece
+        async with httpx.AsyncClient(timeout=180.0) as client, client.stream(
+            "POST",
+            f"{_BASE_URL}/models/{model}:streamGenerateContent",
+            params={"alt": "sse"},
+            headers=self._headers,
+            json=payload,
+        ) as res:
+            res.raise_for_status()
+            async for line in res.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                chunk = line[len("data:"):].strip()
+                if not chunk or chunk == "[DONE]":
+                    continue
+                try:
+                    piece = _extract_text(json.loads(chunk))
+                except json.JSONDecodeError:
+                    continue
+                if piece:
+                    yield piece

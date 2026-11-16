@@ -7,12 +7,16 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../utils/prisma';
 import { jobs, drain, type JobRecord } from './lifecycle-core';
+import { config } from '../config/env';
+import { createLogger, errorMessage } from '../utils/logger';
+
+const lifecycleLog = createLogger('lifecycle');
 
 /**
  * 待ちの予算。Render が SIGTERM から強制終了までに与える猶予より短くする
  * （既定 30 秒。render.yaml で maxShutdownDelaySeconds を伸ばしたらここも上げる）。
  */
-const DRAIN_BUDGET_MS = Number(process.env.SHUTDOWN_DRAIN_MS ?? 20_000);
+const DRAIN_BUDGET_MS = config.shutdownDrainMs;
 const POLL_MS = 250;
 
 /** 中断されたことを人が読んで分かる文言。起動時の回収と同じ言い回しに揃える。 */
@@ -76,21 +80,21 @@ let shuttingDown = false;
 export async function shutdown(app: FastifyInstance, signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`[lifecycle] ${signal} を受信。終了処理を開始します（走行中 ${jobs.size} 件）`);
+  lifecycleLog.info(`${signal} を受信。終了処理を開始します（走行中 ${jobs.size} 件）`);
 
   jobs.beginShutdown();
 
   try {
     await app.close();
   } catch (e) {
-    console.error('[lifecycle] app.close に失敗:', e instanceof Error ? e.message : e);
+    lifecycleLog.error('app.close に失敗:', errorMessage(e));
   }
 
   // 長時間クラスは待たずに印を付ける（処理自体は止めない。プロセスが死ぬまで走る）
   const longRunning = jobs.listByKind(LONG_RUNNING);
   if (longRunning.length > 0) {
     const n = await markTasksInterrupted(longRunning).catch(() => 0);
-    console.log(`[lifecycle] 長時間の実行 ${longRunning.length} 件を中断として記録（更新 ${n} 件）`);
+    lifecycleLog.info(`長時間の実行 ${longRunning.length} 件を中断として記録（更新 ${n} 件）`);
   }
 
   const result = await drain(jobs, {
@@ -102,14 +106,14 @@ export async function shutdown(app: FastifyInstance, signal: string): Promise<vo
   });
 
   if (result.drained) {
-    console.log(`[lifecycle] 走行中の処理はすべて終了しました（${result.waitedMs}ms）`);
+    lifecycleLog.info(`走行中の処理はすべて終了しました（${result.waitedMs}ms）`);
   } else {
-    console.warn(`[lifecycle] ${result.remaining.length} 件が予算内に終わりませんでした`);
+    lifecycleLog.warn(`${result.remaining.length} 件が予算内に終わりませんでした`);
     await markInboxInterrupted(result.remaining).catch(() => 0);
   }
 
   await prisma.$disconnect().catch(() => undefined);
-  console.log('[lifecycle] 終了します');
+  lifecycleLog.info('終了します');
 }
 
 /** signal を配線する。listen のあとに1回だけ呼ぶ。 */

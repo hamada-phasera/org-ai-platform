@@ -8,8 +8,12 @@ import { join, resolve } from 'node:path';
 import type { StorageDriver, StorageDriverName } from './index';
 import { LocalStorageDriver } from './local-driver';
 import { SupabaseStorageDriver, supabaseConfigFromEnv } from './supabase-driver';
+import { config } from '../../config/env';
+import { createLogger } from '../../utils/logger';
 
-const FILES_BASE = resolve(process.env.FILES_DIR ?? join(process.cwd(), '../../data/files'));
+const storageLog = createLogger('storage');
+
+const FILES_BASE = resolve(config.filesDir ?? join(process.cwd(), '../../data/files'));
 
 let supabase: SupabaseStorageDriver | null | undefined;
 let local: LocalStorageDriver | undefined;
@@ -37,10 +41,10 @@ function getLocal(): LocalStorageDriver {
 export function writeDriver(): StorageDriver {
   const s = getSupabase();
   if (s) return s;
-  if (process.env.NODE_ENV === 'production' && !warned) {
+  if (config.isProduction && !warned) {
     warned = true;
-    console.warn(
-      '[storage] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY が未設定です。' +
+    storageLog.warn(
+      'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY が未設定です。' +
         'ローカルディスクに保存しますが、Render では次のデプロイで実体が消えます。',
     );
   }

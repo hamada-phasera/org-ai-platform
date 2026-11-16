@@ -9,12 +9,10 @@
 // すべての API 呼び出しを timeout 付き fetch + try/catch で包み、呼び出し側 (routes/agents.ts) が
 // 例外時に Agent.n8nStatus = PENDING を設定してフォールバック実行できるようにする。
 
-const N8N_URL = (process.env.N8N_CLOUD_URL ?? process.env.N8N_URL ?? 'http://localhost:5678').replace(
-  /\/$/,
-  '',
-);
-const N8N_API_KEY = process.env.N8N_API_KEY ?? '';
-const N8N_WEBHOOK_AUTH_TOKEN = process.env.N8N_WEBHOOK_AUTH_TOKEN ?? 'org-ai-n8n-secret-token';
+import { config } from '../config/env';
+const N8N_URL = config.n8nUrl.replace(/\/$/, '');
+const N8N_API_KEY = config.n8nApiKey;
+const N8N_WEBHOOK_AUTH_TOKEN = config.n8nWebhookAuthToken;
 
 const CREDENTIAL_NAME = 'org-ai webhook token';
 const CREDENTIAL_HEADER_NAME = 'x-org-ai-token';

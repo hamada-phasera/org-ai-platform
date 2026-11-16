@@ -2,6 +2,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { hasRoleAtLeast, type UserRole } from '@org-ai/shared-types';
 import { prisma } from '../utils/prisma';
 import { READ_ONLY_MESSAGE, entitlementOf, needsEntitlementCheck } from '../services/entitlement';
+import { sendError } from '../utils/http-error';
 
 /**
  * 認証と権限。
@@ -23,10 +24,7 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply):
   try {
     await request.jwtVerify();
   } catch {
-    reply.code(401).send({
-      success: false,
-      error: { code: 'AUTH_REQUIRED', message: '認証が必要です' },
-    });
+    sendError(reply, 401, 'AUTH_REQUIRED', '認証が必要です');
     return;
   }
 
@@ -40,10 +38,7 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply):
     select: { subscriptionStatus: true },
   });
   if (org && entitlementOf(org.subscriptionStatus) === 'read_only') {
-    reply.code(402).send({
-      success: false,
-      error: { code: 'SUBSCRIPTION_REQUIRED', message: READ_ONLY_MESSAGE },
-    });
+    sendError(reply, 402, 'SUBSCRIPTION_REQUIRED', READ_ONLY_MESSAGE);
   }
 }
 
@@ -71,24 +66,12 @@ export function requireRole(required: UserRole) {
        「権限が足りない」ではなく「そのアカウントはもう使えない」ので、
        フロントの 401→ログアウト導線に乗せる。 */
     if (!user || user.status !== 'ACTIVE' || !user.orgId) {
-      reply.code(401).send({
-        success: false,
-        error: { code: 'AUTH_REQUIRED', message: 'このアカウントは利用できません。管理者にご確認ください。' },
-      });
+      sendError(reply, 401, 'AUTH_REQUIRED', 'このアカウントは利用できません。管理者にご確認ください。');
       return;
     }
 
     if (!hasRoleAtLeast(user.role, required)) {
-      reply.code(403).send({
-        success: false,
-        error: {
-          code: 'FORBIDDEN',
-          message:
-            required === 'OWNER'
-              ? 'この操作はオーナーのみ行えます'
-              : 'この操作には管理者権限が必要です',
-        },
-      });
+      sendError(reply, 403, 'FORBIDDEN', required === 'OWNER' ? 'この操作はオーナーのみ行えます' : 'この操作には管理者権限が必要です');
       return;
     }
 

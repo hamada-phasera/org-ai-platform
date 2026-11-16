@@ -1,17 +1,21 @@
 from __future__ import annotations
+
 import time
-import os
-from typing import AsyncIterator, List
+from collections.abc import AsyncIterator
+from typing import Any
+
 from anthropic import (
-    AsyncAnthropic,
-    APIStatusError,
     APIConnectionError,
+    APIStatusError,
     APITimeoutError,
+    AsyncAnthropic,
     InternalServerError,
     RateLimitError,
 )
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
+from app.config import settings
+from app.llm.providers.common import JSON_MODE_HINT, MAX_TOKENS, RETRYABLE_STATUS_CODES
 from app.models.llm import ChatMessage, LLMResponse
 
 
@@ -21,7 +25,7 @@ def _is_retryable(exc: BaseException) -> bool:
     if isinstance(exc, (RateLimitError, APIConnectionError, APITimeoutError, InternalServerError)):
         return True
     if isinstance(exc, APIStatusError):
-        return getattr(exc, "status_code", 0) in (408, 409, 429, 500, 502, 503, 529)
+        return getattr(exc, "status_code", 0) in RETRYABLE_STATUS_CODES
     return False
 
 MODEL_HAIKU = "claude-haiku-4-5-20251001"
@@ -29,14 +33,10 @@ MODEL_SONNET = "claude-sonnet-4-6"
 MODEL_OPUS = "claude-opus-4-7"
 
 DEFAULT_MODEL = MODEL_SONNET
-MAX_TOKENS = 4096
-
-JSON_MODE_HINT = (
-    "\n\n出力は有効な JSON オブジェクト 1 つのみとし、前後に説明文・コードブロックを含めないこと。"
-)
 
 
-def _split_system_and_messages(messages: List[ChatMessage]) -> tuple[str, list[dict]]:
+
+def _split_system_and_messages(messages: list[ChatMessage]) -> tuple[str, list[dict]]:
     system_parts: list[str] = []
     user_messages: list[dict] = []
     for m in messages:
@@ -47,7 +47,7 @@ def _split_system_and_messages(messages: List[ChatMessage]) -> tuple[str, list[d
     return "\n".join(system_parts).strip(), user_messages
 
 
-def _with_cache(system_content: str, user_messages: list[dict]):
+def _with_cache(system_content: str, user_messages: list[dict]) -> tuple[list[dict[str, Any]] | str, list[dict]]:
     """プロンプトキャッシュ: システムプロンプト＋会話プレフィックス（直近メッセージまで）を
     cache_control でキャッシュ対象にする。マルチターンで累積する入力の再送コストを削減（入力50-90%減）。
     最小キャッシュ長(約1024トークン)未満なら API 側で無視されるため、短い場合も安全に素通しする。"""
@@ -65,9 +65,30 @@ def _with_cache(system_content: str, user_messages: list[dict]):
     return system_param, api_messages
 
 
+def _to_llm_response(response: Any, model: str, start: float) -> LLMResponse:
+    """Messages API の応答を LLMResponse に変換する（chat / vision_json 共通）。
+
+    text ブロックのみ連結する（tool_use 等はスキップ）。PII 判定は router 側で上書きする。
+    """
+    latency_ms = int((time.monotonic() - start) * 1000)
+    content = ""
+    if response.content:
+        for block in response.content:
+            if getattr(block, "type", None) == "text":
+                content += block.text
+    tokens = (response.usage.input_tokens + response.usage.output_tokens) if response.usage else 0
+    return LLMResponse(
+        content=content,
+        model=model,
+        tokens_used=tokens,
+        latency_ms=latency_ms,
+        pii_detected=False,
+    )
+
+
 class AnthropicProvider:
     def __init__(self) -> None:
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        api_key = settings.anthropic_api_key
         self.client = AsyncAnthropic(api_key=api_key) if api_key else None
 
     @retry(
@@ -78,7 +99,7 @@ class AnthropicProvider:
     )
     async def chat(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         model: str = DEFAULT_MODEL,
         json_mode: bool = False,
     ) -> LLMResponse:
@@ -97,21 +118,7 @@ class AnthropicProvider:
             system=system_param,
             messages=api_messages,
         )
-        latency_ms = int((time.monotonic() - start) * 1000)
-        content = ""
-        if response.content:
-            for block in response.content:
-                # text blocks のみ抽出（tool_use 等はスキップ）
-                if getattr(block, "type", None) == "text":
-                    content += block.text
-        tokens = (response.usage.input_tokens + response.usage.output_tokens) if response.usage else 0
-        return LLMResponse(
-            content=content,
-            model=model,
-            tokens_used=tokens,
-            latency_ms=latency_ms,
-            pii_detected=False,
-        )
+        return _to_llm_response(response, model, start)
 
     @retry(
         retry=retry_if_exception(_is_retryable),
@@ -160,24 +167,11 @@ class AnthropicProvider:
                 }
             ],
         )
-        latency_ms = int((time.monotonic() - start) * 1000)
-        content = ""
-        if response.content:
-            for block in response.content:
-                if getattr(block, "type", None) == "text":
-                    content += block.text
-        tokens = (response.usage.input_tokens + response.usage.output_tokens) if response.usage else 0
-        return LLMResponse(
-            content=content,
-            model=model,
-            tokens_used=tokens,
-            latency_ms=latency_ms,
-            pii_detected=False,
-        )
+        return _to_llm_response(response, model, start)
 
     async def chat_stream(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         model: str = DEFAULT_MODEL,
     ) -> AsyncIterator[str]:
         if not self.client:

@@ -30,6 +30,10 @@ import {
 } from '../services/billing/billing-core';
 import { StripeClient } from '../services/billing/stripe-client';
 import { applySubscription } from '../services/billing/sync';
+import { sendError } from '../utils/http-error';
+import { createLogger, errorMessage } from '../utils/logger';
+
+const billingLog = createLogger('billing');
 
 /** 追加容量の上限（1口 = 1GB）。桁の打ち間違いで高額な請求を作らないための柵 */
 const MAX_ADDON_UNITS = 50;
@@ -54,7 +58,7 @@ async function priceAmount(stripe: StripeClient, priceId: string | null): Promis
     priceCache.set(priceId, { amount, at: Date.now() });
     return amount;
   } catch (e) {
-    console.error('[billing] 価格の取得に失敗:', e instanceof Error ? e.message : e);
+    billingLog.error('価格の取得に失敗:', errorMessage(e));
     return null;
   }
 }
@@ -121,15 +125,12 @@ async function buildOverview(orgId: string): Promise<BillingOverview | null> {
 }
 
 const notConfigured = (reply: FastifyReply) =>
-  reply.code(503).send({ success: false, error: { code: 'BILLING_NOT_CONFIGURED', message: '決済はまだ準備中です。' } });
+  sendError(reply, 503, 'BILLING_NOT_CONFIGURED', '決済はまだ準備中です。');
 
 /** ⚠️ Stripe のエラー文言は利用者へ返さない（決済の文脈が混じる）。ログにだけ残す */
 const upstreamFailed = (reply: FastifyReply, e: unknown) => {
-  console.error('[billing] Stripe の呼び出しに失敗:', e instanceof Error ? e.message : e);
-  return reply.code(502).send({
-    success: false,
-    error: { code: 'BILLING_UPSTREAM_ERROR', message: '決済サービスに接続できませんでした。時間をおいて再度お試しください。' },
-  });
+  billingLog.error('Stripe の呼び出しに失敗:', errorMessage(e));
+  return sendError(reply, 502, 'BILLING_UPSTREAM_ERROR', '決済サービスに接続できませんでした。時間をおいて再度お試しください。');
 };
 
 const checkoutSchema = z.object({
@@ -145,7 +146,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
     const { orgId } = request.user as { orgId: string };
     const data = await buildOverview(orgId);
     if (!data) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: '組織が見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', '組織が見つかりません');
     }
     return reply.send({ success: true, data });
   });
@@ -158,23 +159,20 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
 
     const parsed = checkoutSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'プランと支払い間隔を指定してください' } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', 'プランと支払い間隔を指定してください');
     }
     const priceId = config.prices[parsed.data.plan][parsed.data.interval];
     if (!priceId) {
-      return reply.code(400).send({ success: false, error: { code: 'PRICE_NOT_AVAILABLE', message: 'このプランはまだお申し込みいただけません。' } });
+      return sendError(reply, 400, 'PRICE_NOT_AVAILABLE', 'このプランはまだお申し込みいただけません。');
     }
 
     const org = await prisma.organization.findUnique({ where: { id: orgId }, select: ORG_SELECT });
     if (!org) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: '組織が見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', '組織が見つかりません');
     }
     // ⚠️ 契約中に2本目を作らせない（二重請求になる）。変更はポータルで行う
     if (isEntitled(org.subscriptionStatus)) {
-      return reply.code(409).send({
-        success: false,
-        error: { code: 'ALREADY_SUBSCRIBED', message: 'すでにご契約中です。プランの変更は「お支払い・契約の管理」から行えます。' },
-      });
+      return sendError(reply, 409, 'ALREADY_SUBSCRIBED', 'すでにご契約中です。プランの変更は「お支払い・契約の管理」から行えます。');
     }
 
     const stripe = new StripeClient(config.secretKey);
@@ -221,7 +219,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
 
     const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { stripeCustomerId: true } });
     if (!org?.stripeCustomerId) {
-      return reply.code(409).send({ success: false, error: { code: 'NO_CUSTOMER', message: 'まだご契約がありません。' } });
+      return sendError(reply, 409, 'NO_CUSTOMER', 'まだご契約がありません。');
     }
     try {
       const session = await new StripeClient(config.secretKey).createPortalSession(
@@ -244,36 +242,32 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
 
     const parsed = checkoutSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'プランと支払い間隔を指定してください' } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', 'プランと支払い間隔を指定してください');
     }
     const { plan, interval } = parsed.data;
     const priceId = config.prices[plan][interval];
     if (!priceId) {
-      return reply.code(400).send({ success: false, error: { code: 'PRICE_NOT_AVAILABLE', message: 'このプランはまだお申し込みいただけません。' } });
+      return sendError(reply, 400, 'PRICE_NOT_AVAILABLE', 'このプランはまだお申し込みいただけません。');
     }
 
     const org = await prisma.organization.findUnique({ where: { id: orgId }, select: ORG_SELECT });
     if (!org) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: '組織が見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', '組織が見つかりません');
     }
     if (!isEntitled(org.subscriptionStatus) || !org.stripeSubscriptionId) {
-      return reply.code(409).send({
-        success: false,
-        error: { code: 'NOT_SUBSCRIBED', message: 'ご契約がありません。先にプランをお申し込みください。' },
-      });
+      return sendError(reply, 409, 'NOT_SUBSCRIBED', 'ご契約がありません。先にプランをお申し込みください。');
     }
 
     // ⚠️ 下げた先の容量に今のファイルが収まらないなら止める（勝手に消さない・超過の状態を作らない）
     const used = Number(org.storageUsedBytes);
     const nextQuota = storageQuotaBytes(plan, org.storageAddonUnits);
     if (used > nextQuota) {
-      return reply.code(409).send({
-        success: false,
-        error: {
-          code: 'STORAGE_IN_USE',
-          message: `${formatBytes(used)} を使用中のため、${PLAN_NAME[plan]}（${formatBytes(nextQuota)}）には変更できません。先に不要なファイルを削除してください。`,
-        },
-      });
+      return sendError(
+        reply,
+        409,
+        'STORAGE_IN_USE',
+        `${formatBytes(used)} を使用中のため、${PLAN_NAME[plan]}（${formatBytes(nextQuota)}）には変更できません。先に不要なファイルを削除してください。`,
+      );
     }
 
     const stripe = new StripeClient(config.secretKey);
@@ -281,10 +275,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
       const current = await stripe.retrieveSubscription(org.stripeSubscriptionId);
       const base = findBaseItem(config, current);
       if (!base) {
-        return reply.code(409).send({
-          success: false,
-          error: { code: 'UNKNOWN_SUBSCRIPTION', message: '契約の内容を確認できませんでした。お手数ですがお問い合わせください。' },
-        });
+        return sendError(reply, 409, 'UNKNOWN_SUBSCRIPTION', '契約の内容を確認できませんでした。お手数ですがお問い合わせください。');
       }
       if (base.price.id !== priceId) {
         // 基本プランの明細の price だけを差し替える。追加ストレージの明細には触らない
@@ -309,36 +300,29 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
 
     const parsed = addonSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: `追加容量は 0〜${MAX_ADDON_UNITS} の整数で指定してください` },
-      });
+      return sendError(reply, 400, 'VALIDATION_ERROR', `追加容量は 0〜${MAX_ADDON_UNITS} の整数で指定してください`);
     }
     const units = parsed.data.units;
 
     const org = await prisma.organization.findUnique({ where: { id: orgId }, select: ORG_SELECT });
     if (!org) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: '組織が見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', '組織が見つかりません');
     }
     // 課金が始まってから（トライアル中は請求が立たないので、容量だけ先に渡すことになる）
     if (org.subscriptionStatus !== 'active' || !org.stripeSubscriptionId) {
-      return reply.code(409).send({
-        success: false,
-        error: { code: 'BILLING_NOT_ACTIVE', message: '追加容量は、課金が始まってから（無料トライアルの終了後に）ご利用いただけます。' },
-      });
+      return sendError(reply, 409, 'BILLING_NOT_ACTIVE', '追加容量は、課金が始まってから（無料トライアルの終了後に）ご利用いただけます。');
     }
 
     // ⚠️ 減らすときは、いまの使用量が収まることを確認する。ファイルを勝手に消さない
     const used = Number(org.storageUsedBytes);
     const nextQuota = storageQuotaBytes(asPlan(org.plan), units);
     if (units < org.storageAddonUnits && used > nextQuota) {
-      return reply.code(409).send({
-        success: false,
-        error: {
-          code: 'STORAGE_IN_USE',
-          message: `${formatBytes(used)} を使用中のため、${formatBytes(nextQuota)} には減らせません。先に不要なファイルを削除してください。`,
-        },
-      });
+      return sendError(
+        reply,
+        409,
+        'STORAGE_IN_USE',
+        `${formatBytes(used)} を使用中のため、${formatBytes(nextQuota)} には減らせません。先に不要なファイルを削除してください。`,
+      );
     }
 
     const stripe = new StripeClient(config.secretKey);

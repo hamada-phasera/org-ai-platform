@@ -16,8 +16,12 @@ import { prisma } from '../utils/prisma';
 import { resolveAndExecute } from './capability-resolver';
 import { httpMethodOf } from './http-node/template';
 import { aiEngineHeaders } from './ai-engine-auth';
+import { config } from '../config/env';
+import { createLogger } from '../utils/logger';
 
-const AI_ENGINE_URL = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
+const stepRunnerLog = createLogger('step-runner');
+
+const AI_ENGINE_URL = config.aiEngineUrl;
 
 // ── pure（vitest 対象） ────────────────────────────────────────────
 
@@ -377,7 +381,7 @@ export async function runAgentTask(
     await log(task.id, `ステップ実行を開始（全 ${agent.steps.length} ステップ）`);
     await advance(task.id, task.orgId, agent, state);
   } catch (e) {
-    console.error('[step-runner] runAgentTask failed:', e);
+    stepRunnerLog.error('runAgentTask failed:', e);
     await prisma.task
       .update({ where: { id: task.id }, data: { status: 'FAILED', lastError: String(e) } })
       .catch(() => {});
@@ -405,7 +409,7 @@ export async function resumeAgentTask(
     // RUNNING = approve が claim 済み / PENDING_APPROVAL = claim を経ない旧経路。それ以外は再開しない
     // （却下済み・完了済みを蒸し返さない）。
     if (task.status && task.status !== 'RUNNING' && task.status !== 'PENDING_APPROVAL') {
-      console.warn(`[step-runner] resumeAgentTask: 再開できない状態のため中断 (${task.status})`);
+      stepRunnerLog.warn(`resumeAgentTask: 再開できない状態のため中断 (${task.status})`);
       return;
     }
     if (!task.agentId) {
@@ -502,7 +506,7 @@ export async function resumeAgentTask(
 
     await advance(taskId, task.orgId, agent, state);
   } catch (e) {
-    console.error('[step-runner] resumeAgentTask failed:', e);
+    stepRunnerLog.error('resumeAgentTask failed:', e);
     await prisma.task
       .update({ where: { id: taskId }, data: { status: 'FAILED', lastError: String(e) } })
       .catch(() => {});
@@ -539,7 +543,7 @@ export async function recoverStaleRunningTasks(olderThanMs = 30 * 60_000): Promi
     await log(id, STALE_RUNNING_MESSAGE, 'ERROR').catch(() => {});
   }
   if (recovered > 0) {
-    console.warn(`[step-runner] 中断されていた RUNNING タスクを ${recovered} 件回収しました`);
+    stepRunnerLog.warn(`中断されていた RUNNING タスクを ${recovered} 件回収しました`);
   }
   return recovered;
 }

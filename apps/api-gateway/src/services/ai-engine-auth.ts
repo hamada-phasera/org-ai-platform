@@ -1,3 +1,4 @@
+import { config } from '../config/env';
 /**
  * ai-engine を呼ぶときの共通ヘッダ。
  *
@@ -11,7 +12,7 @@
  * 「先に片方だけデプロイして全部落ちる」ことがない。**設定して初めて有効になる**。
  */
 export function aiEngineHeaders(extra: Record<string, string> = {}): Record<string, string> {
-  const token = process.env.INTERNAL_API_TOKEN;
+  const token = config.internalApiToken;
   return {
     'Content-Type': 'application/json',
     ...(token ? { 'X-Internal-Token': token } : {}),

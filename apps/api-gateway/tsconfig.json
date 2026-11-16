@@ -1,13 +1,19 @@
 {
+  // 型チェック・エディタ・tsx 用。
+  // @org-ai/shared-types はソースを直接見る（dist の事前ビルドに依存しない）。
+  // 出力は tsconfig.build.json（rootDir=src を守るため paths を持たない）。
+  // テスト（src/**/__tests__, tests/）の型チェックは tsconfig.test.json（vitest の ESM 前提で module だけ違う）。
   "compilerOptions": {
     "target": "ES2020",
     "module": "commonjs",
     "strict": true,
     "esModuleInterop": true,
     "outDir": "dist",
-    "rootDir": "src",
     "resolveJsonModule": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "paths": {
+      "@org-ai/shared-types": ["../../packages/shared-types/src/index.ts"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["src/**/__tests__/**", "src/**/*.test.ts", "src/**/*.spec.ts"]

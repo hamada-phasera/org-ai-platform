@@ -164,7 +164,7 @@ describe('INVOICE_TRANSITION_STEPS（令和8年度税制改正後のスケジュ
     // 令和8年度税制改正前の資料が大量に残っているため、ここは回帰しやすい
     const step2026 = INVOICE_TRANSITION_STEPS.find((s) => s.from === '2026-10-01');
     expect(step2026?.rate).toBe(0.7);
-    expect(INVOICE_TRANSITION_STEPS.some((s) => s.from === '2029-10-01')).toBe(false);
+    expect(INVOICE_TRANSITION_STEPS.some((s) => (s.from as string) === '2029-10-01')).toBe(false);
   });
 });
 

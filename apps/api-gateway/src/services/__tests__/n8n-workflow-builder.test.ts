@@ -82,3 +82,22 @@ describe('createAgentWorkflow', () => {
     await expect(createAgentWorkflow(AGENT)).rejects.toThrow();
   });
 });
+
+describe('agentSupportedSteps', () => {
+  it('steps が無ければ空', async () => {
+    const { agentSupportedSteps } = await import('../n8n-workflow-builder');
+    expect(agentSupportedSteps()).toEqual([]);
+    expect(agentSupportedSteps([])).toEqual([]);
+  });
+
+  it('対応済み capability だけを順序を保って重複なく返す', async () => {
+    const { agentSupportedSteps } = await import('../n8n-workflow-builder');
+    expect(
+      agentSupportedSteps([
+        { capabilityName: 'notify_slack' },
+        { capabilityName: 'create_google_doc' },
+        { capabilityName: 'create_google_doc' },
+      ]),
+    ).toEqual(['create_google_doc']);
+  });
+});

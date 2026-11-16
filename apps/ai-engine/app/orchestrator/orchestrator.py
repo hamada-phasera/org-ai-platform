@@ -1,17 +1,18 @@
 from __future__ import annotations
-import asyncio
-from typing import Optional
-from app.agents.sales import SalesAgent
-from app.agents.marketing import MarketingAgent
+
 from app.agents.accounting import AccountingAgent
 from app.agents.analytics import AnalyticsAgent
+from app.agents.base import BaseAgent
 from app.agents.general import GeneralAgent
-from app.orchestrator.intent_classifier import classify_intent
-from app.models.llm import OrchestrateResponse
-from app.governance.audit_logger import log_llm_call
+from app.agents.marketing import MarketingAgent
+from app.agents.sales import SalesAgent
+from app.departments import DEFAULT_DEPARTMENT
+from app.governance.audit_logger import schedule_llm_log
 from app.llm.router import provider_of_model
+from app.models.llm import ChatMessage, OrchestrateResponse
+from app.orchestrator.intent_classifier import classify_intent
 
-_agents = {
+_agents: dict[str, BaseAgent] = {
     "SALES": SalesAgent(),
     "MARKETING": MarketingAgent(),
     "ACCOUNTING": AccountingAgent(),
@@ -20,22 +21,31 @@ _agents = {
 }
 
 
+async def resolve_department(user_message: str, department: str | None) -> str:
+    """明示された部署が有効ならそれを、無ければキーワードで分類した部署を返す。"""
+    if department and department in _agents:
+        return department
+    return await classify_intent(user_message)
+
+
+def get_agent(department: str) -> BaseAgent:
+    """部署のエージェント。未知の部署は GENERAL。"""
+    return _agents.get(department, _agents[DEFAULT_DEPARTMENT])
+
+
 class Orchestrator:
     async def process(
         self,
         user_message: str,
         org_id: str,
         plan: str = "STARTER",
-        department: Optional[str] = None,
-        context: Optional[str] = None,
-        history=None,
-        user_email: Optional[str] = None,
+        department: str | None = None,
+        context: str | None = None,
+        history: list[ChatMessage] | None = None,
+        user_email: str | None = None,
     ) -> OrchestrateResponse:
-        if department and department in _agents:
-            resolved_dept = department
-        else:
-            resolved_dept = await classify_intent(user_message)
-        agent = _agents.get(resolved_dept, _agents["GENERAL"])
+        resolved_dept = await resolve_department(user_message, department)
+        agent = get_agent(resolved_dept)
 
         response, pii_detected, pii_types = await agent.execute(
             user_message=user_message,
@@ -47,7 +57,7 @@ class Orchestrator:
         )
 
         # 監査ログを非同期で記録（失敗してもレスポンスは返す）
-        asyncio.create_task(log_llm_call(
+        schedule_llm_log(
             org_id=org_id,
             department=resolved_dept,
             provider=provider_of_model(response.model),
@@ -58,7 +68,7 @@ class Orchestrator:
             latency_ms=response.latency_ms,
             pii_detected=pii_detected,
             pii_types=pii_types,
-        ))
+        )
 
         return OrchestrateResponse(
             content=response.content,

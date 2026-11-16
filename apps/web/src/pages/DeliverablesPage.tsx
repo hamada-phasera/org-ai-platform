@@ -49,7 +49,13 @@ function summaryOf(output: string | null): string {
 function linkOf(output: string | null): string | null {
   if (!output) return null;
   try {
-    const o = JSON.parse(output) as Record<string, any>;
+    const o = JSON.parse(output) as {
+      url?: unknown;
+      docUrl?: unknown;
+      webViewLink?: unknown;
+      spreadsheetUrl?: unknown;
+      data?: { url?: unknown };
+    };
     const u = o.url ?? o.docUrl ?? o.webViewLink ?? o.spreadsheetUrl ?? o?.data?.url;
     if (typeof u === 'string' && u.startsWith('http')) return u;
   } catch {
@@ -219,6 +225,7 @@ export default function DeliverablesPage() {
   );
 
   // 未評価の成果物を自動で重要度づけ
+  // lint(react-hooks/set-state-in-effect): 残置。effect 外（描画中の導出やイベント）へ移すと描画タイミングが変わるため
   useEffect(() => {
     if (ranking) return;
     const unranked = tasks.filter((t) => !(t.id in importance) && !(t.id in importanceOverride));

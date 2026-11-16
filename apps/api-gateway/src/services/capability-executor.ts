@@ -6,10 +6,11 @@
 import { getNativeAdapter } from './adapters';
 import { executeHttpCapabilityDetailed } from './http-node/executor';
 import { prisma } from '../utils/prisma';
+import { config } from '../config/env';
 
-const N8N_URL = process.env.N8N_CLOUD_URL ?? process.env.N8N_URL ?? 'http://localhost:5678';
-const N8N_WEBHOOK_AUTH_TOKEN = process.env.N8N_WEBHOOK_AUTH_TOKEN ?? 'org-ai-n8n-secret-token';
-const N8N_TIMEOUT_MS = Number(process.env.N8N_TIMEOUT_MS ?? 30_000);
+const N8N_URL = config.n8nUrl;
+const N8N_WEBHOOK_AUTH_TOKEN = config.n8nWebhookAuthToken;
+const N8N_TIMEOUT_MS = config.n8nTimeoutMs;
 
 export type ErrorType =
   | 'AUTH_MISSING'
