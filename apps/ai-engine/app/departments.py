@@ -11,7 +11,3 @@ from typing import Final
 DEPARTMENTS: Final[tuple[str, ...]] = ("SALES", "MARKETING", "ACCOUNTING", "ANALYTICS", "GENERAL")
 
 DEFAULT_DEPARTMENT: Final = "GENERAL"
-
-
-def is_department(value: object) -> bool:
-    return isinstance(value, str) and value in DEPARTMENTS
