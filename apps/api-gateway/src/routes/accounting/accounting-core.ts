@@ -19,7 +19,6 @@ export const PROJECT_STATUSES = [
   'BILLED',
   'PAID',
 ] as const;
-export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
 /** 完成していない＝未成工事（原価は資産計上する対象）。 */
 export function isUnfinished(status: string): boolean {
@@ -27,7 +26,6 @@ export function isUnfinished(status: string): boolean {
 }
 
 export const VENDOR_KINDS = ['SUBCON', 'SUPPLIER', 'SOLO', 'OTHER'] as const;
-export type VendorKind = (typeof VENDOR_KINDS)[number];
 
 export interface CostLike {
   category: string;

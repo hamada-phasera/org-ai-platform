@@ -91,7 +91,6 @@ export const envSchema = z.object({
 });
 
 export type Env = z.infer<typeof envSchema>;
-export type EnvKey = keyof Env;
 
 /** いまの環境変数を読む。呼ぶたびに読み直す（上の方針を参照）。 */
 export function readEnv(source: NodeJS.ProcessEnv = process.env): Env {
@@ -300,5 +299,3 @@ export const config = {
     return enabledUnlessFalse(readEnv().INTERNAL_SCHEDULER_ENABLED);
   },
 };
-
-export type Config = typeof config;
