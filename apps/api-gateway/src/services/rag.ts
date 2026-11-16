@@ -63,7 +63,8 @@ export async function indexFile(
   if (!vectors || vectors.length !== chunks.length) return;
 
   // 再アップロード等での重複を避けるため、このファイルの既存チャンクを削除してから入れ直す
-  await prisma.$executeRaw`DELETE FROM "FileChunk" WHERE "fileId" = ${fileId}`;
+  // 組織の条件も付ける（raw SQL はテナントクライアントの外なので、ここで必ず絞る）
+  await prisma.$executeRaw`DELETE FROM "FileChunk" WHERE "fileId" = ${fileId} AND "orgId" = ${orgId}`;
 
   for (let idx = 0; idx < chunks.length; idx++) {
     const vec = vectors[idx];
