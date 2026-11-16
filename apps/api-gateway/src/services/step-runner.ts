@@ -416,9 +416,14 @@ export async function resumeAgentTask(
       await failTask(taskId, 'エージェントが紐づいていないため再開できません');
       return;
     }
-    const agentRow = await prisma.agent.findUnique({ where: { id: task.agentId } });
+    // ⚠️ Task と同じ組織のエージェントだけを使う（E6）
+    const agentRow = await prisma.agent.findUnique({ where: { id: task.agentId, orgId: task.orgId } });
     if (!agentRow) {
       await failTask(taskId, 'エージェントが削除されています');
+      return;
+    }
+    if (agentRow.orgId !== task.orgId) {
+      await failTask(taskId, 'エージェントが見つかりません');
       return;
     }
     const state = parseRunState(task.executionResult);

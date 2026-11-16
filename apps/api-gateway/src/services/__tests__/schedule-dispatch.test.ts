@@ -170,6 +170,18 @@ describe('claimAndEnqueueScheduledTask（二重発火防止）', () => {
     await expect(flush()).resolves.toBeUndefined();
   });
 
+  it('⚠️ 別組織のエージェントは使わない（E5）', async () => {
+    prismaMock.scheduledTask.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.scheduledTask.findUnique.mockResolvedValue({ ...ST, agentId: 'A1' });
+    prismaMock.agent.findUnique.mockResolvedValue({ ...AGENT, orgId: 'org-OTHER' });
+
+    const r = await claimAndEnqueueScheduledTask('st1');
+
+    expect(prismaMock.agent.findUnique.mock.calls[0][0].where).toEqual({ id: 'A1', orgId: ST.orgId });
+    expect(r).toEqual({ enqueued: false, reason: 'agent_gone' });
+    expect(prismaMock.task.create).not.toHaveBeenCalled();
+  });
+
   it('エージェントが削除済み/無効なら Task を作らない', async () => {
     prismaMock.scheduledTask.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.scheduledTask.findUnique.mockResolvedValue({ ...ST, agentId: 'A1' });

@@ -94,8 +94,10 @@ export async function claimAndEnqueueScheduledTask(
 
   // ── エージェント紐付きの定期実行 ──
   if (st.agentId) {
-    const agent = await prisma.agent.findUnique({ where: { id: st.agentId } });
-    if (!agent || !agent.enabled) {
+    // ⚠️ 同じ組織のエージェントだけを使う（E5）。作成時（assertOwnAgent）にも確かめているが、
+    //    DB を直接いじった場合や将来の経路で、他組織の instructions/steps で走らせないための二重の照合。
+    const agent = await prisma.agent.findUnique({ where: { id: st.agentId, orgId: st.orgId } });
+    if (!agent || agent.orgId !== st.orgId || !agent.enabled) {
       scheduleLog.warn(`agent ${st.agentId} が削除/無効のため skip (scheduledTask=${st.id})`);
       return { enqueued: false, reason: 'agent_gone' };
     }

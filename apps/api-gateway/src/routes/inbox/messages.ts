@@ -97,9 +97,10 @@ export async function inboxMessagesRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 409, 'INVALID_STATE', `この状態では承認できません(現在: ${msg.status})`);
     }
     const connection = msg.connectionId
-      ? await prisma.channelConnection.findUnique({ where: { id: msg.connectionId } })
+      ? await prisma.channelConnection.findUnique({ where: { id: msg.connectionId, orgId: msg.orgId } })
       : null;
-    if (!connection) {
+    // ⚠️ 送信用の資格情報を取る経路なので、接続が同じ組織のものかを必ず照合する（E7）
+    if (!connection || connection.orgId !== msg.orgId) {
       return sendError(reply, 409, 'INVALID_STATE', 'LINE 接続が削除されているため送信できません');
     }
 
