@@ -4,7 +4,7 @@ import { PLAN_LIMITS, STORAGE_ADDON_UNIT_BYTES } from '@org-ai/shared-types';
 import { setTenant } from '../helpers/tenant';
 
 const prismaMock = {
-  organization: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
+  organization: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn(), count: vi.fn() },
   user: { findUnique: vi.fn() },
 };
 vi.mock('../../src/utils/prisma', () => ({ prisma: prismaMock }));
@@ -184,6 +184,33 @@ describe('POST /api/billing/checkout', () => {
     await app.inject({ method: 'POST', url: '/api/billing/checkout', payload: { plan: 'PRO', interval: 'month' } });
     expect(stripeMock.createCustomer).not.toHaveBeenCalled();
     expect(stripeMock.createCheckoutSession.mock.calls[0][0].subscription_data.trial_period_days).toBeUndefined();
+    await app.close();
+  });
+
+  it('⚠️ トライアルは作成者ごとに1回: 同じ人が作った別の組織で使っていれば付けない（設計書 Q3）', async () => {
+    configure();
+    prismaMock.organization.findUnique.mockResolvedValue(org({ createdBy: 'owner-1' }));
+    prismaMock.organization.count.mockResolvedValue(1);
+    stripeMock.createCustomer.mockResolvedValue({ id: 'cus_new' });
+    prismaMock.organization.updateMany.mockResolvedValue({ count: 1 });
+    stripeMock.createCheckoutSession.mockResolvedValue({ id: 'cs_1', url: 'https://checkout.stripe.com/c/cs_1' });
+    const app = await build();
+    await app.inject({ method: 'POST', url: '/api/billing/checkout', payload: { plan: 'PRO', interval: 'month' } });
+    expect(prismaMock.organization.count.mock.calls[0][0].where.createdBy).toBe('owner-1');
+    expect(stripeMock.createCheckoutSession.mock.calls[0][0].subscription_data.trial_period_days).toBeUndefined();
+    await app.close();
+  });
+
+  it('作成者の初めての組織ならトライアルを付ける', async () => {
+    configure();
+    prismaMock.organization.findUnique.mockResolvedValue(org({ createdBy: 'owner-1' }));
+    prismaMock.organization.count.mockResolvedValue(0);
+    stripeMock.createCustomer.mockResolvedValue({ id: 'cus_new' });
+    prismaMock.organization.updateMany.mockResolvedValue({ count: 1 });
+    stripeMock.createCheckoutSession.mockResolvedValue({ id: 'cs_1', url: 'https://checkout.stripe.com/c/cs_1' });
+    const app = await build();
+    await app.inject({ method: 'POST', url: '/api/billing/checkout', payload: { plan: 'PRO', interval: 'month' } });
+    expect(stripeMock.createCheckoutSession.mock.calls[0][0].subscription_data.trial_period_days).toBe(30);
     await app.close();
   });
 

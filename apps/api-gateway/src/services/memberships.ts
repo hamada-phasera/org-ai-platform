@@ -64,3 +64,21 @@ export async function mirrorRoleToUser(userId: string, orgId: string, role: stri
   await prisma.user.updateMany({ where: { id: userId, orgId }, data: { role } });
   invalidateMembership(userId, orgId);
 }
+
+/**
+ * 組織の切り替え先として使えるか（設計書 §5.2 / S2〜S4）。
+ * 所属していない・無効化されている・組織が無い、はすべて null（区別しない＝存在を漏らさない）。
+ */
+export async function findActiveMembership(userId: string, orgId: string): Promise<MembershipSummary | null> {
+  const m = await prisma.membership.findUnique({
+    where: { userId_orgId: { userId, orgId } },
+    select: { orgId: true, role: true, status: true, org: { select: { name: true, plan: true } } },
+  });
+  if (!m || m.status !== 'ACTIVE' || !m.org || !isUserRole(m.role)) return null;
+  return { orgId: m.orgId, orgName: m.org.name, plan: m.org.plan, role: m.role };
+}
+
+/** 本人の表示用の情報（email はトークンに入れる） */
+export async function loadUserProfile(userId: string): Promise<{ id: string; name: string; email: string } | null> {
+  return prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true, email: true } });
+}

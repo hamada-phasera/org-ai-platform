@@ -12,6 +12,8 @@ const prismaMock = {
   user: { findUnique: vi.fn(), create: vi.fn() },
   organization: { findUnique: vi.fn(), update: vi.fn(), create: vi.fn() },
   membership: { findMany: vi.fn(), create: vi.fn() },
+  capability: { create: vi.fn(async (a: { data: Record<string, unknown> }) => ({ id: `cap-${String(a.data.name)}` })) },
+  requiredCredential: { create: vi.fn() },
   $transaction: vi.fn(),
 };
 vi.mock('../../src/utils/prisma', () => ({ prisma: prismaMock }));
@@ -100,6 +102,9 @@ describe('POST /api/auth/register', () => {
     expect(prismaMock.membership.create.mock.calls[0][0].data).toEqual({ userId: 'u-new', orgId: 'org-new', role: 'OWNER' });
     // 作成者を記録する（トライアルを作成者ごとに1回にする判定に使う）
     expect(prismaMock.organization.update.mock.calls[0][0].data).toEqual({ createdBy: 'u-new' });
+    // 既定のノードが新しい組織に入る（E8）
+    expect(prismaMock.capability.create).toHaveBeenCalled();
+    for (const [args] of prismaMock.capability.create.mock.calls) expect(args.data.orgId).toBe('org-new');
     const payload = app.jwt.decode<{ orgId: string }>(res.json().data.token)!;
     expect(payload.orgId).toBe('org-new');
     await app.close();

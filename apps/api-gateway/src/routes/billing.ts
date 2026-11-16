@@ -17,6 +17,7 @@ import {
   type Plan,
   type SubscriptionStatus,
 } from '@org-ai/shared-types';
+import { creatorTrialUsed } from '../services/organizations';
 import { authOf, type TenantDb } from '../tenancy';
 import { requireAuth, requireOwner } from '../middleware/auth';
 import {
@@ -74,6 +75,7 @@ const ORG_SELECT = {
   billingInterval: true,
   currentPeriodEnd: true,
   trialEndsAt: true,
+  createdBy: true,
   cancelAtPeriodEnd: true,
   storageAddonUnits: true,
   storageUsedBytes: true,
@@ -110,7 +112,7 @@ async function buildOverview(db: TenantDb, orgId: string): Promise<BillingOvervi
     currentPeriodEnd: org.currentPeriodEnd?.toISOString() ?? null,
     trialEndsAt: org.trialEndsAt?.toISOString() ?? null,
     cancelAtPeriodEnd: org.cancelAtPeriodEnd,
-    trialAvailable: !org.trialEndsAt && !org.stripeSubscriptionId,
+    trialAvailable: !org.trialEndsAt && !org.stripeSubscriptionId && !(await creatorTrialUsed(org)),
     trialDays: config?.trialDays ?? 30,
     hasCustomer: !!org.stripeCustomerId,
     prices,
@@ -201,7 +203,8 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
           customerId,
           priceId,
           // トライアルは組織ごとに1回だけ
-          withTrial: !org.trialEndsAt && !org.stripeSubscriptionId,
+          // トライアルは作成者ごとに1回（設計書 Q3）
+          withTrial: !org.trialEndsAt && !org.stripeSubscriptionId && !(await creatorTrialUsed(org)),
         }),
       );
       if (!session.url) return upstreamFailed(reply, new Error('Checkout の URL が返りませんでした'));

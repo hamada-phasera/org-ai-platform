@@ -67,6 +67,12 @@ export async function requireUser(request: FastifyRequest, reply: FastifyReply):
   }
 }
 
+/** requireUser を通ったリクエストの本人（組織を選ぶ前の経路用）。 */
+export function userOf(request: FastifyRequest): { sub: string; orgId: string | null } {
+  const u = (request.user ?? {}) as JwtUser;
+  return { sub: u.sub as string, orgId: u.orgId ?? null };
+}
+
 async function authenticate(
   request: FastifyRequest,
   reply: FastifyReply,

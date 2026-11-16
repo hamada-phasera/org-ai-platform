@@ -1,10 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { authOf } from '../tenancy';
-import { requireAuth, requireOwner } from '../middleware/auth';
+import { requireAuth, requireOwner, requireUser, userOf } from '../middleware/auth';
+import { MAX_ORGS_CREATED_PER_USER, countOrgsCreatedBy, createOrganizationFor } from '../services/organizations';
+import { listActiveMemberships, loadUserProfile, signAccessToken } from '../services/memberships';
 import { collectSetupStatus } from '../services/setup-status';
 import { PLAN_LIMITS, storageQuotaBytes, usageState, type Plan } from '@org-ai/shared-types';
 import { sendError } from '../utils/http-error';
+
+const createOrgSchema = z.object({ name: z.string().trim().min(1).max(120) });
 
 const updateOrgSchema = z.object({
   name: z.string().min(1).max(120).optional(),
@@ -20,6 +24,43 @@ function startOfNextMonthUTC(now: Date = new Date()): Date {
 }
 
 export async function organizationRoutes(app: FastifyInstance): Promise<void> {
+  /*
+   * 組織を作る（設計書 UC1）。作った本人が OWNER になり、新しい組織用のトークンを返す（そのまま切り替わる）。
+   * 組織を選ぶ前（所属なし）でも呼べるよう requireUser。
+   * ⚠️ 作成できるのは1ユーザー MAX_ORGS_CREATED_PER_USER 組織まで（設計書 Q10 仮採用）。
+   * ⚠️ トライアルは作成者ごとに1回（2つ目以降は課金を始めるまで梅の上限。Q3 仮採用。判定は billing）。
+   */
+  app.post('/', { preHandler: requireUser }, async (request, reply) => {
+    const { sub } = userOf(request);
+    const parsed = createOrgSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return sendError(reply, 400, 'VALIDATION_ERROR', '組織名を入力してください');
+    }
+    if ((await countOrgsCreatedBy(sub)) >= MAX_ORGS_CREATED_PER_USER) {
+      return sendError(
+        reply,
+        409,
+        'ORG_LIMIT_REACHED',
+        `作成できる組織は ${MAX_ORGS_CREATED_PER_USER} 個までです。追加が必要な場合はお問い合わせください。`,
+      );
+    }
+    const profile = await loadUserProfile(sub);
+    if (!profile) {
+      return sendError(reply, 401, 'AUTH_REQUIRED', '認証が必要です');
+    }
+    const org = await createOrganizationFor(sub, parsed.data.name);
+    const token = signAccessToken(app, { userId: sub, orgId: org.id, role: 'OWNER', email: profile.email });
+    return reply.code(201).send({
+      success: true,
+      data: {
+        token,
+        organization: org,
+        user: { ...profile, orgId: org.id, role: 'OWNER' },
+        memberships: await listActiveMemberships(sub),
+      },
+    });
+  });
+
   // 自組織情報取得
   app.get('/me', { preHandler: requireAuth }, async (request, reply) => {
     const payload = authOf(request);

@@ -22,6 +22,13 @@ const RELATIONS: Record<string, [string, string]> = {
   message: ['message', 'messageId'],
 };
 
+/** schema.prisma の @default のうち、テストの判定に効くもの */
+const DEFAULTS: Record<string, Row> = {
+  membership: { status: 'ACTIVE', role: 'MEMBER' },
+  user: { status: 'ACTIVE', role: 'MEMBER' },
+  organization: { plan: 'STARTER', storageUsedBytes: BigInt(0), storageAddonUnits: 0, subscriptionStatus: null },
+};
+
 const OPS = new Set(['equals', 'in', 'notIn', 'not', 'lt', 'lte', 'gt', 'gte', 'contains', 'startsWith', 'endsWith', 'mode', 'has', 'some', 'every', 'none', 'isEmpty']);
 
 function cmp(a: unknown, b: unknown): number {
@@ -39,15 +46,19 @@ export class FakePrisma {
   tables: Record<string, Row[]> = {};
   private seq = 0;
   rawCalls: unknown[][] = [];
+  /** モデル名でアクセスできる自分自身（トランザクションの tx として渡す） */
+  private self: FakePrisma = this;
 
   constructor(seed: Record<string, Row[]>) {
     for (const [k, rows] of Object.entries(seed)) this.tables[k] = rows.map((r) => ({ ...r }));
-    return new Proxy(this, {
+    const proxy = new Proxy(this, {
       get: (t, prop: string | symbol) => {
         if (typeof prop !== 'string' || prop in t) return (t as unknown as Record<string | symbol, unknown>)[prop];
         return t.delegate(prop);
       },
     });
+    this.self = proxy;
+    return proxy;
   }
 
   snapshot(): string {
@@ -60,7 +71,7 @@ export class FakePrisma {
 
   $transaction = async (fn: unknown) => {
     if (Array.isArray(fn)) return Promise.all(fn);
-    return (fn as (tx: unknown) => Promise<unknown>)(this);
+    return (fn as (tx: unknown) => Promise<unknown>)(this.self);
   };
   $queryRaw = async (...args: unknown[]) => {
     this.rawCalls.push(args);
@@ -223,7 +234,13 @@ export class FakePrisma {
       aggregate: async () => ({ _sum: {}, _count: { _all: 0 }, _max: {}, _min: {}, _avg: {} }),
       groupBy: async () => [],
       create: async (args) => {
-        const row: Row = { id: `new-${model}-${++this.seq}`, createdAt: new Date(), updatedAt: new Date(), ...(args?.data as Row) };
+        const row: Row = {
+          id: `new-${model}-${++this.seq}`,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          ...DEFAULTS[model],
+          ...(args?.data as Row),
+        };
         this.rows(model).push(row);
         return this.shape(model, row, args);
       },

@@ -4,7 +4,16 @@ import { z } from 'zod';
 import { prisma } from '../utils/prisma';
 import { requireUser } from '../middleware/auth';
 import { sendError } from '../utils/http-error';
-import { listActiveMemberships, pickActiveOrg, signAccessToken } from '../services/memberships';
+import {
+  findActiveMembership,
+  listActiveMemberships,
+  loadUserProfile,
+  pickActiveOrg,
+  rememberActiveOrg,
+  signAccessToken,
+} from '../services/memberships';
+import { seedDefaultCapabilities } from '../services/organizations';
+import { tenantDbFrom } from '../tenancy/tenant-db';
 
 const registerSchema = z.object({
   name: z.string().min(1),
@@ -12,6 +21,8 @@ const registerSchema = z.object({
   password: z.string().min(8),
   orgName: z.string().min(1),
 });
+
+const switchOrgSchema = z.object({ orgId: z.string().min(1).max(100) });
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -42,6 +53,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       });
       await tx.membership.create({ data: { userId: user.id, orgId: org.id, role: 'OWNER' } });
       await tx.organization.update({ where: { id: org.id }, data: { createdBy: user.id } });
+      // 新しい組織に既定のノードを入れる（以前は seed スクリプトを手で流すまで空だった。E8）
+      await seedDefaultCapabilities(tenantDbFrom(tx, org.id));
       return { org, user };
     });
 
@@ -111,6 +124,45 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({
       success: true,
       data: { ...user, orgId: active?.orgId ?? null, role: active?.role ?? null, memberships },
+    });
+  });
+
+  /* 所属している組織の一覧（組織をまたぐのでユーザー単位。スイッチャーが使う）。 */
+  app.get('/memberships', { preHandler: requireUser }, async (request, reply) => {
+    const { sub } = request.user as { sub: string };
+    return reply.send({ success: true, data: await listActiveMemberships(sub) });
+  });
+
+  /*
+   * 組織を切り替える = その組織用の新しいトークンを発行する（設計書 ADR-3）。
+   * ⚠️ body の orgId は「どこに切り替えたいか」の希望にすぎない。Membership が ACTIVE なときだけ発行する。
+   *    所属していない・無効化された・存在しない組織は区別せずに 403 TENANT_NOT_MEMBER（存在を漏らさない）。
+   * 古いトークン（前の組織用）はそのまま有効（トークンは組織ごとに独立。所属が有効な間だけ通る）。
+   */
+  app.post('/switch-org', { preHandler: requireUser }, async (request, reply) => {
+    const { sub } = request.user as { sub: string };
+    const parsed = switchOrgSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return sendError(reply, 400, 'VALIDATION_ERROR', '切り替え先の組織を指定してください');
+    }
+    const target = await findActiveMembership(sub, parsed.data.orgId);
+    if (!target) {
+      return sendError(reply, 403, 'TENANT_NOT_MEMBER', 'この組織には所属していません');
+    }
+    const profile = await loadUserProfile(sub);
+    if (!profile) {
+      return sendError(reply, 401, 'AUTH_REQUIRED', '認証が必要です');
+    }
+    // 次にログインしたときの既定の組織（+ 移行期間中の User.role の写し）
+    await rememberActiveOrg(sub, target.orgId, target.role);
+    const token = signAccessToken(app, { userId: sub, orgId: target.orgId, role: target.role, email: profile.email });
+    return reply.send({
+      success: true,
+      data: {
+        token,
+        user: { ...profile, orgId: target.orgId, role: target.role },
+        memberships: await listActiveMemberships(sub),
+      },
     });
   });
 }

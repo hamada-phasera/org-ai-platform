@@ -35,6 +35,7 @@ export const RAW_PRISMA_ALLOWLIST: Record<string, string> = {
   'routes/inbox/line-webhook.ts': 'LINE destination から接続を逆引き（署名検証後は runAsTenant）',
   'routes/billing-webhook.ts': 'Stripe webhook（署名検証済み。組織自体を更新する）',
   'services/memberships.ts': '所属一覧・トークン発行（組織をまたぐ）',
+  'services/organizations.ts': '組織の作成・作成上限・作成者ごとのトライアル（組織をまたいで数える）',
   'services/billing/sync.ts': 'Stripe の写し込み（組織自体を更新する）',
   'services/lifecycle.ts': 'シャットダウン時の後始末（状態を FAILED にするだけ）',
   'services/schedule-dispatcher.ts': '定期実行の claim と候補スキャン（claim 後は runAsTenant + tenantDb）',
