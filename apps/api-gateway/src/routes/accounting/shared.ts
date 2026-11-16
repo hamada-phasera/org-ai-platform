@@ -1,6 +1,7 @@
 // 経理ルートで共通の小道具。ここに DB アクセスは置かない。
 
 import type { FastifyReply } from 'fastify';
+import { sendError } from '../../utils/http-error';
 
 export type AuthPayload = { orgId: string; sub?: string; role?: string };
 
@@ -10,7 +11,7 @@ export function fail(
   errorCode: string,
   message: string,
 ): FastifyReply {
-  return reply.code(code).send({ success: false, error: { code: errorCode, message } });
+  return sendError(reply, code, errorCode, message);
 }
 
 /**

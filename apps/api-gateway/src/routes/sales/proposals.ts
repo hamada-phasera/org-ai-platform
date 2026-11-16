@@ -10,6 +10,7 @@ import {
   type ProposalInputs,
 } from './proposal-templates';
 import { config } from '../../config/env';
+import { sendError } from '../../utils/http-error';
 
 /**
  * 提案書ドラフト生成（S-3・主機能）。
@@ -55,17 +56,12 @@ export async function salesProposalsRoutes(app: FastifyInstance): Promise<void> 
     const payload = request.user as AuthPayload;
     const parsed = generateSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
 
     const template = getTemplate(parsed.data.templateId);
     if (!template) {
-      return reply.code(400).send({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: `不明なテンプレート: ${parsed.data.templateId}` },
-      });
+      return sendError(reply, 400, 'VALIDATION_ERROR', `不明なテンプレート: ${parsed.data.templateId}`);
     }
 
     const inputs: ProposalInputs = {
@@ -97,28 +93,19 @@ export async function salesProposalsRoutes(app: FastifyInstance): Promise<void> 
       });
     } catch (e) {
       request.log.error({ err: e }, '[sales/proposals] ai-engine unreachable');
-      return reply.code(502).send({
-        success: false,
-        error: { code: 'AI_ENGINE_UNAVAILABLE', message: 'AI エンジンに接続できません。' },
-      });
+      return sendError(reply, 502, 'AI_ENGINE_UNAVAILABLE', 'AI エンジンに接続できません。');
     }
 
     const text = await res.text();
     if (!res.ok) {
-      return reply.code(res.status >= 500 ? 502 : res.status).send({
-        success: false,
-        error: { code: 'LLM_UPSTREAM_ERROR', message: text.slice(0, 800) },
-      });
+      return sendError(reply, res.status >= 500 ? 502 : res.status, 'LLM_UPSTREAM_ERROR', text.slice(0, 800));
     }
 
     let llm: LLMChatResponse;
     try {
       llm = JSON.parse(text) as LLMChatResponse;
     } catch {
-      return reply.code(502).send({
-        success: false,
-        error: { code: 'LLM_BAD_RESPONSE', message: 'AI エンジンの応答を解釈できませんでした。' },
-      });
+      return sendError(reply, 502, 'LLM_BAD_RESPONSE', 'AI エンジンの応答を解釈できませんでした。');
     }
 
     // ── 成果物として Task 保存（既定 true。deliverables 表示に載る） ──

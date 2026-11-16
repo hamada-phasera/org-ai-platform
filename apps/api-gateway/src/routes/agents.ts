@@ -13,6 +13,7 @@ import { scrubSecrets } from '../services/secret-scrubber';
 import { aiEngineHeaders } from '../services/ai-engine-auth';
 import { tracked } from '../services/lifecycle-core';
 import { config } from '../config/env';
+import { sendError } from '../utils/http-error';
 
 const DEPARTMENTS = ['SALES', 'MARKETING', 'ACCOUNTING', 'ANALYTICS', 'GENERAL', 'ASSISTANT'];
 
@@ -243,9 +244,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
     const payload = request.user as { orgId: string };
     const agent = await prisma.agent.findUnique({ where: { id: agentId } });
     if (!agent || agent.orgId !== payload.orgId) {
-      return reply
-        .code(404)
-        .send({ success: false, error: { code: 'NOT_FOUND', message: 'エージェントが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'エージェントが見つかりません');
     }
     return reply.send({ success: true, data: agent });
   });
@@ -261,18 +260,14 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
     const payload = request.user as { orgId: string };
     const parsed = suggestAgentSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
 
     let current: CurrentAgentContext | undefined;
     if (parsed.data.agentId) {
       const agent = await prisma.agent.findUnique({ where: { id: parsed.data.agentId } });
       if (!agent || agent.orgId !== payload.orgId) {
-        return reply
-          .code(404)
-          .send({ success: false, error: { code: 'NOT_FOUND', message: 'エージェントが見つかりません' } });
+        return sendError(reply, 404, 'NOT_FOUND', 'エージェントが見つかりません');
       }
       current = {
         name: agent.name,
@@ -294,10 +289,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
       current,
     );
     if (!inferred) {
-      return reply.code(502).send({
-        success: false,
-        error: { code: 'AI_ENGINE_UNAVAILABLE', message: '提案を作れませんでした。時間をおいて再度お試しください。' },
-      });
+      return sendError(reply, 502, 'AI_ENGINE_UNAVAILABLE', '提案を作れませんでした。時間をおいて再度お試しください。');
     }
 
     return reply.send({
@@ -322,9 +314,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
     const payload = request.user as { sub: string; orgId: string };
     const parsed = createAgentSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
     const body = parsed.data;
 
@@ -350,10 +340,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
     }
 
     if (!instructions) {
-      return reply.code(400).send({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'instructions が必要です（または inferFromDescription を有効に）' },
-      });
+      return sendError(reply, 400, 'VALIDATION_ERROR', 'instructions が必要です（または inferFromDescription を有効に）');
     }
 
     let agent;
@@ -376,9 +363,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
       });
     } catch (e) {
       if (e instanceof Error && e.message.includes('Unique constraint')) {
-        return reply
-          .code(409)
-          .send({ success: false, error: { code: 'CONFLICT', message: '同名のエージェントが既に存在します' } });
+        return sendError(reply, 409, 'CONFLICT', '同名のエージェントが既に存在します');
       }
       throw e;
     }
@@ -413,14 +398,10 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
     const payload = request.user as { orgId: string };
     const agent = await prisma.agent.findUnique({ where: { id: agentId } });
     if (!agent || agent.orgId !== payload.orgId) {
-      return reply
-        .code(404)
-        .send({ success: false, error: { code: 'NOT_FOUND', message: 'エージェントが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'エージェントが見つかりません');
     }
     if (!agent.enabled) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'AGENT_DISABLED', message: 'このエージェントは無効です' } });
+      return sendError(reply, 400, 'AGENT_DISABLED', 'このエージェントは無効です');
     }
 
     const parsed = runAgentSchema.safeParse(request.body ?? {});
@@ -483,15 +464,11 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
     const payload = request.user as { orgId: string };
     const agent = await prisma.agent.findUnique({ where: { id: agentId } });
     if (!agent || agent.orgId !== payload.orgId) {
-      return reply
-        .code(404)
-        .send({ success: false, error: { code: 'NOT_FOUND', message: 'エージェントが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'エージェントが見つかりません');
     }
     const parsed = updateAgentSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
     const d = parsed.data;
     const updated = await prisma.agent.update({
@@ -539,9 +516,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
     const payload = request.user as { orgId: string };
     const agent = await prisma.agent.findUnique({ where: { id: agentId } });
     if (!agent || agent.orgId !== payload.orgId) {
-      return reply
-        .code(404)
-        .send({ success: false, error: { code: 'NOT_FOUND', message: 'エージェントが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'エージェントが見つかりません');
     }
     if (agent.n8nWorkflowId) await deleteAgentWorkflow(agent.n8nWorkflowId);
     // 紐づく定期タスクも掃除（FK は SetNull だが、孤児を残すと定期実行側で skip ログが出続ける）

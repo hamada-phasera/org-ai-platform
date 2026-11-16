@@ -6,6 +6,7 @@ import { retrieveContext, indexMessages } from '../services/rag';
 import { scrubSecrets } from '../services/secret-scrubber';
 import { aiEngineHeaders } from '../services/ai-engine-auth';
 import { config } from '../config/env';
+import { sendError } from '../utils/http-error';
 
 const N8N_CLOUD_URL = config.n8nChatCloudUrl;
 const N8N_API_KEY = config.n8nApiKey;
@@ -158,15 +159,12 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
     const result = sendMessageSchema.safeParse(request.body);
     if (!result.success) {
-      return reply.code(400).send({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: result.error.message },
-      });
+      return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
     }
 
     const session = await prisma.chatSession.findUnique({ where: { id } });
     if (!session || session.orgId !== payload.orgId) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'セッションが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'セッションが見つかりません');
     }
 
     const org = await prisma.organization.findUnique({ where: { id: payload.orgId } });
@@ -286,15 +284,12 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
     const body = sendMessageSchema.safeParse(request.body);
     if (!body.success) {
-      return reply.code(400).send({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: body.error.message },
-      });
+      return sendError(reply, 400, 'VALIDATION_ERROR', body.error.message);
     }
 
     const session = await prisma.chatSession.findUnique({ where: { id } });
     if (!session || session.orgId !== payload.orgId) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'セッションが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'セッションが見つかりません');
     }
 
     const org = await prisma.organization.findUnique({ where: { id: payload.orgId } });
@@ -504,7 +499,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
     const session = await prisma.chatSession.findUnique({ where: { id } });
     if (!session || session.orgId !== payload.orgId) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'セッションが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'セッションが見つかりません');
     }
 
     const messages = await prisma.message.findMany({
@@ -527,7 +522,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
     const session = await prisma.chatSession.findUnique({ where: { id } });
     if (!session || session.orgId !== payload.orgId) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'セッションが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'セッションが見つかりません');
     }
 
     const recent = await prisma.message.findMany({

@@ -31,6 +31,7 @@ import { requireAdmin } from '../middleware/auth';
 import { sealSecret } from '../services/secret-box';
 import { syncRequiredCredentialStatus } from '../services/integration-sync';
 import { config } from '../config/env';
+import { sendError } from '../utils/http-error';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -143,13 +144,12 @@ export async function oauthGoogleRoutes(app: FastifyInstance): Promise<void> {
   app.post('/start', { preHandler: requireAdmin }, async (_request, reply) => {
     const clientId = config.googleOAuthClientId;
     if (!clientId || !config.googleOAuthClientSecret) {
-      return reply.code(503).send({
-        success: false,
-        error: {
-          code: 'NOT_CONFIGURED',
-          message: 'Google 連携が未設定です（GOOGLE_OAUTH_CLIENT_ID / SECRET を環境変数に設定してください）。',
-        },
-      });
+      return sendError(
+        reply,
+        503,
+        'NOT_CONFIGURED',
+        'Google 連携が未設定です（GOOGLE_OAUTH_CLIENT_ID / SECRET を環境変数に設定してください）。',
+      );
     }
     // state に orgId は入れない（保存先は confirm 時のセッションで決まるため不要）
     const state = signState({ nonce: randomUUID(), exp: Date.now() + STATE_TTL_MS });
@@ -229,20 +229,12 @@ export async function oauthGoogleRoutes(app: FastifyInstance): Promise<void> {
     const payload = request.user as AuthPayload;
     const parsed = confirmSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
     prunePendingLinks();
     const link = pendingLinks.get(parsed.data.linkId);
     if (!link) {
-      return reply.code(410).send({
-        success: false,
-        error: {
-          code: 'LINK_EXPIRED',
-          message: '接続の確認期限が切れました。もう一度「Google で接続」からやり直してください。',
-        },
-      });
+      return sendError(reply, 410, 'LINK_EXPIRED', '接続の確認期限が切れました。もう一度「Google で接続」からやり直してください。');
     }
     // ワンタイム消費（同じ linkId で二重に紐づけられないように）
     pendingLinks.delete(parsed.data.linkId);

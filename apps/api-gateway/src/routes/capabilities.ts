@@ -18,6 +18,7 @@ import { scrubSecrets } from '../services/secret-scrubber';
 import { executeHttpCapabilityDetailed } from '../services/http-node/executor';
 import { aiEngineHeaders } from '../services/ai-engine-auth';
 import { config } from '../config/env';
+import { sendError } from '../utils/http-error';
 
 const resolveSchema = z.object({
   rawInput: z.string().optional(),
@@ -124,9 +125,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
     const payload = request.user as { sub: string; orgId: string };
     const parsed = resolveSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
     const result = await resolveAndExecute({
       rawInput: parsed.data.rawInput,
@@ -152,9 +151,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
     const payload = request.user as { orgId: string };
     const parsed = suggestSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
 
     const scrubbed = scrubSecrets(parsed.data.source);
@@ -176,10 +173,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
         signal: AbortSignal.timeout(25_000),
       });
       if (!res.ok) {
-        return reply.code(502).send({
-          success: false,
-          error: { code: 'AI_ENGINE_UNAVAILABLE', message: '提案を作れませんでした。時間をおいて再度お試しください。' },
-        });
+        return sendError(reply, 502, 'AI_ENGINE_UNAVAILABLE', '提案を作れませんでした。時間をおいて再度お試しください。');
       }
       const draft = (await res.json()) as Record<string, unknown>;
       const http = draft.http as
@@ -220,10 +214,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
         },
       });
     } catch {
-      return reply.code(502).send({
-        success: false,
-        error: { code: 'AI_ENGINE_UNAVAILABLE', message: '提案を作れませんでした。時間をおいて再度お試しください。' },
-      });
+      return sendError(reply, 502, 'AI_ENGINE_UNAVAILABLE', '提案を作れませんでした。時間をおいて再度お試しください。');
     }
   });
 
@@ -240,24 +231,17 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
     const payload = request.user as { sub: string; orgId: string };
     const parsed = createSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
     const d = parsed.data;
 
     if ((RESERVED_CAPABILITY_NAMES as readonly string[]).includes(d.name) || getNativeAdapter(d.name)) {
-      return reply.code(400).send({
-        success: false,
-        error: { code: 'RESERVED_NAME', message: `「${d.name}」は予約された名前です。別の名前にしてください。` },
-      });
+      return sendError(reply, 400, 'RESERVED_NAME', `「${d.name}」は予約された名前です。別の名前にしてください。`);
     }
 
     const built = buildHttpConfig(d.http, d.params);
     if (!built.ok) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: built.code, message: built.message } });
+      return sendError(reply, 400, built.code, built.message);
     }
 
     try {
@@ -282,10 +266,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(201).send({ success: true, data: sanitizeCapability(created) });
     } catch (e) {
       if ((e as { code?: string }).code === 'P2002') {
-        return reply.code(409).send({
-          success: false,
-          error: { code: 'DUPLICATE_NAME', message: 'この名前のノードは既にあります。' },
-        });
+        return sendError(reply, 409, 'DUPLICATE_NAME', 'この名前のノードは既にあります。');
       }
       throw e;
     }
@@ -299,15 +280,10 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
 
     const cap = await prisma.capability.findUnique({ where: { id } });
     if (!cap || cap.orgId !== orgId) {
-      return reply
-        .code(404)
-        .send({ success: false, error: { code: 'NOT_FOUND', message: 'capability が見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'capability が見つかりません');
     }
     if (cap.kind !== 'http') {
-      return reply.code(403).send({
-        success: false,
-        error: { code: 'BUILTIN_CAPABILITY', message: '標準の機能は削除できません。' },
-      });
+      return sendError(reply, 403, 'BUILTIN_CAPABILITY', '標準の機能は削除できません。');
     }
 
     /* 使っているエージェントがあれば、黙って壊さず知らせる。
@@ -345,27 +321,22 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
     const { orgId } = request.user as { orgId: string };
     const parsed = testSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
 
     const cap = await prisma.capability.findUnique({ where: { id } });
     if (!cap || cap.orgId !== orgId || cap.kind !== 'http') {
-      return reply
-        .code(404)
-        .send({ success: false, error: { code: 'NOT_FOUND', message: 'カスタムノードが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'カスタムノードが見つかりません');
     }
 
     const method = (cap.httpConfig as { method?: string } | null)?.method ?? '';
     if (method.toUpperCase() !== 'GET' && !parsed.data.confirmWrite) {
-      return reply.code(400).send({
-        success: false,
-        error: {
-          code: 'CONFIRM_WRITE_REQUIRED',
-          message: 'このノードは書き込み系です。実際に送信してよい場合のみ confirmWrite を指定してください。',
-        },
-      });
+      return sendError(
+        reply,
+        400,
+        'CONFIRM_WRITE_REQUIRED',
+        'このノードは書き込み系です。実際に送信してよい場合のみ confirmWrite を指定してください。',
+      );
     }
 
     const startedAt = Date.now();
@@ -386,15 +357,11 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
     const { orgId } = request.user as { orgId: string };
     const parsed = patchSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
     const cap = await prisma.capability.findUnique({ where: { id } });
     if (!cap || cap.orgId !== orgId) {
-      return reply
-        .code(404)
-        .send({ success: false, error: { code: 'NOT_FOUND', message: 'capability が見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'capability が見つかりません');
     }
     const d = parsed.data;
 
@@ -404,10 +371,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
     let inputSchema: object | undefined = d.inputSchema as object | undefined;
     if (d.http || d.params) {
       if (cap.kind !== 'http') {
-        return reply.code(400).send({
-          success: false,
-          error: { code: 'NOT_CUSTOM_NODE', message: '標準の機能には接続設定を指定できません。' },
-        });
+        return sendError(reply, 400, 'NOT_CUSTOM_NODE', '標準の機能には接続設定を指定できません。');
       }
       const existing = cap.httpConfig as unknown as HttpNodeConfig | null;
       const params = d.params ?? existing?.params ?? [];
@@ -427,9 +391,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
       };
       const built = buildHttpConfig(input, params, existing?.headers ?? []);
       if (!built.ok) {
-        return reply
-          .code(400)
-          .send({ success: false, error: { code: built.code, message: built.message } });
+        return sendError(reply, 400, built.code, built.message);
       }
       httpConfig = built.config as unknown as object;
       /* http kind では inputSchema は params から必ず再生成する（二重の真実の源を作らない）。

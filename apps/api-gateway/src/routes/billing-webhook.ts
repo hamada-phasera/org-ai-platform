@@ -11,6 +11,7 @@ import { prisma } from '../utils/prisma';
 import { billingConfigFromEnv, verifyStripeSignature } from '../services/billing/billing-core';
 import { StripeClient } from '../services/billing/stripe-client';
 import { handleStripeEvent, type StripeEvent } from '../services/billing/webhook-handler';
+import { sendError } from '../utils/http-error';
 
 interface RawBodyRequest extends FastifyRequest {
   rawBody?: Buffer;
@@ -27,23 +28,23 @@ export async function stripeWebhookRoutes(app: FastifyInstance): Promise<void> {
     const config = billingConfigFromEnv();
     if (!config?.webhookSecret) {
       request.log.error('[stripe-webhook] STRIPE_WEBHOOK_SECRET が未設定のため受け付けません');
-      return reply.code(503).send({ success: false, error: { code: 'BILLING_NOT_CONFIGURED', message: 'webhook is not configured' } });
+      return sendError(reply, 503, 'BILLING_NOT_CONFIGURED', 'webhook is not configured');
     }
 
     const raw = (request as RawBodyRequest).rawBody;
     const header = request.headers['stripe-signature'];
     if (!raw || !verifyStripeSignature(raw, typeof header === 'string' ? header : undefined, config.webhookSecret)) {
-      return reply.code(400).send({ success: false, error: { code: 'INVALID_SIGNATURE', message: '署名が不正です' } });
+      return sendError(reply, 400, 'INVALID_SIGNATURE', '署名が不正です');
     }
 
     let event: StripeEvent;
     try {
       event = JSON.parse(raw.toString('utf8')) as StripeEvent;
     } catch {
-      return reply.code(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'webhook body が不正です' } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', 'webhook body が不正です');
     }
     if (!event?.id || !event.type || !event.data?.object) {
-      return reply.code(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'webhook body が不正です' } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', 'webhook body が不正です');
     }
 
     const seen = await prisma.billingEvent.findUnique({ where: { id: event.id }, select: { id: true } });
@@ -57,7 +58,7 @@ export async function stripeWebhookRoutes(app: FastifyInstance): Promise<void> {
         { eventId: event.id, type: event.type, err: e instanceof Error ? e.message : String(e) },
         '[stripe-webhook] 処理に失敗（Stripe が再送する）',
       );
-      return reply.code(500).send({ success: false, error: { code: 'WEBHOOK_FAILED', message: 'processing failed' } });
+      return sendError(reply, 500, 'WEBHOOK_FAILED', 'processing failed');
     }
 
     // 同じイベントが同時に届いたら片方が一意制約で落ちるだけ。処理は「取り直して写す」なので二重でも結果は同じ

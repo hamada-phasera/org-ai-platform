@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { prisma } from '../utils/prisma';
 import { requireAuth } from '../middleware/auth';
 import { config } from '../config/env';
+import { sendError } from '../utils/http-error';
 
 const registerSchema = z.object({
   name: z.string().min(1),
@@ -21,19 +22,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post('/register', async (request, reply) => {
     const result = registerSchema.safeParse(request.body);
     if (!result.success) {
-      return reply.code(400).send({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: result.error.message },
-      });
+      return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
     }
     const { name, email, password, orgName } = result.data;
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
-      return reply.code(409).send({
-        success: false,
-        error: { code: 'AUTH_EMAIL_EXISTS', message: 'このメールアドレスは既に登録されています' },
-      });
+      return sendError(reply, 409, 'AUTH_EMAIL_EXISTS', 'このメールアドレスは既に登録されています');
     }
 
     const org = await prisma.organization.create({
@@ -62,19 +57,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post('/login', async (request, reply) => {
     const result = loginSchema.safeParse(request.body);
     if (!result.success) {
-      return reply.code(400).send({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: result.error.message },
-      });
+      return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
     }
     const { email, password } = result.data;
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
-      return reply.code(401).send({
-        success: false,
-        error: { code: 'AUTH_INVALID_CREDENTIALS', message: 'メールアドレスまたはパスワードが正しくありません' },
-      });
+      return sendError(reply, 401, 'AUTH_INVALID_CREDENTIALS', 'メールアドレスまたはパスワードが正しくありません');
     }
 
     const token = app.jwt.sign(
@@ -96,7 +85,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       select: { id: true, name: true, email: true, role: true, orgId: true, createdAt: true },
     });
     if (!user) {
-      return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'ユーザーが見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', 'ユーザーが見つかりません');
     }
     return reply.send({ success: true, data: user });
   });

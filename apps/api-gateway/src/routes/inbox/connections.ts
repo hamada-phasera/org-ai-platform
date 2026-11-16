@@ -10,6 +10,7 @@ import { sealSecret } from '../../services/secret-box';
 import { getBotInfo } from '../../services/inbox/line-client';
 import { getChannelAdapter } from '../../services/inbox/adapter';
 import { config } from '../../config/env';
+import { sendError } from '../../utils/http-error';
 
 type AuthPayload = { orgId: string; sub?: string };
 
@@ -56,22 +57,19 @@ export async function inboxConnectionsRoutes(app: FastifyInstance): Promise<void
     const payload = request.user as AuthPayload;
     const parsed = createSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } });
+      return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
     }
     const { channelSecret, accessToken, displayName } = parsed.data;
 
     // GET /v2/bot/info が通れば accessToken は有効。userId が webhook の destination になる。
     const botInfo = await getBotInfo(accessToken);
     if (!botInfo) {
-      return reply.code(400).send({
-        success: false,
-        error: {
-          code: 'INVALID_LINE_CREDENTIALS',
-          message: 'LINE の資格情報を検証できませんでした。チャネルアクセストークンを確認してください。',
-        },
-      });
+      return sendError(
+        reply,
+        400,
+        'INVALID_LINE_CREDENTIALS',
+        'LINE の資格情報を検証できませんでした。チャネルアクセストークンを確認してください。',
+      );
     }
 
     try {
@@ -88,10 +86,7 @@ export async function inboxConnectionsRoutes(app: FastifyInstance): Promise<void
       return reply.code(201).send({ success: true, data: sanitizeConnection(created) });
     } catch (e) {
       if ((e as { code?: string }).code === 'P2002') {
-        return reply.code(409).send({
-          success: false,
-          error: { code: 'CONFLICT', message: 'この LINE チャンネルは既に登録されています' },
-        });
+        return sendError(reply, 409, 'CONFLICT', 'この LINE チャンネルは既に登録されています');
       }
       throw e;
     }
@@ -144,9 +139,7 @@ export async function inboxConnectionsRoutes(app: FastifyInstance): Promise<void
     const { id } = request.params as { id: string };
     const conn = await prisma.channelConnection.findUnique({ where: { id } });
     if (!conn || conn.orgId !== payload.orgId) {
-      return reply
-        .code(404)
-        .send({ success: false, error: { code: 'NOT_FOUND', message: '接続が見つかりません' } });
+      return sendError(reply, 404, 'NOT_FOUND', '接続が見つかりません');
     }
     await prisma.channelConnection.delete({ where: { id } });
     return reply.send({ success: true, data: { id } });
