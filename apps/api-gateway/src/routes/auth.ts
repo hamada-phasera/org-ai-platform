@@ -65,6 +65,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
       return sendError(reply, 401, 'AUTH_INVALID_CREDENTIALS', 'メールアドレスまたはパスワードが正しくありません');
     }
+    /* ⚠️ 無効化したアカウントはログインさせない（E3）。
+       文言は資格情報の誤りと同じにする（「そのアカウントは止められている」を外に漏らさない）。
+       パスワード照合の後に見るのは、照合前に分岐すると応答時間で存在が分かるため。 */
+    if (user.status !== 'ACTIVE') {
+      return sendError(reply, 401, 'AUTH_INVALID_CREDENTIALS', 'メールアドレスまたはパスワードが正しくありません');
+    }
 
     const token = app.jwt.sign(
       // email は LLM 松竹梅ルーティングの admin 判定（ADMIN_EMAILS）に使う

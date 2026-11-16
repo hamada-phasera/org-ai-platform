@@ -50,12 +50,11 @@ export async function organizationRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  // 自組織情報更新（plan は更新不可）
-  app.patch('/me', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as { orgId: string; role: string };
-    if (payload.role !== 'OWNER') {
-      return sendError(reply, 403, 'FORBIDDEN', 'この操作にはOWNER権限が必要です');
-    }
+  // 自組織情報更新（plan は更新不可）。
+  // ⚠️ JWT の role では判定しない（E4）。降格された元オーナーがトークンの期限まで
+  //    組織名や請求先を変えられてしまうため、DB を正本にする requireOwner を通す。
+  app.patch('/me', { preHandler: requireOwner }, async (request, reply) => {
+    const payload = request.user as { orgId: string };
     const result = updateOrgSchema.safeParse(request.body);
     if (!result.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
