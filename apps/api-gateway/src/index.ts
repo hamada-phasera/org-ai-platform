@@ -36,6 +36,7 @@ import { recoverStaleRunningTasks } from './services/step-runner';
 import { prisma } from './utils/prisma';
 import { config, ENV_DEFAULTS } from './config/env';
 import { createLogger } from './utils/logger';
+import { registerTenantContext } from './tenancy/context';
 
 const startupLog = createLogger('startup');
 
@@ -90,6 +91,9 @@ async function start(): Promise<void> {
     limits: { fileSize: Math.max(...Object.values(PLAN_LIMITS).map((l) => l.maxFileBytes)) },
   });
   await app.register(websocket);
+
+  // テナントコンテキスト（request.tenant と AsyncLocalStorage）。ルートより先に配線する
+  registerTenantContext(app);
 
   app.get('/health', async () => ({
     status: 'ok',

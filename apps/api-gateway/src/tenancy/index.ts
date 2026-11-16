@@ -5,6 +5,7 @@ export {
   currentTenant,
   enterTenant,
   tenantOf,
+  registerTenantContext,
   makeTenantContext,
   type TenantContext,
   type TenantSource,

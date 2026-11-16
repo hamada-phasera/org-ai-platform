@@ -5,6 +5,8 @@ import { createHash } from 'crypto';
 const prismaMock = {
   user: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
   invitation: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+  // 所属・役割・状態の正本（docs/design/multi-tenancy.md ADR-2）
+  membership: { findMany: vi.fn(), updateMany: vi.fn() },
   $transaction: vi.fn(),
 };
 vi.mock('../../src/utils/prisma', () => ({ prisma: prismaMock }));
@@ -152,6 +154,7 @@ describe('POST /api/members/invitations/accept', () => {
     const tx = {
       invitation: { updateMany: vi.fn(async () => ({ count: 1 })), update: vi.fn(async () => ({})) },
       user: { create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'u-new', ...data })) },
+      membership: { create: vi.fn(async () => ({})) },
     };
     prismaMock.$transaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
 
@@ -166,6 +169,10 @@ describe('POST /api/members/invitations/accept', () => {
     const created = tx.user.create.mock.calls[0][0].data;
     expect(created.orgId).toBe('org-1');   // 招待の org
     expect(created.role).toBe('MEMBER');   // 招待の role
+    // 所属の正本（Membership）も招待の org / role で作る
+    const membership = tx.membership.create.mock.calls[0][0].data;
+    expect(membership.orgId).toBe('org-1');
+    expect(membership.role).toBe('MEMBER');
     await app.close();
   });
 
@@ -213,10 +220,14 @@ describe('POST /api/members/invitations/accept', () => {
 
 describe('PATCH /api/members/:userId/role', () => {
   it('必ず orgId で絞る（他組織のメンバーを昇格させない）', async () => {
+    prismaMock.membership.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.user.updateMany.mockResolvedValue({ count: 1 });
     const app = await build();
     await app.inject({ method: 'PATCH', url: '/api/members/u-2/role', payload: { role: 'ADMIN' } });
-    expect(prismaMock.user.updateMany.mock.calls[0][0].where.orgId).toBe('org-1');
+    // 正本は Membership（その組織の行だけ）
+    expect(prismaMock.membership.updateMany.mock.calls[0][0].where).toEqual({ userId: 'u-2', orgId: 'org-1' });
+    // 移行期間中の写し（User.role）も、User.orgId が同じ組織のときだけ
+    expect(prismaMock.user.updateMany.mock.calls[0][0].where).toEqual({ id: 'u-2', orgId: 'org-1' });
     await app.close();
   });
 
@@ -226,6 +237,7 @@ describe('PATCH /api/members/:userId/role', () => {
       method: 'PATCH', url: '/api/members/owner-1/role', payload: { role: 'MEMBER' },
     });
     expect(res.statusCode).toBe(400);
+    expect(prismaMock.membership.updateMany).not.toHaveBeenCalled();
     expect(prismaMock.user.updateMany).not.toHaveBeenCalled();
     await app.close();
   });
@@ -242,13 +254,29 @@ describe('PATCH /api/members/:userId/role', () => {
 
 describe('PATCH /api/members/:userId/status', () => {
   it('無効化は物理削除ではない（作成者参照を壊さない）', async () => {
-    prismaMock.user.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.membership.updateMany.mockResolvedValue({ count: 1 });
     const app = await build();
     const res = await app.inject({
       method: 'PATCH', url: '/api/members/u-2/status', payload: { status: 'DISABLED' },
     });
     expect(res.statusCode).toBe(200);
-    expect(prismaMock.user.updateMany.mock.calls[0][0].data).toEqual({ status: 'DISABLED' });
+    expect(prismaMock.membership.updateMany.mock.calls[0][0].data).toEqual({ status: 'DISABLED' });
+  });
+
+  it('⚠️ 無効化はこの組織の所属だけ（アカウント全体＝他の組織には影響しない。ADR-2）', async () => {
+    prismaMock.membership.updateMany.mockResolvedValue({ count: 1 });
+    const app = await build();
+    await app.inject({ method: 'PATCH', url: '/api/members/u-2/status', payload: { status: 'DISABLED' } });
+    expect(prismaMock.membership.updateMany.mock.calls[0][0].where).toEqual({ userId: 'u-2', orgId: 'org-1' });
+    expect(prismaMock.user.updateMany).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('他組織のメンバーは 404', async () => {
+    prismaMock.membership.updateMany.mockResolvedValue({ count: 0 });
+    const app = await build();
+    const res = await app.inject({ method: 'PATCH', url: '/api/members/u-B/status', payload: { status: 'DISABLED' } });
+    expect(res.statusCode).toBe(404);
     await app.close();
   });
 
@@ -258,6 +286,20 @@ describe('PATCH /api/members/:userId/status', () => {
       method: 'PATCH', url: '/api/members/owner-1/status', payload: { status: 'DISABLED' },
     });
     expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+});
+
+describe('GET /api/members', () => {
+  it('role / status は この組織の Membership のもの（User.role ではない）', async () => {
+    prismaMock.membership.findMany.mockResolvedValue([
+      { role: 'MEMBER', status: 'DISABLED', createdAt: new Date(), user: { id: 'u-2', name: 'T', email: 't@example.com' } },
+    ]);
+    const app = await build();
+    const res = await app.inject({ method: 'GET', url: '/api/members' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data[0]).toMatchObject({ id: 'u-2', role: 'MEMBER', status: 'DISABLED' });
+    expect(prismaMock.membership.findMany.mock.calls[0][0].where).toEqual({ orgId: 'org-1' });
     await app.close();
   });
 });

@@ -7,6 +7,8 @@ import { prisma } from '../utils/prisma';
 import { requireAuth, requireOwner } from '../middleware/auth';
 import { config } from '../config/env';
 import { sendError } from '../utils/http-error';
+import { mirrorRoleToUser, signAccessToken } from '../services/memberships';
+import { invalidateMembership } from '../tenancy/membership-cache';
 
 /**
  * メンバーと招待。prefix: `/api/members`
@@ -44,14 +46,28 @@ function hashToken(raw: string): string {
 }
 
 export async function memberRoutes(app: FastifyInstance): Promise<void> {
-  /** メンバー一覧。全員が見てよい（誰が同僚かは隠す情報ではない）。 */
+  /** メンバー一覧。全員が見てよい（誰が同僚かは隠す情報ではない）。
+   *  role / status は**この組織の** Membership のもの（User.role / User.status ではない）。 */
   app.get('/', { preHandler: requireAuth }, async (request, reply) => {
     const { orgId } = request.user as { orgId: string };
-    const users = await prisma.user.findMany({
+    const rows = await prisma.membership.findMany({
       where: { orgId },
-      select: { id: true, name: true, email: true, role: true, status: true, createdAt: true },
+      select: {
+        role: true,
+        status: true,
+        createdAt: true,
+        user: { select: { id: true, name: true, email: true } },
+      },
       orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
     });
+    const users = rows.map((m) => ({
+      id: m.user.id,
+      name: m.user.name,
+      email: m.user.email,
+      role: m.role,
+      status: m.status,
+      createdAt: m.createdAt,
+    }));
     return reply.send({ success: true, data: users });
   });
 
@@ -190,15 +206,20 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
       });
       if (claim.count === 0) return null;
 
+      const role = isUserRole(invitation.role) && invitation.role !== 'OWNER' ? invitation.role : 'MEMBER';
       const user = await tx.user.create({
+        // User.role / User.orgId は移行期間中の写し（正本は Membership）
         data: {
           email: invitation.email as string,
           passwordHash,
           name,
-          role: isUserRole(invitation.role) ? invitation.role : 'MEMBER',
+          role,
           orgId: invitation.orgId,
         },
         select: { id: true, name: true, email: true, role: true, orgId: true },
+      });
+      await tx.membership.create({
+        data: { userId: user.id, orgId: invitation.orgId, role, invitedBy: invitation.createdBy },
       });
       await tx.invitation.update({ where: { id: invitation.id }, data: { acceptedBy: user.id } });
       return user;
@@ -208,10 +229,12 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 409, 'CONFLICT', 'この招待は既に使用されています');
     }
 
-    const jwtToken = app.jwt.sign(
-      { sub: created.id, orgId: created.orgId, role: created.role, email: created.email },
-      { expiresIn: config.jwtExpiresIn },
-    );
+    const jwtToken = signAccessToken(app, {
+      userId: created.id,
+      orgId: created.orgId,
+      role: created.role,
+      email: created.email,
+    });
     return reply.code(201).send({ success: true, data: { token: jwtToken, user: created } });
   });
 
@@ -230,18 +253,21 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 400, 'VALIDATION_ERROR', '自分自身の役割は変更できません');
     }
 
-    const result = await prisma.user.updateMany({
-      where: { id: userId, orgId: payload.orgId },
+    const result = await prisma.membership.updateMany({
+      where: { userId, orgId: payload.orgId },
       data: { role: parsed.data.role },
     });
     if (result.count === 0) {
       return sendError(reply, 404, 'NOT_FOUND', 'メンバーが見つかりません');
     }
+    // 移行期間中の写し（User.orgId が同じ組織のときだけ）+ キャッシュの破棄
+    await mirrorRoleToUser(userId, payload.orgId, parsed.data.role);
     return reply.send({ success: true, data: { id: userId, role: parsed.data.role } });
   });
 
   /**
-   * メンバーを無効化 / 復帰させる。
+   * メンバーを**この組織から**無効化 / 復帰させる（Membership.status）。他の組織の利用には影響しない。
+   * アカウント全体の停止（User.status）は運営者の操作で、ここでは変えない（ADR-2）。
    * ⚠️ 物理削除はしない。Agent.createdBy などが User.id を FK 無しで参照しており、
    *    消すと「誰が作ったか」が辿れなくなる（監査が壊れる）。
    */
@@ -256,13 +282,15 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 400, 'VALIDATION_ERROR', '自分自身を無効化することはできません');
     }
 
-    const result = await prisma.user.updateMany({
-      where: { id: userId, orgId: payload.orgId },
+    const result = await prisma.membership.updateMany({
+      where: { userId, orgId: payload.orgId },
       data: { status: body.status },
     });
     if (result.count === 0) {
       return sendError(reply, 404, 'NOT_FOUND', 'メンバーが見つかりません');
     }
+    // 外した人のトークンを、キャッシュの TTL を待たずに止める（同じプロセス内）
+    invalidateMembership(userId, payload.orgId);
     return reply.send({ success: true, data: { id: userId, status: body.status } });
   });
 }

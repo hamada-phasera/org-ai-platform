@@ -9,8 +9,8 @@
 //       - ログに orgId を載せる
 //   * システム経路（スケジューラ・webhook・回収）は org が決まった時点で runAsTenant で包む。
 
-import { AsyncLocalStorage } from 'node:async_hooks';
-import type { FastifyRequest } from 'fastify';
+import { AsyncLocalStorage, AsyncResource } from 'node:async_hooks';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { UserRole } from '@org-ai/shared-types';
 import { tenantDb, type TenantDb } from './tenant-db';
 import { TenantViolationError } from './scope';
@@ -41,7 +41,11 @@ declare module 'fastify' {
   }
 }
 
-const als = new AsyncLocalStorage<TenantContext>();
+/** リクエスト（またはジョブ）ごとの入れ物。requireAuth が後から tenant を埋める。 */
+interface Slot {
+  tenant?: TenantContext;
+}
+const als = new AsyncLocalStorage<Slot>();
 
 export function makeTenantContext(ctx: Omit<TenantContext, 'db'> & { db?: TenantDb }): TenantContext {
   return { ...ctx, db: ctx.db ?? tenantDb(ctx.orgId) };
@@ -49,17 +53,48 @@ export function makeTenantContext(ctx: Omit<TenantContext, 'db'> & { db?: Tenant
 
 /** org を決めた処理を包む。中で起動した非同期処理（Promise の継続）にも同じ org が伝わる。 */
 export function runAsTenant<T>(ctx: Omit<TenantContext, 'db'> & { db?: TenantDb }, fn: () => Promise<T>): Promise<T> {
-  return als.run(makeTenantContext(ctx), fn);
+  return als.run({ tenant: makeTenantContext(ctx) }, fn);
 }
 
 /** 現在のテナント（ALS）。コンテキストの外なら undefined。 */
 export function currentTenant(): TenantContext | undefined {
-  return als.getStore();
+  return als.getStore()?.tenant;
 }
 
-/** requireAuth の中から、以降のハンドラ（と、そこから起動される処理）にコンテキストを載せる。 */
+/**
+ * requireAuth の中から、以降のハンドラ（と、そこから起動される処理）にコンテキストを載せる。
+ * 入れ物は registerTenantContext の onRequest フックがリクエストごとに作る。
+ * 入れ物が無い（フックを付けていないテスト用の app など）ときは何もしない＝他のリクエストに漏らさない。
+ */
 export function enterTenant(ctx: TenantContext): void {
-  als.enterWith(ctx);
+  const slot = als.getStore();
+  if (slot) slot.tenant = ctx;
+}
+
+const kResource = Symbol('flowTenantResource');
+
+/**
+ * Fastify にテナントコンテキストを配線する（index.ts でルートより先に呼ぶ）。
+ *
+ *   onRequest     … リクエストごとに空の入れ物で ALS を開始する
+ *   preValidation … 本文の読み取り（stream のイベント）で ALS が外れるので、ここで入れ物の文脈に戻す
+ *                   （@fastify/request-context と同じ手当て）
+ *
+ * これで preHandler（requireAuth）が入れた tenant が、ハンドラとそこから起動した非同期処理に伝わる。
+ */
+export function registerTenantContext(app: FastifyInstance): void {
+  app.decorateRequest('tenant', null);
+  app.addHook('onRequest', (request, _reply, done) => {
+    als.run({}, () => {
+      (request as unknown as Record<symbol, AsyncResource>)[kResource] = new AsyncResource('flow-tenant');
+      done();
+    });
+  });
+  app.addHook('preValidation', (request, _reply, done) => {
+    const res = (request as unknown as Record<symbol, AsyncResource | undefined>)[kResource];
+    if (res) res.runInAsyncScope(done, request.raw);
+    else done();
+  });
 }
 
 /**
