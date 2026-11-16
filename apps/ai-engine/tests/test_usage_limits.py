@@ -38,7 +38,7 @@ class TestContract:
         assert usage.PLAN_CALL_LIMITS[plan] == FIXTURE["plans"][plan]["callsPerMonth"]
 
     def test_warn_ratio_matches_fixture(self):
-        assert usage.WARN_RATIO == FIXTURE["usage"]["warnRatio"]
+        assert FIXTURE["usage"]["warnRatio"] == usage.WARN_RATIO
 
     def test_over_behavior_is_degrade(self):
         # 止める実装に変えるなら、この表と現場への影響を先に見直すこと

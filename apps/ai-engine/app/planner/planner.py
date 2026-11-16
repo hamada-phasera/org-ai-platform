@@ -1,18 +1,20 @@
 from __future__ import annotations
+
 import json
 import logging
 from typing import Any
+
+from app.llm.router import TaskKind, llm_router
 from app.models.llm import ChatMessage
-from app.llm.router import llm_router, TaskKind
 from app.planner.prompts import (
     AGENT_SCREEN_SYSTEM,
+    build_agent_planner_system_prompt,
+    build_agent_planner_user_prompt,
     build_agent_screen_user_prompt,
     build_http_node_system_prompt,
     build_http_node_user_prompt,
     build_planner_system_prompt,
     build_planner_user_prompt,
-    build_agent_planner_system_prompt,
-    build_agent_planner_user_prompt,
 )
 
 logger = logging.getLogger(__name__)
@@ -130,7 +132,9 @@ async def screen_agent(description: str, org_id: str, plan: str) -> dict[str, An
     return {
         # ⚠️ bool 以外は False に倒す。文字列の "false" を真と解釈しない
         "repeatable": repeatable is True,
-        "confidence": float(confidence) if isinstance(confidence, (int, float)) and not isinstance(confidence, bool) else 0.0,
+        "confidence": (
+            float(confidence) if isinstance(confidence, (int, float)) and not isinstance(confidence, bool) else 0.0
+        ),
         "reason": parsed.get("reason") if isinstance(parsed.get("reason"), str) else None,
     }
 

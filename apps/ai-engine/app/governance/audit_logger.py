@@ -1,14 +1,18 @@
 from __future__ import annotations
+
+import asyncio
 import logging
 import uuid
-from typing import Optional, List
+from typing import Any
+
 from sqlalchemy import text
+
 from app.db import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
 
-def _calc_risk_score(pii_detected: bool, pii_types: List[str], tokens: Optional[int]) -> float:
+def _calc_risk_score(pii_detected: bool, pii_types: list[str], tokens: int | None) -> float:
     """
     シンプルなルールベースのリスクスコア計算 (0.0〜1.0)
     - PII なし → 0.0
@@ -36,12 +40,12 @@ async def log_llm_call(
     provider: str,
     model: str,
     input_text: str,
-    output_text: Optional[str],
-    tokens: Optional[int],
-    latency_ms: Optional[int],
+    output_text: str | None,
+    tokens: int | None,
+    latency_ms: int | None,
     pii_detected: bool,
-    pii_types: List[str],
-) -> Optional[str]:
+    pii_types: list[str],
+) -> str | None:
     """AI呼び出しを AILog テーブルに記録し、PII 検出時は RiskEvent も挿入する。"""
     risk_score = _calc_risk_score(pii_detected, pii_types, tokens)
     log_id = str(uuid.uuid4())
@@ -91,3 +95,19 @@ async def log_llm_call(
         return None
 
     return log_id
+
+
+# create_task の戻り値を誰も握っていないと、実行中のタスクが GC で回収されうる
+# （asyncio のドキュメントに明記）。完了まで参照を持っておく。
+_background_tasks: set[asyncio.Task[Any]] = set()
+
+
+def schedule_llm_log(**kwargs: Any) -> asyncio.Task[str | None]:
+    """log_llm_call をレスポンスを待たせずにバックグラウンドで実行する。
+
+    引数は log_llm_call と同じ。失敗しても呼び出し元には波及しない（log_llm_call 内で握りつぶす）。
+    """
+    task = asyncio.create_task(log_llm_call(**kwargs))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task

@@ -1,12 +1,14 @@
 from __future__ import annotations
-import time
+
 import os
-from typing import AsyncIterator, List
+import time
+from collections.abc import AsyncIterator
+
 from anthropic import (
-    AsyncAnthropic,
-    APIStatusError,
     APIConnectionError,
+    APIStatusError,
     APITimeoutError,
+    AsyncAnthropic,
     InternalServerError,
     RateLimitError,
 )
@@ -36,7 +38,7 @@ JSON_MODE_HINT = (
 )
 
 
-def _split_system_and_messages(messages: List[ChatMessage]) -> tuple[str, list[dict]]:
+def _split_system_and_messages(messages: list[ChatMessage]) -> tuple[str, list[dict]]:
     system_parts: list[str] = []
     user_messages: list[dict] = []
     for m in messages:
@@ -78,7 +80,7 @@ class AnthropicProvider:
     )
     async def chat(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         model: str = DEFAULT_MODEL,
         json_mode: bool = False,
     ) -> LLMResponse:
@@ -177,7 +179,7 @@ class AnthropicProvider:
 
     async def chat_stream(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         model: str = DEFAULT_MODEL,
     ) -> AsyncIterator[str]:
         if not self.client:

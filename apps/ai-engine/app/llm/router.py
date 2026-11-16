@@ -1,23 +1,31 @@
 from __future__ import annotations
+
 import logging
 import os
+from collections.abc import AsyncIterator
 from enum import Enum
-from typing import AsyncIterator, List, Optional, Tuple
-from app.models.llm import ChatMessage, LLMResponse
+
 from app.governance.pii_screener import screen
 from app.governance.usage import is_over_limit, note_call
 from app.llm.providers.anthropic_provider import (
-    AnthropicProvider,
     MODEL_HAIKU,
-    MODEL_SONNET,
     MODEL_OPUS,
+    MODEL_SONNET,
+    AnthropicProvider,
+)
+from app.llm.providers.gemini_provider import (
+    MODEL_JSON as GEMINI_JSON,
+)
+from app.llm.providers.gemini_provider import (
+    MODEL_TAKE as GEMINI_TAKE,
+)
+from app.llm.providers.gemini_provider import (
+    MODEL_UME as GEMINI_UME,
 )
 from app.llm.providers.gemini_provider import (
     GeminiProvider,
-    MODEL_UME as GEMINI_UME,
-    MODEL_TAKE as GEMINI_TAKE,
-    MODEL_JSON as GEMINI_JSON,
 )
+from app.models.llm import ChatMessage, LLMResponse
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +62,7 @@ _PLAN_GEMINI_MODEL = {
 # ──────────────────────────────────────────────────────────────
 
 
-class TaskKind(str, Enum):
+class TaskKind(str, Enum):  # noqa: UP042 — StrEnum にすると str()/format() の結果が変わる
     """LLM に何をさせるか。"""
 
     CHAT = "chat"
@@ -81,11 +89,11 @@ EXTRACT_MODEL = MODEL_SONNET
 
 
 def resolve_for_task(
-    kind: "TaskKind",
+    kind: TaskKind,
     plan: str,
-    user_email: Optional[str] = None,
+    user_email: str | None = None,
     json_mode: bool = False,
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """タスクの性質からプロバイダとモデルを決める。
 
     CHAT だけがプランに従い、ほかは全プラン共通。
@@ -124,15 +132,15 @@ def _admin_emails() -> set[str]:
     return {e.strip().lower() for e in raw.split(",") if e.strip()}
 
 
-def _is_admin(user_email: Optional[str]) -> bool:
+def _is_admin(user_email: str | None) -> bool:
     return bool(user_email) and user_email.strip().lower() in _admin_emails()
 
 
 def resolve_provider_model(
     plan: str,
-    user_email: Optional[str] = None,
+    user_email: str | None = None,
     json_mode: bool = False,
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """(provider_name, model) を返す唯一の決定点。AILog の provider/model 記録にも使う。
     - admin / 松(MAX) → anthropic（json_mode=Haiku, 本文=plan準拠）
     - 梅(STARTER)・竹(PRO) → gemini（json_mode=最安, 本文=梅flash-lite/竹flash）
@@ -161,16 +169,9 @@ def provider_of_model(model: str) -> str:
     return "gemini" if model.startswith("gemini") else "anthropic"
 
 
-def _resolve_model(plan: str, json_mode: bool = False) -> str:
-    """後方互換: Anthropic 前提の旧ヘルパ（main.py のログ用途で残置）。"""
-    if json_mode:
-        return MODEL_HAIKU
-    return _PLAN_CONTENT_MODEL.get(plan, MODEL_SONNET)
-
-
-def _screen_user_messages(messages: List[ChatMessage]) -> Tuple[List[ChatMessage], bool, List[str]]:
+def _screen_user_messages(messages: list[ChatMessage]) -> tuple[list[ChatMessage], bool, list[str]]:
     pii_detected = False
-    pii_types: List[str] = []
+    pii_types: list[str] = []
     screened = list(messages)
     for i, msg in enumerate(screened):
         if msg.role == "user":
@@ -206,7 +207,7 @@ def _warn_if_gemini_free_tier() -> None:
 
 async def _degrade_if_over_limit(
     org_id: str, plan: str, provider_name: str, model: str
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """当月の上限を超えていたら、いちばん軽いモデルに落とす（止めない）。
 
     ⚠️ 落とすのは本文生成だけ。判定・抽出・設計は用途でモデルを固定してあり、
@@ -227,15 +228,15 @@ async def _degrade_if_over_limit(
 class LLMRouter:
     async def chat(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         department: str,
         org_id: str,
         plan: str = "STARTER",
         json_mode: bool = False,
-        user_email: Optional[str] = None,
-        force_anthropic_model: Optional[str] = None,
-        task: Optional[TaskKind] = None,
-    ) -> Tuple[LLMResponse, bool, List[str]]:
+        user_email: str | None = None,
+        force_anthropic_model: str | None = None,
+        task: TaskKind | None = None,
+    ) -> tuple[LLMResponse, bool, list[str]]:
         screened_messages, pii_detected, pii_types = _screen_user_messages(messages)
 
         if force_anthropic_model:
@@ -264,11 +265,11 @@ class LLMRouter:
 
     async def chat_stream(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         department: str,
         org_id: str,
         plan: str = "STARTER",
-        user_email: Optional[str] = None,
+        user_email: str | None = None,
     ) -> AsyncIterator[str]:
         """Stream tokens with PII screening applied to user messages（プロバイダは松竹梅で分岐）。"""
         screened_messages, _, _ = _screen_user_messages(messages)

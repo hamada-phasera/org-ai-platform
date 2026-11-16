@@ -8,6 +8,8 @@ line-length = 120
 extend-exclude = [".venv"]
 
 [tool.ruff.lint]
+# 既存コードの noqa（BLE001 / PLC0415）は意図の記録として残す。未導入ルールでも RUF100 で消させない
+external = ["BLE", "PLC"]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 ignore = [
     # 日本語の文面・コメントで全角記号（：（）！など）を意図して使っている

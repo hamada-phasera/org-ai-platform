@@ -1,9 +1,10 @@
 from __future__ import annotations
+
 import json
+import logging
 import os
 import time
-import logging
-from typing import AsyncIterator, List
+from collections.abc import AsyncIterator
 
 import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
@@ -39,7 +40,7 @@ def _is_retryable(exc: BaseException) -> bool:
     return False
 
 
-def _to_gemini_payload(messages: List[ChatMessage], json_mode: bool) -> dict:
+def _to_gemini_payload(messages: list[ChatMessage], json_mode: bool) -> dict:
     """ChatMessage 列を Gemini generateContent ボディへ変換。
     - system ロールは systemInstruction に集約
     - assistant → model / user → user
@@ -93,7 +94,7 @@ class GeminiProvider:
     )
     async def chat(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         model: str = MODEL_UME,
         json_mode: bool = False,
     ) -> LLMResponse:
@@ -119,29 +120,28 @@ class GeminiProvider:
 
     async def chat_stream(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         model: str = MODEL_UME,
     ) -> AsyncIterator[str]:
         """SSE ストリーミング（:streamGenerateContent?alt=sse）。トークン断片を逐次 yield。"""
         payload = _to_gemini_payload(messages, json_mode=False)
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            async with client.stream(
-                "POST",
-                f"{_BASE_URL}/models/{model}:streamGenerateContent",
-                params={"alt": "sse"},
-                headers=self._headers,
-                json=payload,
-            ) as res:
-                res.raise_for_status()
-                async for line in res.aiter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    chunk = line[len("data:"):].strip()
-                    if not chunk or chunk == "[DONE]":
-                        continue
-                    try:
-                        piece = _extract_text(json.loads(chunk))
-                    except json.JSONDecodeError:
-                        continue
-                    if piece:
-                        yield piece
+        async with httpx.AsyncClient(timeout=180.0) as client, client.stream(
+            "POST",
+            f"{_BASE_URL}/models/{model}:streamGenerateContent",
+            params={"alt": "sse"},
+            headers=self._headers,
+            json=payload,
+        ) as res:
+            res.raise_for_status()
+            async for line in res.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                chunk = line[len("data:"):].strip()
+                if not chunk or chunk == "[DONE]":
+                    continue
+                try:
+                    piece = _extract_text(json.loads(chunk))
+                except json.JSONDecodeError:
+                    continue
+                if piece:
+                    yield piece

@@ -1,15 +1,14 @@
 from __future__ import annotations
-import asyncio
-from typing import Optional
-from app.agents.sales import SalesAgent
-from app.agents.marketing import MarketingAgent
+
 from app.agents.accounting import AccountingAgent
 from app.agents.analytics import AnalyticsAgent
 from app.agents.general import GeneralAgent
-from app.orchestrator.intent_classifier import classify_intent
-from app.models.llm import OrchestrateResponse
-from app.governance.audit_logger import log_llm_call
+from app.agents.marketing import MarketingAgent
+from app.agents.sales import SalesAgent
+from app.governance.audit_logger import schedule_llm_log
 from app.llm.router import provider_of_model
+from app.models.llm import OrchestrateResponse
+from app.orchestrator.intent_classifier import classify_intent
 
 _agents = {
     "SALES": SalesAgent(),
@@ -26,10 +25,10 @@ class Orchestrator:
         user_message: str,
         org_id: str,
         plan: str = "STARTER",
-        department: Optional[str] = None,
-        context: Optional[str] = None,
+        department: str | None = None,
+        context: str | None = None,
         history=None,
-        user_email: Optional[str] = None,
+        user_email: str | None = None,
     ) -> OrchestrateResponse:
         if department and department in _agents:
             resolved_dept = department
@@ -47,7 +46,7 @@ class Orchestrator:
         )
 
         # 監査ログを非同期で記録（失敗してもレスポンスは返す）
-        asyncio.create_task(log_llm_call(
+        schedule_llm_log(
             org_id=org_id,
             department=resolved_dept,
             provider=provider_of_model(response.model),
@@ -58,7 +57,7 @@ class Orchestrator:
             latency_ms=response.latency_ms,
             pii_detected=pii_detected,
             pii_types=pii_types,
-        ))
+        )
 
         return OrchestrateResponse(
             content=response.content,

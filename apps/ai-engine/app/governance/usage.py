@@ -13,19 +13,18 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 # packages/shared-types の PLAN_LIMITS.aiCallsPerMonth と同じ値。
 # tests/fixtures/plan-models.json を正本に、両側から検証している。
-PLAN_CALL_LIMITS: Dict[str, int] = {"STARTER": 3000, "PRO": 8000, "MAX": 20000}
+PLAN_CALL_LIMITS: dict[str, int] = {"STARTER": 3000, "PRO": 8000, "MAX": 20000}
 
 # この割合を超えたら画面で警告する（止めはしない）。
 WARN_RATIO = 0.8
 
 _CACHE_TTL_SEC = 60
-_cache: Dict[str, Tuple[float, int]] = {}
+_cache: dict[str, tuple[float, int]] = {}
 
 
 def limit_for_plan(plan: str) -> int:
@@ -43,7 +42,7 @@ def state_of(used: int, limit: int) -> str:
     return "ok"
 
 
-async def monthly_calls(org_id: str) -> Optional[int]:
+async def monthly_calls(org_id: str) -> int | None:
     """当月（UTC）の AI 呼び出し回数。読めなければ None。"""
     if not org_id:
         return None
@@ -55,6 +54,7 @@ async def monthly_calls(org_id: str) -> Optional[int]:
         # ⚠️ import はここで行う。モジュールの先頭で読むと、LLMRouter を読むだけで
         #    SQLAlchemy と DB 設定が要るようになり、ルーティングのテストが動かなくなる
         from sqlalchemy import text  # noqa: PLC0415
+
         from app.db import AsyncSessionLocal  # noqa: PLC0415
 
         async with AsyncSessionLocal() as db:

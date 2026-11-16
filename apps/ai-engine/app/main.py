@@ -1,39 +1,39 @@
+import json
 import os
 import secrets
-import asyncio
-import json
 import time
+
 from dotenv import load_dotenv
 
 load_dotenv()
 
+from typing import Any
+
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
-from typing import Any, Optional
-from app.models.llm import OrchestateRequest, OrchestrateResponse, LLMRequest, LLMResponse, ChatMessage
-from app.orchestrator.orchestrator import orchestrator
-from app.orchestrator.intent_classifier import classify_intent
-from app.llm.router import (
-    llm_router,
-    _resolve_model,
-    resolve_provider_model,
-    provider_of_model,
-    AGENT_BUILD_MODEL,
-)
-from app.governance.audit_logger import log_llm_call
+
+from app.governance.audit_logger import schedule_llm_log
 from app.governance.pii_screener import screen
-from app.planner import plan_capability, plan_agent
+from app.llm.router import (
+    AGENT_BUILD_MODEL,
+    llm_router,
+    provider_of_model,
+    resolve_provider_model,
+)
+from app.models.llm import ChatMessage, LLMRequest, LLMResponse, OrchestateRequest, OrchestrateResponse
+from app.orchestrator.intent_classifier import classify_intent
+from app.orchestrator.orchestrator import orchestrator
+from app.planner import plan_agent, plan_capability
 from app.planner.planner import plan_http_node, screen_agent
 
 
 class PlanCapability(BaseModel):
     name: str
-    displayName: Optional[str] = None
+    displayName: str | None = None
     description: str
-    department: Optional[str] = None
+    department: str | None = None
     inputSchema: dict[str, Any]
 
 
@@ -42,15 +42,15 @@ class PlanRequest(BaseModel):
     org_id: str
     plan: str = "STARTER"
     available_capabilities: list[PlanCapability]
-    user_email: Optional[str] = None  # 松竹梅ルーティング（admin判定）用
+    user_email: str | None = None  # 松竹梅ルーティング（admin判定）用
 
 
 class PlanResponse(BaseModel):
-    capability_name: Optional[str]
+    capability_name: str | None
     args: dict[str, Any]
     confidence: float
     reasoning: str
-    inferred_name: Optional[str] = None
+    inferred_name: str | None = None
     pii_detected: bool = False
     pii_types: list[str] = []
 
@@ -59,8 +59,8 @@ class CurrentAgent(BaseModel):
     """既存エージェントを修正するときに渡す現状。これがあると planner は
     「土台にして、依頼された変更だけを加えた steps 全体」を返す（差分ではなく完成形）。"""
 
-    name: Optional[str] = None
-    instructions: Optional[str] = None
+    name: str | None = None
+    instructions: str | None = None
     steps: list[dict[str, Any]] = []
 
 
@@ -69,7 +69,7 @@ class PlanAgentRequest(BaseModel):
     org_id: str
     plan: str = "STARTER"
     available_capabilities: list[PlanCapability] = []
-    current_agent: Optional[CurrentAgent] = None
+    current_agent: CurrentAgent | None = None
     # 受動的な提案（会話から勝手に拾う経路）だけ True。
     # 明示的に依頼された設計（/agents/suggest・チャットでの修正）では判定を挟まない。
     screen_first: bool = False
@@ -82,9 +82,9 @@ class AgentStep(BaseModel):
 
 
 class PlanAgentResponse(BaseModel):
-    name: Optional[str] = None
+    name: str | None = None
     department: str = "GENERAL"
-    instructions: Optional[str] = None
+    instructions: str | None = None
     steps: list[AgentStep] = []
     trigger: str = "MANUAL"
     confidence: float = 0.0
@@ -127,13 +127,12 @@ if not INTERNAL_API_TOKEN:
 @app.middleware("http")
 async def require_internal_token(request: Request, call_next):
     """gateway 以外からの呼び出しを弾く。"""
-    if INTERNAL_API_TOKEN and request.url.path not in PUBLIC_PATHS:
-        # ⚠️ CORS プリフライトにはカスタムヘッダが載らないので通す（本体は弾かれる）
-        if request.method != "OPTIONS":
-            provided = request.headers.get("x-internal-token", "")
-            if not secrets.compare_digest(provided, INTERNAL_API_TOKEN):
-                # ⚠️ 理由を細かく返さない（トークンの有無を推測させない）
-                return JSONResponse(status_code=401, content={"detail": "unauthorized"})
+    # ⚠️ CORS プリフライト(OPTIONS)にはカスタムヘッダが載らないので通す（本体は弾かれる）
+    if INTERNAL_API_TOKEN and request.url.path not in PUBLIC_PATHS and request.method != "OPTIONS":
+        provided = request.headers.get("x-internal-token", "")
+        if not secrets.compare_digest(provided, INTERNAL_API_TOKEN):
+            # ⚠️ 理由を細かく返さない（トークンの有無を推測させない）
+            return JSONResponse(status_code=401, content={"detail": "unauthorized"})
     return await call_next(request)
 
 
@@ -196,8 +195,8 @@ async def orchestrate_stream(request: OrchestateRequest) -> StreamingResponse:
         resolved_dept = await classify_intent(request.message)
 
     # エージェントのシステムプロンプトを取得（セキュリティ核 + エージェント化提案を含む統一ビルダ経由）
+    from app.agents.base import GROUNDING_INSTRUCTION, _build_system_prompt, _sanitize_history, _wrap_user_message
     from app.orchestrator.orchestrator import _agents
-    from app.agents.base import _build_system_prompt, _wrap_user_message, _sanitize_history, GROUNDING_INSTRUCTION
     agent = _agents.get(resolved_dept, _agents["GENERAL"])
     system_content = _build_system_prompt(agent.system_prompt, getattr(agent, "security_extra", ""))
     has_context = bool(request.context and request.context.strip())
@@ -248,7 +247,7 @@ async def orchestrate_stream(request: OrchestateRequest) -> StreamingResponse:
             yield f"data: {json.dumps({'type': 'done', 'department': resolved_dept})}\n\n"
 
             # 監査ログを非同期で記録
-            asyncio.create_task(log_llm_call(
+            schedule_llm_log(
                 org_id=request.org_id,
                 department=resolved_dept,
                 provider=stream_provider,
@@ -259,7 +258,7 @@ async def orchestrate_stream(request: OrchestateRequest) -> StreamingResponse:
                 latency_ms=latency_ms,
                 pii_detected=pii_detected,
                 pii_types=pii_types,
-            ))
+            )
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
@@ -286,7 +285,7 @@ async def llm_chat(request: LLMRequest) -> LLMResponse:
     # ⚠️ router 側で LLM へ送る前にマスクしているが、ここで記録するのは request の生テキスト。
     #    同じ screen() を通してからでないと、AILog にだけ平文が残る。
     input_text = screen("\n".join(m.content for m in request.messages if m.role == "user")).text
-    asyncio.create_task(log_llm_call(
+    schedule_llm_log(
         org_id=request.org_id,
         department=request.department,
         provider=provider_of_model(response.model),
@@ -297,7 +296,7 @@ async def llm_chat(request: LLMRequest) -> LLMResponse:
         latency_ms=response.latency_ms,
         pii_detected=pii_detected,
         pii_types=pii_types,
-    ))
+    )
     return response
 
 
@@ -313,7 +312,7 @@ async def plan(request: PlanRequest) -> PlanResponse:
         user_email=request.user_email,
     )
     plan_provider, plan_model = resolve_provider_model(request.plan, request.user_email, json_mode=True)
-    asyncio.create_task(log_llm_call(
+    schedule_llm_log(
         org_id=request.org_id,
         department="GENERAL",
         provider=plan_provider,
@@ -324,7 +323,7 @@ async def plan(request: PlanRequest) -> PlanResponse:
         latency_ms=None,
         pii_detected=pii_result.detected,
         pii_types=list(pii_result.types) if pii_result.detected else [],
-    ))
+    )
     return PlanResponse(
         capability_name=result.get("capability_name"),
         args=result.get("args", {}),
@@ -340,7 +339,7 @@ class RankItem(BaseModel):
     id: str
     title: str
     summary: str = ""
-    department: Optional[str] = None
+    department: str | None = None
 
 
 class RankRequest(BaseModel):
@@ -370,7 +369,8 @@ async def rank(request: RankRequest) -> RankResponse:
         for it in request.items
     ]
     system = (
-        "あなたは中小企業の社長補佐です。以下の成果物リストを、ビジネス上の重要度で high / mid / low に分類してください。\n"
+        "あなたは中小企業の社長補佐です。"
+        "以下の成果物リストを、ビジネス上の重要度で high / mid / low に分類してください。\n"
         "- high: 売上・顧客・契約・重要な意思決定に直結（提案書、見積、重要顧客向けメール、経営判断材料など）\n"
         "- mid: 通常業務の資料・分析・社内向け\n"
         "- low: 参考・下書き・定型の軽微なもの\n"
@@ -416,12 +416,12 @@ class PlanHttpNodeRequest(BaseModel):
 
 
 class PlanHttpNodeResponse(BaseModel):
-    name: Optional[str] = None
-    displayName: Optional[str] = None
-    description: Optional[str] = None
+    name: str | None = None
+    displayName: str | None = None
+    description: str | None = None
     department: str = "GENERAL"
     params: list[dict[str, Any]] = []
-    http: Optional[dict[str, Any]] = None
+    http: dict[str, Any] | None = None
     confidence: float = 0.5
     reasoning: str = ""
 
@@ -450,15 +450,15 @@ class ReadReceiptRequest(BaseModel):
 
 
 class ReadReceiptResponse(BaseModel):
-    amountIncludingTax: Optional[int] = None
-    taxAmount: Optional[int] = None
-    incurredOn: Optional[str] = None
-    vendorHint: Optional[str] = None
-    category: Optional[str] = None
-    projectHint: Optional[str] = None
-    description: Optional[str] = None
+    amountIncludingTax: int | None = None
+    taxAmount: int | None = None
+    incurredOn: str | None = None
+    vendorHint: str | None = None
+    category: str | None = None
+    projectHint: str | None = None
+    description: str | None = None
     confidence: float = 0.0
-    notes: Optional[str] = None
+    notes: str | None = None
 
 
 @app.post("/vision/receipt", response_model=ReadReceiptResponse)
@@ -486,7 +486,7 @@ async def read_receipt_endpoint(request: ReadReceiptRequest) -> ReadReceiptRespo
         return ReadReceiptResponse(notes="領収書を読み取れませんでした。手入力で登録してください。")
 
     # ⚠️ AILog には画像も base64 も残さない。入力は「領収書画像」という事実だけ。
-    asyncio.create_task(log_llm_call(
+    schedule_llm_log(
         org_id=request.org_id,
         department="ACCOUNTING",
         provider="anthropic",
@@ -497,7 +497,7 @@ async def read_receipt_endpoint(request: ReadReceiptRequest) -> ReadReceiptRespo
         latency_ms=None,
         pii_detected=False,
         pii_types=[],
-    ))
+    )
     return ReadReceiptResponse(**result)
 
 
@@ -514,7 +514,7 @@ async def plan_http_node_endpoint(request: PlanHttpNodeRequest) -> PlanHttpNodeR
         org_id=request.org_id,
         plan=request.plan,
     )
-    asyncio.create_task(log_llm_call(
+    schedule_llm_log(
         org_id=request.org_id,
         department="GENERAL",
         provider="anthropic",
@@ -525,7 +525,7 @@ async def plan_http_node_endpoint(request: PlanHttpNodeRequest) -> PlanHttpNodeR
         latency_ms=None,
         pii_detected=pii_result.detected,
         pii_types=list(pii_result.types) if pii_result.detected else [],
-    ))
+    )
     return PlanHttpNodeResponse(**result)
 
 
@@ -556,7 +556,7 @@ async def plan_agent_endpoint(request: PlanAgentRequest) -> PlanAgentResponse:
         capabilities=capabilities,
         current_agent=request.current_agent.model_dump() if request.current_agent else None,
     )
-    asyncio.create_task(log_llm_call(
+    schedule_llm_log(
         org_id=request.org_id,
         department=result.get("department", "GENERAL"),
         provider="anthropic",
@@ -567,7 +567,7 @@ async def plan_agent_endpoint(request: PlanAgentRequest) -> PlanAgentResponse:
         latency_ms=None,
         pii_detected=pii_result.detected,
         pii_types=list(pii_result.types) if pii_result.detected else [],
-    ))
+    )
     return PlanAgentResponse(
         name=result.get("name"),
         department=result.get("department", "GENERAL"),

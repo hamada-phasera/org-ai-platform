@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 import os
-from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 _db_url = os.getenv("DATABASE_URL", "file:./data/app.db")
 _connect_args: dict = {}

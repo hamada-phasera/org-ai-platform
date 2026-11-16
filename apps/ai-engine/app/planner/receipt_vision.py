@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 SYSTEM = """あなたは建設業の経理を手伝うアシスタントです。
 領収書・レシート・請求書の写真から、工事原価として記帳するための情報を読み取ります。
@@ -46,18 +46,18 @@ SYSTEM = """あなたは建設業の経理を手伝うアシスタントです�
 PROMPT = "この画像から、上の JSON を1つだけ出力してください。"
 
 
-def _as_int(value: Any) -> Optional[int]:
+def _as_int(value: Any) -> int | None:
     """金額を整数に寄せる。文字列・小数・カンマ入りでも壊れないようにする。"""
     if value is None:
         return None
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        return int(round(value))
+        return round(value)
     if isinstance(value, str):
         cleaned = value.replace(",", "").replace("円", "").replace("¥", "").strip()
         try:
-            return int(round(float(cleaned)))
+            return round(float(cleaned))
         except ValueError:
             return None
     return None
@@ -103,7 +103,7 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
         confidence = 0.0
     confidence = max(0.0, min(1.0, float(confidence)))
 
-    def _text(key: str, limit: int) -> Optional[str]:
+    def _text(key: str, limit: int) -> str | None:
         v = raw.get(key)
         if not isinstance(v, str):
             return None

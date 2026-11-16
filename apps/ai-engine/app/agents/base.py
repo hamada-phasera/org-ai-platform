@@ -1,8 +1,9 @@
 from __future__ import annotations
-from typing import ClassVar, List, Optional, Tuple
 
-from app.models.llm import ChatMessage, LLMResponse
+from typing import ClassVar
+
 from app.llm.router import llm_router
+from app.models.llm import ChatMessage, LLMResponse
 
 _MAX_HISTORY_ITEM_CHARS = 12_000
 _MAX_USER_MESSAGE_CHARS = 16_000
@@ -34,9 +35,9 @@ GROUNDING_INSTRUCTION = """【根拠資料の利用（ハルシネーション�
 - 資料を根拠に述べる場合は、どの出典（ファイル名など）に基づくかを簡潔に示すこと。"""
 
 
-def _sanitize_history(history: List[ChatMessage]) -> List[ChatMessage]:
+def _sanitize_history(history: list[ChatMessage]) -> list[ChatMessage]:
     """Allow only user/assistant turns; cap length to reduce abuse."""
-    out: List[ChatMessage] = []
+    out: list[ChatMessage] = []
     for msg in history[-10:]:
         if msg.role not in ("user", "assistant"):
             continue
@@ -71,14 +72,14 @@ class BaseAgent:
         user_message: str,
         org_id: str,
         plan: str = "STARTER",
-        history: Optional[List[ChatMessage]] = None,
-        context: Optional[str] = None,
-        user_email: Optional[str] = None,
-    ) -> Tuple[LLMResponse, bool, List[str]]:
+        history: list[ChatMessage] | None = None,
+        context: str | None = None,
+        user_email: str | None = None,
+    ) -> tuple[LLMResponse, bool, list[str]]:
         system_content = _build_system_prompt(self.system_prompt, self.security_extra)
         if context and context.strip():
             system_content = system_content + "\n\n" + GROUNDING_INSTRUCTION
-        messages: List[ChatMessage] = [
+        messages: list[ChatMessage] = [
             ChatMessage(role="system", content=system_content),
         ]
         if context and context.strip():
