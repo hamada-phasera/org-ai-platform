@@ -78,6 +78,23 @@ function n8nFetch(path: string, init?: RequestInit): Promise<Response> {
  *  instructions は JSON.stringify で安全に jsCode へ埋め込む（バッククォート等のエスケープ不要）。
  *  Webhook body に systemPrompt があれば優先（編集時の再 import 無しで上書き可能）。
  */
+/**
+ * n8n の AI Engine 呼び出しノードのヘッダ（gateway の aiEngineHeaders と同じもの）。
+ *   X-Org-Id        … webhook body の orgId（gateway が起動時に入れる）。ai-engine が body の org_id と照合する
+ *   X-Internal-Token … INTERNAL_API_TOKEN を設定しているときだけ、生成時の値を埋め込む
+ *                      （n8n は式内の $env を既定で拒否するため。webhook トークンと同じ扱い）
+ * 以前は Content-Type しか送っておらず、INTERNAL_API_TOKEN を設定すると n8n 経由の /llm/chat は 401 になっていた。
+ * ⚠️ 既存のワークフローには効かない。エージェントを保存し直す（n8nStatus を PENDING に戻す）と作り直される。
+ */
+export function aiEngineNodeHeaders(): { name: string; value: string }[] {
+  const token = config.internalApiToken;
+  return [
+    { name: 'Content-Type', value: 'application/json' },
+    { name: 'X-Org-Id', value: "={{ $('Webhook').item.json.body.orgId }}" },
+    ...(token ? [{ name: 'X-Internal-Token', value: token }] : []),
+  ];
+}
+
 export function buildAgentWorkflowJson(agent: AgentWorkflowInput): Record<string, unknown> {
   const path = agentWebhookPath(agent.id);
   // n8n は式内の $env アクセスを既定でブロックする（"access to env vars denied"）。
@@ -112,7 +129,7 @@ export function buildAgentWorkflowJson(agent: AgentWorkflowInput): Record<string
           method: 'POST',
           url: '={{ $json.body.aiEngineUrl }}/llm/chat',
           sendHeaders: true,
-          headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] },
+          headerParameters: { parameters: aiEngineNodeHeaders() },
           sendBody: true,
           contentType: 'raw',
           rawContentType: 'application/json',
@@ -207,7 +224,7 @@ export function buildChainedAgentWorkflowJson(
     {
       parameters: {
         method: 'POST', url: '={{ $json.body.aiEngineUrl }}/llm/chat', sendHeaders: true,
-        headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] },
+        headerParameters: { parameters: aiEngineNodeHeaders() },
         sendBody: true, contentType: 'raw', rawContentType: 'application/json', body: '={{ $json.body.llmBody }}', options: {},
       },
       id: 'ai', name: 'AI Plan', type: 'n8n-nodes-base.httpRequest', typeVersion: 4, position: [460, 300], ...RETRY,

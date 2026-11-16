@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import text
 
 from app.db import AsyncSessionLocal
+from app.tenancy import org_matches_context
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,10 @@ async def log_llm_call(
     pii_types: list[str],
 ) -> str | None:
     """AI呼び出しを AILog テーブルに記録し、PII 検出時は RiskEvent も挿入する。"""
+    # 防御のアサーション: リクエストで確定した組織と違う組織の記録は書かない（他組織の AILog を汚さない）
+    if not org_matches_context(org_id):
+        logger.warning("[audit] リクエストの組織と異なる org_id での記録を拒否しました")
+        return None
     risk_score = _calc_risk_score(pii_detected, pii_types, tokens)
     log_id = str(uuid.uuid4())
 

@@ -1,4 +1,5 @@
 import { config } from '../config/env';
+import { currentTenant } from '../tenancy/context';
 /**
  * ai-engine を呼ぶときの共通ヘッダ。
  *
@@ -10,12 +11,20 @@ import { config } from '../config/env';
  *
  * `INTERNAL_API_TOKEN` が未設定なら何も付けない。ai-engine 側も未設定なら素通しするので、
  * 「先に片方だけデプロイして全部落ちる」ことがない。**設定して初めて有効になる**。
+ *
+ * ■ X-Org-Id（docs/design/multi-tenancy.md §7.2 / I11）
+ *   いまのテナントコンテキスト（requireAuth / runAsTenant が置く AsyncLocalStorage）の組織を付ける。
+ *   ai-engine は body の org_id と照合し、食い違えば 403 ORG_MISMATCH にする（ORG_HEADER_MODE）。
+ *   コンテキストの外（起動時の設定確認など）では付けない。ai-engine 側は warn モードで警告を出すので、
+ *   取りこぼしはそこで見つかる。
  */
 export function aiEngineHeaders(extra: Record<string, string> = {}): Record<string, string> {
   const token = config.internalApiToken;
+  const orgId = currentTenant()?.orgId;
   return {
     'Content-Type': 'application/json',
     ...(token ? { 'X-Internal-Token': token } : {}),
+    ...(orgId ? { 'X-Org-Id': orgId } : {}),
     ...extra,
   };
 }

@@ -411,3 +411,18 @@ describe('締め出し', () => {
     expect((await app.inject({ method: 'GET', url: '/api/tasks', headers: as('u-c', 'org-A') })).statusCode).toBe(200);
   });
 });
+
+describe('ai-engine への伝播（I11）', () => {
+  it('HTTP リクエストから呼ぶ ai-engine には、トークンの組織が X-Org-Id で付き、body の org_id と一致する', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockClear();
+    await app.inject({
+      method: 'POST', url: '/api/chat/sessions/session-A/messages', headers: as('u-a', 'org-A'), payload: { content: 'こんにちは' },
+    });
+    const call = fetchMock.mock.calls.find(([url]) => String(url).includes('/orchestrate'));
+    expect(call).toBeDefined();
+    const init = call![1] as { headers: Record<string, string>; body: string };
+    expect(init.headers['X-Org-Id']).toBe('org-A');
+    expect(JSON.parse(init.body).org_id).toBe('org-A');
+  });
+});
