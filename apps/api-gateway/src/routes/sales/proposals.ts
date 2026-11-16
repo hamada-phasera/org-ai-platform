@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../../utils/prisma';
+import { authOf } from '../../tenancy';
 import { requireAuth } from '../../middleware/auth';
 import { aiEngineHeaders } from '../../services/ai-engine-auth';
 import {
@@ -52,7 +52,8 @@ export async function salesProposalsRoutes(app: FastifyInstance): Promise<void> 
 
   // 提案書ドラフト生成
   app.post('/', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
+    const payload = authOf(request);
+    const { db } = payload;
     const parsed = generateSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
@@ -70,7 +71,7 @@ export async function salesProposalsRoutes(app: FastifyInstance): Promise<void> 
       budget: parsed.data.budget,
     };
 
-    const org = await prisma.organization.findUnique({ where: { id: payload.orgId } });
+    const org = await db.organization.findUnique({ where: { id: payload.orgId } });
     const plan = org?.plan ?? 'STARTER';
     const messages = buildProposalMessages(template, inputs);
 
@@ -87,7 +88,7 @@ export async function salesProposalsRoutes(app: FastifyInstance): Promise<void> 
           org_id: payload.orgId,
           plan,
           json_mode: false,
-          user_email: (request.user as { email?: string }).email ?? null, // 松竹梅ルーティング
+          user_email: authOf(request).email ?? null, // 松竹梅ルーティング
         }),
       });
     } catch (e) {
@@ -111,7 +112,7 @@ export async function salesProposalsRoutes(app: FastifyInstance): Promise<void> 
     let taskId: string | null = null;
     if (parsed.data.persist !== false) {
       try {
-        const task = await prisma.task.create({
+        const task = await db.task.create({
           data: {
             orgId: payload.orgId,
             title: `提案書ドラフト: ${inputs.customerName}`,

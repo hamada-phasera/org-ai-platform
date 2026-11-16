@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../../utils/prisma';
+import { authOf } from '../../tenancy';
 import { requireAuth } from '../../middleware/auth';
 import { VENDOR_KINDS, estimateInvoiceImpact } from './accounting-core';
-import { AuthPayload, fail, isUniqueViolation, jstToday, parseDateOnly } from './shared';
+import { fail, isUniqueViolation, jstToday, parseDateOnly } from './shared';
 
 /**
  * 取引先・インボイス（Vendor）API。prefix: `/api/accounting/vendors`
@@ -40,7 +40,7 @@ export async function accountingVendorsRoutes(app: FastifyInstance): Promise<voi
    * 登録の有無だけ並べても判断できず、金額が横に無いと「どこから手を付けるか」が決まらないため。
    */
   app.get('/', { preHandler: requireAuth }, async (request, reply) => {
-    const { orgId } = request.user as AuthPayload;
+    const { orgId, db } = authOf(request);
     const { since } = request.query as { since?: string };
 
     const sinceDate = since ? parseDateOnly(since) : null;
@@ -48,9 +48,9 @@ export async function accountingVendorsRoutes(app: FastifyInstance): Promise<voi
       return fail(reply, 400, 'VALIDATION_ERROR', 'since は YYYY-MM-DD 形式で指定してください');
     }
 
-    const vendors = await prisma.vendor.findMany({ where: { orgId }, orderBy: { name: 'asc' } });
+    const vendors = await db.vendor.findMany({ where: { orgId }, orderBy: { name: 'asc' } });
 
-    const totals = await prisma.costEntry.groupBy({
+    const totals = await db.costEntry.groupBy({
       by: ['vendorId'],
       where: {
         orgId,
@@ -83,7 +83,7 @@ export async function accountingVendorsRoutes(app: FastifyInstance): Promise<voi
    * 未登録の取引先に払っている消費税額を集計し、次の切り替えで増える負担を試算する。
    */
   app.get('/invoice-impact', { preHandler: requireAuth }, async (request, reply) => {
-    const { orgId } = request.user as AuthPayload;
+    const { orgId, db } = authOf(request);
     const { since } = request.query as { since?: string };
 
     const sinceDate = since ? parseDateOnly(since) : null;
@@ -91,7 +91,7 @@ export async function accountingVendorsRoutes(app: FastifyInstance): Promise<voi
       return fail(reply, 400, 'VALIDATION_ERROR', 'since は YYYY-MM-DD 形式で指定してください');
     }
 
-    const unregistered = await prisma.vendor.findMany({
+    const unregistered = await db.vendor.findMany({
       where: { orgId, invoiceRegistered: false },
       select: { id: true, name: true, kind: true },
     });
@@ -99,7 +99,7 @@ export async function accountingVendorsRoutes(app: FastifyInstance): Promise<voi
     // ⚠️ 未登録先が0社でも、取引先が紐付いていない明細の件数は返す。
     //    未紐付けの明細こそ未登録業者が隠れている側なので、
     //    ここで早期 return すると「出したい場面で警告が出ない」ことになる。
-    const unlinked = await prisma.costEntry.count({
+    const unlinked = await db.costEntry.count({
       where: {
         orgId,
         vendorId: null,
@@ -119,7 +119,7 @@ export async function accountingVendorsRoutes(app: FastifyInstance): Promise<voi
       });
     }
 
-    const totals = await prisma.costEntry.groupBy({
+    const totals = await db.costEntry.groupBy({
       by: ['vendorId'],
       where: {
         orgId,
@@ -159,13 +159,13 @@ export async function accountingVendorsRoutes(app: FastifyInstance): Promise<voi
   });
 
   app.post('/', { preHandler: requireAuth }, async (request, reply) => {
-    const { orgId } = request.user as AuthPayload;
+    const { orgId, db } = authOf(request);
     const parsed = baseSchema.safeParse(request.body);
     if (!parsed.success) {
       return fail(reply, 400, 'VALIDATION_ERROR', parsed.error.errors[0]?.message ?? '入力が不正です');
     }
     try {
-      const vendor = await prisma.vendor.create({ data: { ...parsed.data, orgId } });
+      const vendor = await db.vendor.create({ data: { ...parsed.data, orgId } });
       return reply.code(201).send({ success: true, data: vendor });
     } catch (e) {
       if (isUniqueViolation(e)) {
@@ -176,18 +176,18 @@ export async function accountingVendorsRoutes(app: FastifyInstance): Promise<voi
   });
 
   app.patch('/:vendorId', { preHandler: requireAuth }, async (request, reply) => {
-    const { orgId } = request.user as AuthPayload;
+    const { orgId, db } = authOf(request);
     const { vendorId } = request.params as { vendorId: string };
     const parsed = updateSchema.safeParse(request.body);
     if (!parsed.success) {
       return fail(reply, 400, 'VALIDATION_ERROR', parsed.error.errors[0]?.message ?? '入力が不正です');
     }
 
-    const existing = await prisma.vendor.findFirst({ where: { id: vendorId, orgId }, select: { id: true } });
+    const existing = await db.vendor.findFirst({ where: { id: vendorId, orgId }, select: { id: true } });
     if (!existing) return fail(reply, 404, 'NOT_FOUND', '取引先が見つかりません');
 
     try {
-      const vendor = await prisma.vendor.update({ where: { id: vendorId }, data: parsed.data });
+      const vendor = await db.vendor.update({ where: { id: vendorId }, data: parsed.data });
       return reply.send({ success: true, data: vendor });
     } catch (e) {
       if (isUniqueViolation(e)) {
@@ -199,11 +199,11 @@ export async function accountingVendorsRoutes(app: FastifyInstance): Promise<voi
 
   // 取引先を消しても原価明細は残る（vendorId は SET NULL）。金額の履歴は失わない
   app.delete('/:vendorId', { preHandler: requireAuth }, async (request, reply) => {
-    const { orgId } = request.user as AuthPayload;
+    const { orgId, db } = authOf(request);
     const { vendorId } = request.params as { vendorId: string };
-    const existing = await prisma.vendor.findFirst({ where: { id: vendorId, orgId }, select: { id: true } });
+    const existing = await db.vendor.findFirst({ where: { id: vendorId, orgId }, select: { id: true } });
     if (!existing) return fail(reply, 404, 'NOT_FOUND', '取引先が見つかりません');
-    await prisma.vendor.delete({ where: { id: vendorId } });
+    await db.vendor.delete({ where: { id: vendorId } });
     return reply.send({ success: true, data: { id: vendorId } });
   });
 }

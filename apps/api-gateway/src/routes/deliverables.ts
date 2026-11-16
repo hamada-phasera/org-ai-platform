@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../utils/prisma';
+import { authOf } from '../tenancy';
 import { requireAuth } from '../middleware/auth';
 import { aiEngineHeaders } from '../services/ai-engine-auth';
 import { config } from '../config/env';
@@ -22,7 +22,8 @@ const rankSchema = z.object({
 /** 成果物の重要度づけ等。重要度推定は AI Engine /rank に委譲（ベストエフォート）。 */
 export async function deliverablesRoutes(app: FastifyInstance): Promise<void> {
   app.post('/rank', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
     const parsed = rankSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.message);
@@ -31,7 +32,7 @@ export async function deliverablesRoutes(app: FastifyInstance): Promise<void> {
       return reply.send({ success: true, data: { rankings: [] } });
     }
 
-    const org = await prisma.organization.findUnique({ where: { id: payload.orgId } });
+    const org = await db.organization.findUnique({ where: { id: payload.orgId } });
     const plan = org?.plan ?? 'STARTER';
     const aiEngineUrl = config.aiEngineUrlComposeDefault;
     try {

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { PLAN_LIMITS } from '@org-ai/shared-types';
+import { setTenant } from '../helpers/tenant';
 
 const prismaMock = {
   organization: { findUnique: vi.fn(), updateMany: vi.fn() },
@@ -13,7 +14,7 @@ vi.mock('../../src/utils/prisma', () => ({ prisma: prismaMock }));
 
 vi.mock('../../src/middleware/auth', () => ({
   requireAuth: async (req: { user?: unknown }) => {
-    req.user = { orgId: 'org-1', sub: 'user-1', role: 'MEMBER' };
+    await setTenant(req as never, { orgId: 'org-1', sub: 'user-1', role: 'MEMBER' } as never);
   },
 }));
 

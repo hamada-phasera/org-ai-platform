@@ -1,11 +1,12 @@
 import type { FastifyInstance } from 'fastify';
-import { prisma } from '../utils/prisma';
+import { authOf } from '../tenancy';
 import { requireAdmin } from '../middleware/auth';
 import { sendError } from '../utils/http-error';
 
 export async function governanceRoutes(app: FastifyInstance): Promise<void> {
   app.get('/logs', { preHandler: requireAdmin }, async (request, reply) => {
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
     const query = request.query as { page?: string; limit?: string; department?: string };
     const page = parseInt(query.page ?? '1');
     const limit = parseInt(query.limit ?? '20');
@@ -17,8 +18,8 @@ export async function governanceRoutes(app: FastifyInstance): Promise<void> {
     };
 
     const [logs, total] = await Promise.all([
-      prisma.aILog.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: limit }),
-      prisma.aILog.count({ where }),
+      db.aILog.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: limit }),
+      db.aILog.count({ where }),
     ]);
 
     return reply.send({
@@ -29,9 +30,10 @@ export async function governanceRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get('/risks', { preHandler: requireAdmin }, async (request, reply) => {
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
     const query = request.query as { resolved?: string };
-    const risks = await prisma.riskEvent.findMany({
+    const risks = await db.riskEvent.findMany({
       where: {
         orgId: payload.orgId,
         ...(query.resolved !== undefined ? { resolved: query.resolved === 'true' } : {}),
@@ -42,14 +44,15 @@ export async function governanceRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.patch('/risks/:id/resolve', { preHandler: requireAdmin }, async (request, reply) => {
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
     const { id } = request.params as { id: string };
 
     /* ⚠️ id だけで update してはいけない。同ファイルの /logs /risks /stats は全て orgId で
        絞っているのに、ここだけ抜けていた（他組織のリスクを既読にできる状態だった）。
        ガバナンスは「見張る」機能なので、そこで分離が破れているのは売り文句と正面衝突する。
        件数が0なら他組織のものか存在しないので、どちらか判別させずに 404 を返す。 */
-    const result = await prisma.riskEvent.updateMany({
+    const result = await db.riskEvent.updateMany({
       where: { id, orgId: payload.orgId },
       data: { resolved: true },
     });
@@ -57,18 +60,19 @@ export async function governanceRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 404, 'NOT_FOUND', 'リスクイベントが見つかりません');
     }
 
-    const updated = await prisma.riskEvent.findFirst({ where: { id, orgId: payload.orgId } });
+    const updated = await db.riskEvent.findFirst({ where: { id, orgId: payload.orgId } });
     return reply.send({ success: true, data: updated });
   });
 
   app.get('/stats', { preHandler: requireAdmin }, async (request, reply) => {
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
     const orgId = payload.orgId;
 
     const [totalRequests, risks, logs] = await Promise.all([
-      prisma.aILog.count({ where: { orgId } }),
-      prisma.riskEvent.findMany({ where: { orgId }, select: { severity: true } }),
-      prisma.aILog.findMany({ where: { orgId }, select: { tokens: true, latencyMs: true, department: true } }),
+      db.aILog.count({ where: { orgId } }),
+      db.riskEvent.findMany({ where: { orgId }, select: { severity: true } }),
+      db.aILog.findMany({ where: { orgId }, select: { tokens: true, latencyMs: true, department: true } }),
     ]);
 
     const totalTokens = logs.reduce((s, l) => s + (l.tokens ?? 0), 0);

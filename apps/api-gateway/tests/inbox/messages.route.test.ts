@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { setTenant } from '../helpers/tenant';
 
 // 承認送信で使う LINE 接続が同じ組織のものかを照合する（docs/design/multi-tenancy.md E7）。
 
@@ -10,7 +11,7 @@ const prismaMock = {
 vi.mock('../../src/utils/prisma', () => ({ prisma: prismaMock }));
 vi.mock('../../src/middleware/auth', () => ({
   requireAuth: async (req: { user?: unknown }) => {
-    req.user = { orgId: 'org-A', sub: 'u-a', role: 'OWNER' };
+    await setTenant(req as never, { orgId: 'org-A', sub: 'u-a', role: 'OWNER' } as never);
   },
 }));
 const sendReply = vi.fn();

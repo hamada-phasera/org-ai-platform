@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { prisma } from '../utils/prisma';
+import { authOf } from '../tenancy';
 import { requireAuth } from '../middleware/auth';
 
 // タスク種別ごとの「人がやったら掛かる時間（分）」プリセット。
@@ -45,11 +45,12 @@ function jstDateKey(d: Date): string {
 export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
   // 業務効率化ダッシュボードの集計
   app.get('/efficiency', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
     const orgId = payload.orgId;
 
     // 完了タスクを取得（削減時間の算定対象）
-    const tasks = await prisma.task.findMany({
+    const tasks = await db.task.findMany({
       where: { orgId, status: 'DONE' },
       select: { taskType: true, department: true, executedAt: true, createdAt: true, updatedAt: true },
       orderBy: { updatedAt: 'desc' },

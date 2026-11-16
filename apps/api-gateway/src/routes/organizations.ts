@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../utils/prisma';
+import { authOf } from '../tenancy';
 import { requireAuth, requireOwner } from '../middleware/auth';
 import { collectSetupStatus } from '../services/setup-status';
 import { PLAN_LIMITS, storageQuotaBytes, usageState, type Plan } from '@org-ai/shared-types';
@@ -22,8 +22,9 @@ function startOfNextMonthUTC(now: Date = new Date()): Date {
 export async function organizationRoutes(app: FastifyInstance): Promise<void> {
   // 自組織情報取得
   app.get('/me', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as { orgId: string };
-    const org = await prisma.organization.findUnique({
+    const payload = authOf(request);
+    const { db } = payload;
+    const org = await db.organization.findUnique({
       where: { id: payload.orgId },
       select: {
         id: true,
@@ -31,7 +32,8 @@ export async function organizationRoutes(app: FastifyInstance): Promise<void> {
         plan: true,
         billingEmail: true,
         createdAt: true,
-        _count: { select: { users: true } },
+        // 人数は「この組織の有効な所属」（User.orgId は最後に選んだ組織にすぎない）
+        _count: { select: { memberships: { where: { status: 'ACTIVE' } } } },
       },
     });
     if (!org) {
@@ -45,7 +47,7 @@ export async function organizationRoutes(app: FastifyInstance): Promise<void> {
         plan: org.plan,
         billingEmail: org.billingEmail,
         createdAt: org.createdAt,
-        memberCount: org._count.users,
+        memberCount: org._count.memberships,
       },
     });
   });
@@ -54,12 +56,13 @@ export async function organizationRoutes(app: FastifyInstance): Promise<void> {
   // ⚠️ JWT の role では判定しない（E4）。降格された元オーナーがトークンの期限まで
   //    組織名や請求先を変えられてしまうため、DB を正本にする requireOwner を通す。
   app.patch('/me', { preHandler: requireOwner }, async (request, reply) => {
-    const payload = request.user as { orgId: string };
+    const payload = authOf(request);
+    const { db } = payload;
     const result = updateOrgSchema.safeParse(request.body);
     if (!result.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
     }
-    const updated = await prisma.organization.update({
+    const updated = await db.organization.update({
       where: { id: payload.orgId },
       data: result.data,
       select: { id: true, name: true, plan: true, billingEmail: true, createdAt: true },
@@ -69,8 +72,9 @@ export async function organizationRoutes(app: FastifyInstance): Promise<void> {
 
   // 当月の利用量
   app.get('/me/usage', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as { orgId: string };
-    const org = await prisma.organization.findUnique({
+    const payload = authOf(request);
+    const { db } = payload;
+    const org = await db.organization.findUnique({
       where: { id: payload.orgId },
       select: { plan: true, storageUsedBytes: true, storageAddonUnits: true },
     });
@@ -78,7 +82,7 @@ export async function organizationRoutes(app: FastifyInstance): Promise<void> {
     const addonUnits = org?.storageAddonUnits ?? 0;
     const planLimit = PLAN_LIMITS[plan]?.aiCallsPerMonth ?? PLAN_LIMITS.STARTER.aiCallsPerMonth;
 
-    const aiCallsThisMonth = await prisma.aILog.count({
+    const aiCallsThisMonth = await db.aILog.count({
       where: { orgId: payload.orgId, createdAt: { gte: startOfMonthUTC() } },
     });
 

@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../../utils/prisma';
+import { authOf } from '../../tenancy';
 import { requireAuth } from '../../middleware/auth';
 import { COST_CATEGORIES, splitTaxInclusive } from './accounting-core';
-import { AuthPayload, fail, parseDateOnly, toDateOnly } from './shared';
+import { fail, parseDateOnly, toDateOnly } from './shared';
 
 /**
  * 原価明細（CostEntry）API。prefix: `/api/accounting/costs`
@@ -85,7 +85,7 @@ function resolveAmounts(input: {
 export async function accountingCostsRoutes(app: FastifyInstance): Promise<void> {
   // 一覧。既定は新しい順。?status=DRAFT で承認待ちだけを出す
   app.get('/', { preHandler: requireAuth }, async (request, reply) => {
-    const { orgId } = request.user as AuthPayload;
+    const { orgId, db } = authOf(request);
     const { projectId, status, from, to, limit } = request.query as Record<string, string | undefined>;
 
     if (status !== undefined && !(STATUSES as readonly string[]).includes(status)) {
@@ -98,7 +98,7 @@ export async function accountingCostsRoutes(app: FastifyInstance): Promise<void>
     }
 
     const take = Math.min(Math.max(Number(limit) || 200, 1), 500);
-    const entries = await prisma.costEntry.findMany({
+    const entries = await db.costEntry.findMany({
       where: {
         orgId,
         ...(projectId ? { projectId } : {}),
@@ -123,7 +123,8 @@ export async function accountingCostsRoutes(app: FastifyInstance): Promise<void>
 
   // 作成
   app.post('/', { preHandler: requireAuth }, async (request, reply) => {
-    const payload = request.user as AuthPayload;
+    const payload = authOf(request);
+    const { db } = payload;
     const parsed = createSchema.safeParse(request.body);
     if (!parsed.success) {
       return fail(reply, 400, 'VALIDATION_ERROR', parsed.error.errors[0]?.message ?? '入力が不正です');
@@ -133,14 +134,14 @@ export async function accountingCostsRoutes(app: FastifyInstance): Promise<void>
     if (!incurredOn) return fail(reply, 400, 'VALIDATION_ERROR', 'incurredOn が不正な日付です');
 
     // 他 org の工事・取引先に紐付けさせない
-    const project = await prisma.project.findFirst({
+    const project = await db.project.findFirst({
       where: { id: body.projectId, orgId: payload.orgId },
       select: { id: true },
     });
     if (!project) return fail(reply, 404, 'NOT_FOUND', '工事が見つかりません');
 
     if (body.vendorId) {
-      const vendor = await prisma.vendor.findFirst({
+      const vendor = await db.vendor.findFirst({
         where: { id: body.vendorId, orgId: payload.orgId },
         select: { id: true },
       });
@@ -148,7 +149,7 @@ export async function accountingCostsRoutes(app: FastifyInstance): Promise<void>
     }
 
     const amounts = resolveAmounts(body);
-    const entry = await prisma.costEntry.create({
+    const entry = await db.costEntry.create({
       data: {
         orgId: payload.orgId,
         projectId: body.projectId,
@@ -168,7 +169,7 @@ export async function accountingCostsRoutes(app: FastifyInstance): Promise<void>
 
   // 更新（承認＝status を CONFIRMED にするのもここ）
   app.patch('/:costId', { preHandler: requireAuth }, async (request, reply) => {
-    const { orgId } = request.user as AuthPayload;
+    const { orgId, db } = authOf(request);
     const { costId } = request.params as { costId: string };
     const parsed = updateSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -180,7 +181,7 @@ export async function accountingCostsRoutes(app: FastifyInstance): Promise<void>
       vendorId?: string | null;
     };
 
-    const existing = await prisma.costEntry.findFirst({ where: { id: costId, orgId } });
+    const existing = await db.costEntry.findFirst({ where: { id: costId, orgId } });
     if (!existing) return fail(reply, 404, 'NOT_FOUND', '原価明細が見つかりません');
 
     const data: Record<string, unknown> = {};
@@ -193,7 +194,7 @@ export async function accountingCostsRoutes(app: FastifyInstance): Promise<void>
       data.incurredOn = d;
     }
     if (body.projectId !== undefined) {
-      const project = await prisma.project.findFirst({ where: { id: body.projectId, orgId }, select: { id: true } });
+      const project = await db.project.findFirst({ where: { id: body.projectId, orgId }, select: { id: true } });
       if (!project) return fail(reply, 404, 'NOT_FOUND', '工事が見つかりません');
       data.projectId = body.projectId;
     }
@@ -201,7 +202,7 @@ export async function accountingCostsRoutes(app: FastifyInstance): Promise<void>
       if (body.vendorId === null) {
         data.vendorId = null;
       } else {
-        const vendor = await prisma.vendor.findFirst({ where: { id: body.vendorId, orgId }, select: { id: true } });
+        const vendor = await db.vendor.findFirst({ where: { id: body.vendorId, orgId }, select: { id: true } });
         if (!vendor) return fail(reply, 404, 'NOT_FOUND', '取引先が見つかりません');
         data.vendorId = body.vendorId;
       }
@@ -210,19 +211,19 @@ export async function accountingCostsRoutes(app: FastifyInstance): Promise<void>
     if (amounts.amount !== undefined) data.amount = amounts.amount;
     if (amounts.taxAmount !== undefined) data.taxAmount = amounts.taxAmount;
 
-    const entry = await prisma.costEntry.update({ where: { id: costId }, data });
+    const entry = await db.costEntry.update({ where: { id: costId }, data });
     return reply.send({ success: true, data: { ...entry, incurredOn: toDateOnly(entry.incurredOn) } });
   });
 
   // まとめて確定（承認画面の「選択したものを確定」）
   app.post('/confirm', { preHandler: requireAuth }, async (request, reply) => {
-    const { orgId } = request.user as AuthPayload;
+    const { orgId, db } = authOf(request);
     const parsed = confirmSchema.safeParse(request.body);
     if (!parsed.success) {
       return fail(reply, 400, 'VALIDATION_ERROR', parsed.error.errors[0]?.message ?? '入力が不正です');
     }
     // orgId を where に含めるので、他 org の id が混ざっていても黙って対象外になる
-    const result = await prisma.costEntry.updateMany({
+    const result = await db.costEntry.updateMany({
       where: { id: { in: parsed.data.ids }, orgId, status: 'DRAFT' },
       data: { status: 'CONFIRMED' },
     });
@@ -230,11 +231,11 @@ export async function accountingCostsRoutes(app: FastifyInstance): Promise<void>
   });
 
   app.delete('/:costId', { preHandler: requireAuth }, async (request, reply) => {
-    const { orgId } = request.user as AuthPayload;
+    const { orgId, db } = authOf(request);
     const { costId } = request.params as { costId: string };
-    const existing = await prisma.costEntry.findFirst({ where: { id: costId, orgId }, select: { id: true } });
+    const existing = await db.costEntry.findFirst({ where: { id: costId, orgId }, select: { id: true } });
     if (!existing) return fail(reply, 404, 'NOT_FOUND', '原価明細が見つかりません');
-    await prisma.costEntry.delete({ where: { id: costId } });
+    await db.costEntry.delete({ where: { id: costId } });
     return reply.send({ success: true, data: { id: costId } });
   });
 }

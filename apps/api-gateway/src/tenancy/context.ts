@@ -106,3 +106,22 @@ export function tenantOf(request: FastifyRequest): TenantContext {
   if (!t) throw new TenantViolationError('テナントが解決されていません（requireAuth が付いていない？）');
   return t;
 }
+
+/** ハンドラで使う「誰が・どの組織として・どのクライアントで」。request.user の型キャストの置き換え。 */
+export interface RequestAuth {
+  orgId: string;
+  /** User.id */
+  sub: string;
+  /** Membership.role（判定に使ってよいのはこれだけ） */
+  role: UserRole | null;
+  /** JWT の email（ADMIN_EMAILS の判定に使う。本人が名乗った値ではなく、発行時に DB から入れた値） */
+  email: string | undefined;
+  db: TenantDb;
+}
+
+/** requireAuth を通ったリクエストの認証情報。tenantOf と同じく、無ければ例外。 */
+export function authOf(request: FastifyRequest): RequestAuth {
+  const t = tenantOf(request);
+  const jwt = (request.user ?? {}) as { email?: string };
+  return { orgId: t.orgId, sub: t.userId ?? '', role: t.role, email: jwt.email, db: t.db };
+}
