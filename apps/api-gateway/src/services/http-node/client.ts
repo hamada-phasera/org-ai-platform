@@ -17,10 +17,11 @@
 
 import { Agent, request } from 'undici';
 import { createGuardedLookup } from './url-guard';
+import { config } from '../../config/env';
 
-const DEFAULT_TIMEOUT_MS = Number(process.env.HTTP_NODE_TIMEOUT_MS ?? 15_000);
+const DEFAULT_TIMEOUT_MS = config.httpNodeTimeoutMs;
 export const MAX_TIMEOUT_MS = 30_000;
-const MAX_RESPONSE_BYTES = Number(process.env.HTTP_NODE_MAX_RESPONSE_BYTES ?? 256 * 1024);
+const MAX_RESPONSE_BYTES = config.httpNodeMaxResponseBytes;
 
 /** 読み取ってよい Content-Type。これ以外は body を読まずに捨てる。 */
 const ALLOWED_CONTENT_TYPES = [
@@ -222,7 +223,7 @@ export async function sendGuardedRequest(input: GuardedRequestInput): Promise<Gu
 // 自社 IP から第三者 API を乱打してレピュテーションを落とさないための保険。
 // ⚠️ プロセス内なのでマルチインスタンスでは厳密でない（n8n credential キャッシュと同水準）。
 
-const RATE_PER_MIN = Number(process.env.HTTP_NODE_RATE_PER_MIN ?? 60);
+const RATE_PER_MIN = config.httpNodeRatePerMin;
 const buckets = new Map<string, { count: number; windowStart: number }>();
 
 export function checkRateLimit(orgId: string, now: number = Date.now()): boolean {

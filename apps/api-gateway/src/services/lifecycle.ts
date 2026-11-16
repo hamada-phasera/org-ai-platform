@@ -7,12 +7,13 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../utils/prisma';
 import { jobs, drain, type JobRecord } from './lifecycle-core';
+import { config } from '../config/env';
 
 /**
  * 待ちの予算。Render が SIGTERM から強制終了までに与える猶予より短くする
  * （既定 30 秒。render.yaml で maxShutdownDelaySeconds を伸ばしたらここも上げる）。
  */
-const DRAIN_BUDGET_MS = Number(process.env.SHUTDOWN_DRAIN_MS ?? 20_000);
+const DRAIN_BUDGET_MS = config.shutdownDrainMs;
 const POLL_MS = 250;
 
 /** 中断されたことを人が読んで分かる文言。起動時の回収と同じ言い回しに揃える。 */

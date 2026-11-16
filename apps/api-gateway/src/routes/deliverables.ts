@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../utils/prisma';
 import { requireAuth } from '../middleware/auth';
 import { aiEngineHeaders } from '../services/ai-engine-auth';
+import { config } from '../config/env';
 
 const rankSchema = z.object({
   items: z
@@ -33,7 +34,7 @@ export async function deliverablesRoutes(app: FastifyInstance): Promise<void> {
 
     const org = await prisma.organization.findUnique({ where: { id: payload.orgId } });
     const plan = org?.plan ?? 'STARTER';
-    const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://ai-engine:8000';
+    const aiEngineUrl = config.aiEngineUrlComposeDefault;
     try {
       const res = await fetch(`${aiEngineUrl}/rank`, {
         method: 'POST',

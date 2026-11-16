@@ -6,6 +6,7 @@
 
 import { prisma } from '../../utils/prisma';
 import { aiEngineHeaders } from '../ai-engine-auth';
+import { config } from '../../config/env';
 
 const INBOX_DEPARTMENT = 'GENERAL';
 const MAX_INPUT_CHARS = 4000;
@@ -130,7 +131,7 @@ export async function generateInboxDraft(
       history,
     });
 
-    const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
+    const aiEngineUrl = config.aiEngineUrl;
     let llm: LLMChatResponse;
     try {
       const res = await fetch(`${aiEngineUrl}/llm/chat`, {

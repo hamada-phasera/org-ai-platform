@@ -9,6 +9,7 @@ import { requireAdmin } from '../../middleware/auth';
 import { sealSecret } from '../../services/secret-box';
 import { getBotInfo } from '../../services/inbox/line-client';
 import { getChannelAdapter } from '../../services/inbox/adapter';
+import { config } from '../../config/env';
 
 type AuthPayload = { orgId: string; sub?: string };
 
@@ -104,7 +105,7 @@ export async function inboxConnectionsRoutes(app: FastifyInstance): Promise<void
       orderBy: { createdAt: 'desc' },
     });
 
-    const webhookUrl = `${process.env.API_GATEWAY_URL ?? 'http://localhost:4000'}/api/webhooks/line`;
+    const webhookUrl = `${config.apiGatewayUrl}/api/webhooks/line`;
 
     // LINE API はテナント毎に別トークンなので並列 + allSettled（1 接続の失敗が一覧を壊さない）
     const quotaResults = await Promise.allSettled(

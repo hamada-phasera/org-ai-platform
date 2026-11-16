@@ -9,6 +9,7 @@ import type { AgentStepDef } from '@org-ai/shared-types';
 import { prisma } from '../utils/prisma';
 import { dispatchQueuedTask, dispatchAgentTask } from './task-executor';
 import { runAgentTask } from './step-runner';
+import { config } from '../config/env';
 
 /** 現在時刻の「時」の頭（UTC）。この時刻以降に lastRunAt があれば当該時間帯は実行済み。 */
 export function startOfCurrentHourUtc(now: Date = new Date()): Date {
@@ -189,7 +190,7 @@ const TICK_INTERVAL_MS = 5 * 60_000;
 
 /** gateway 内の定期 tick。INTERNAL_SCHEDULER_ENABLED=false で無効化できる。 */
 export function startInternalScheduler(): void {
-  if ((process.env.INTERNAL_SCHEDULER_ENABLED ?? 'true') === 'false') {
+  if (!config.internalSchedulerEnabled) {
     console.log('[schedule] internal scheduler disabled (INTERNAL_SCHEDULER_ENABLED=false)');
     return;
   }

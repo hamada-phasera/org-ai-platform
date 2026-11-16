@@ -8,6 +8,7 @@
 import { prisma } from '../utils/prisma';
 import { sealSecret, openSecret } from './secret-box';
 import { syncRequiredCredentialStatus } from './integration-sync';
+import { config } from '../config/env';
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const API_TIMEOUT_MS = 10_000;
@@ -111,8 +112,8 @@ type RefreshResult =
   | { ok: false; failure: RefreshFailure };
 
 async function requestRefresh(refreshToken: string): Promise<RefreshResult> {
-  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID ?? '';
-  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET ?? '';
+  const clientId = config.googleOAuthClientId ?? '';
+  const clientSecret = config.googleOAuthClientSecret ?? '';
   if (!clientId || !clientSecret) return { ok: false, failure: 'permanent' };
   try {
     const res = await fetch(TOKEN_URL, {

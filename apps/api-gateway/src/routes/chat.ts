@@ -5,9 +5,10 @@ import { requireAuth } from '../middleware/auth';
 import { retrieveContext, indexMessages } from '../services/rag';
 import { scrubSecrets } from '../services/secret-scrubber';
 import { aiEngineHeaders } from '../services/ai-engine-auth';
+import { config } from '../config/env';
 
-const N8N_CLOUD_URL = process.env.N8N_CLOUD_URL ?? 'https://hamahiro.app.n8n.cloud';
-const N8N_API_KEY = process.env.N8N_API_KEY ?? '';
+const N8N_CLOUD_URL = config.n8nChatCloudUrl;
+const N8N_API_KEY = config.n8nApiKey;
 const N8N_CHAT_WORKFLOW_NAME = 'org-ai Chat Response';
 
 let cachedChatWorkflowId: string | null = null;
@@ -194,7 +195,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     });
     const history = recentMessages.reverse().map((m) => ({ role: m.role, content: m.content }));
 
-    const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://ai-engine:8000';
+    const aiEngineUrl = config.aiEngineUrlComposeDefault;
     let aiResponse: { content: string; department: string };
     const n8nResult = await generateViaN8n({
       message: userContent,
@@ -326,7 +327,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',
-      'Access-Control-Allow-Origin': request.headers.origin || process.env.FRONTEND_URL?.split(',')[0] || '*',
+      'Access-Control-Allow-Origin': request.headers.origin || config.frontendUrlRaw?.split(',')[0] || '*',
       'Access-Control-Allow-Credentials': 'true',
     });
 
@@ -355,7 +356,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     };
     sendProgress('RECEIVED', undefined, true);
 
-    const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://ai-engine:8000';
+    const aiEngineUrl = config.aiEngineUrlComposeDefault;
     let fullContent = '';
     let department = body.data.department ?? 'GENERAL';
     /** 上流がエラーを送ってきたか。空メッセージを DB に作らないための旗 */
@@ -461,7 +462,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         sessionId: id,
         history: [],
         plan: orgRow?.plan ?? 'STARTER',
-        aiEngineUrl: process.env.AI_ENGINE_URL ?? 'http://ai-engine:8000',
+        aiEngineUrl: config.aiEngineUrlComposeDefault,
       });
       if (n8nResult) {
         fullContent = n8nResult.content;
@@ -558,7 +559,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       select: { name: true, displayName: true, description: true, department: true, inputSchema: true },
     });
 
-    const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://ai-engine:8000';
+    const aiEngineUrl = config.aiEngineUrlComposeDefault;
     try {
       const res = await fetch(`${aiEngineUrl}/plan/agent`, {
         method: 'POST',

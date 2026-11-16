@@ -11,11 +11,12 @@
 // 環境変数: METRICS_URL — usage-metrics-svc のベースURL（既定 http://localhost:8080）
 import type { FastifyInstance } from 'fastify';
 import { requireAuth } from '../../middleware/auth';
+import { config } from '../../config/env';
 
 const REQUEST_TIMEOUT_MS = 5_000;
 
 function metricsBaseUrl(): string {
-  return (process.env.METRICS_URL || 'http://localhost:8080').replace(/\/+$/, '');
+  return config.metricsUrl;
 }
 
 export async function analyticsRoutes(app: FastifyInstance): Promise<void> {

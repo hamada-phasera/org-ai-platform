@@ -9,6 +9,7 @@ import {
   buildProposalMessages,
   type ProposalInputs,
 } from './proposal-templates';
+import { config } from '../../config/env';
 
 /**
  * 提案書ドラフト生成（S-3・主機能）。
@@ -79,7 +80,7 @@ export async function salesProposalsRoutes(app: FastifyInstance): Promise<void> 
     const messages = buildProposalMessages(template, inputs);
 
     // ── LLM 呼び出し（AI Engine 経由・規約準拠） ──────────────
-    const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
+    const aiEngineUrl = config.aiEngineUrl;
     let res: Response;
     try {
       res = await fetch(`${aiEngineUrl}/llm/chat`, {

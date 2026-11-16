@@ -1,3 +1,4 @@
+import { config } from '../config/env';
 /**
  * 埋め込みベクトル生成サービス（RAG 用）。
  *
@@ -11,15 +12,15 @@
  *   OpenAI `text-embedding-3-small` は dimensions=1024 で揃えられる。
  */
 
-const PROVIDER = (process.env.EMBEDDING_PROVIDER ?? 'gemini').toLowerCase();
+const PROVIDER = config.embeddingProvider;
 // gemini を使う場合は LLM 用の GEMINI_API_KEY を流用できる（EMBEDDING_API_KEY が優先）。
 const API_KEY =
-  process.env.EMBEDDING_API_KEY || (PROVIDER === 'gemini' ? process.env.GEMINI_API_KEY ?? '' : '');
-export const EMBEDDING_DIM = Number(process.env.EMBEDDING_DIM ?? 1024);
+  config.embeddingApiKey || (PROVIDER === 'gemini' ? config.geminiApiKey ?? '' : '');
+export const EMBEDDING_DIM = config.embeddingDim;
 
-const VOYAGE_MODEL = process.env.EMBEDDING_MODEL ?? 'voyage-3';
-const OPENAI_MODEL = process.env.EMBEDDING_MODEL ?? 'text-embedding-3-small';
-const GEMINI_MODEL = process.env.EMBEDDING_MODEL ?? 'gemini-embedding-001';
+const VOYAGE_MODEL = config.embeddingModel ?? 'voyage-3';
+const OPENAI_MODEL = config.embeddingModel ?? 'text-embedding-3-small';
+const GEMINI_MODEL = config.embeddingModel ?? 'gemini-embedding-001';
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 
 export function isEmbeddingEnabled(): boolean {

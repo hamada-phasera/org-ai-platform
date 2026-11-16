@@ -10,6 +10,7 @@ import { generateInboxDraft } from './draft-generator';
 import type { LineMentionee, LineWebhookEvent } from './line-types';
 import { captureReceiptFromLine } from './receipt-capture';
 import { tracked } from '../lifecycle-core';
+import { config } from '../../config/env';
 
 /** processLineEvents が必要とする最小形（Prisma の ChannelConnection 互換）。 */
 export interface InboxConnection {
@@ -113,7 +114,7 @@ async function captureReceipt(
   } catch (e) {
     // ⚠️ e の中身をそのまま出さない（アクセストークンや messageId が混ざりうる）
     console.error('[line-inbox] 領収書の読み取りに失敗しました');
-    if (process.env.NODE_ENV !== 'production') {
+    if (!config.isProduction) {
       console.error(e instanceof Error ? e.message : e);
     }
     await prisma.inboundMessage

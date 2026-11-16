@@ -12,6 +12,7 @@ import {
 import { scrubSecrets } from '../services/secret-scrubber';
 import { aiEngineHeaders } from '../services/ai-engine-auth';
 import { tracked } from '../services/lifecycle-core';
+import { config } from '../config/env';
 
 const DEPARTMENTS = ['SALES', 'MARKETING', 'ACCOUNTING', 'ANALYTICS', 'GENERAL', 'ASSISTANT'];
 
@@ -91,7 +92,7 @@ async function inferAgentDefinition(
   reasoning?: string;
   confidence?: number;
 } | null> {
-  const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
+  const aiEngineUrl = config.aiEngineUrl;
   const capabilities = await prisma.capability.findMany({
     // ⚠️ 停止中のノードを planner に見せない。提案に出ても実行時に UNSUPPORTED で弾かれ、
     //    「提案どおり承認したのに動かない」ことになる（chat.ts 側と条件を揃える）。

@@ -2,8 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma';
 import { claimAndEnqueueScheduledTask, startOfCurrentHourUtc } from '../services/schedule-dispatcher';
+import { config } from '../config/env';
 
-const WEBHOOK_AUTH_TOKEN = process.env.N8N_WEBHOOK_AUTH_TOKEN ?? 'org-ai-n8n-secret-token';
+const WEBHOOK_AUTH_TOKEN = config.n8nWebhookAuthToken;
 
 const taskCompleteSchema = z.object({
   taskId: z.string(),
@@ -145,8 +146,8 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
         input: s.input,
         recipientEmail: s.recipientEmail ?? s.org.billingEmail ?? null,
         plan: s.org.plan,
-        callbackUrl: `${process.env.API_GATEWAY_URL ?? 'http://localhost:4000'}/api/webhooks/n8n/scheduled-job-complete`,
-        aiEngineUrl: process.env.AI_ENGINE_URL ?? 'http://localhost:8000',
+        callbackUrl: `${config.apiGatewayUrl}/api/webhooks/n8n/scheduled-job-complete`,
+        aiEngineUrl: config.aiEngineUrl,
       })),
     });
   });

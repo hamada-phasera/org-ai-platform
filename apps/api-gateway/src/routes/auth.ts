@@ -3,6 +3,7 @@ import * as bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma';
 import { requireAuth } from '../middleware/auth';
+import { config } from '../config/env';
 
 const registerSchema = z.object({
   name: z.string().min(1),
@@ -49,7 +50,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const token = app.jwt.sign(
       // email は LLM 松竹梅ルーティングの admin 判定（ADMIN_EMAILS）に使う
       { sub: user.id, orgId: org.id, role: user.role, email: user.email },
-      { expiresIn: process.env.JWT_EXPIRES_IN ?? '24h' },
+      { expiresIn: config.jwtExpiresIn },
     );
 
     return reply.code(201).send({
@@ -79,7 +80,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const token = app.jwt.sign(
       // email は LLM 松竹梅ルーティングの admin 判定（ADMIN_EMAILS）に使う
       { sub: user.id, orgId: user.orgId, role: user.role, email: user.email },
-      { expiresIn: process.env.JWT_EXPIRES_IN ?? '24h' },
+      { expiresIn: config.jwtExpiresIn },
     );
 
     return reply.send({

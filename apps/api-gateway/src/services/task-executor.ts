@@ -1,13 +1,11 @@
 import { prisma } from '../utils/prisma';
 import { agentWorkflowName } from './n8n-workflow-builder';
 import { aiEngineHeaders } from './ai-engine-auth';
+import { config } from '../config/env';
 
-const N8N_URL = (process.env.N8N_CLOUD_URL ?? process.env.N8N_URL ?? 'http://localhost:5678').replace(
-  /\/$/,
-  '',
-);
-const N8N_API_KEY = process.env.N8N_API_KEY ?? '';
-const N8N_WEBHOOK_AUTH_TOKEN = process.env.N8N_WEBHOOK_AUTH_TOKEN ?? 'org-ai-n8n-secret-token';
+const N8N_URL = config.n8nUrl.replace(/\/$/, '');
+const N8N_API_KEY = config.n8nApiKey;
+const N8N_WEBHOOK_AUTH_TOKEN = config.n8nWebhookAuthToken;
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -91,7 +89,7 @@ export async function triggerN8nWorkflowByPath(
     where: { id: task.orgId },
     select: { plan: true },
   });
-  const gatewayUrl = process.env.API_GATEWAY_URL ?? 'http://localhost:4000';
+  const gatewayUrl = config.apiGatewayUrl;
   const plan = org?.plan ?? 'STARTER';
   // チェーン型エージェント（成果物ノードを持つ）の場合、AI には各ステップの引数を JSON で出させる。
   // 例: create_google_doc → {"title","content"} を生成 → n8n の Parse Args が解釈して Doc ノードへ。
@@ -134,7 +132,7 @@ export async function triggerN8nWorkflowByPath(
         plan,
         callbackUrl: `${gatewayUrl}/api/webhooks/n8n/task-complete`,
         logUrl: `${gatewayUrl}/api/webhooks/n8n/task-log`,
-        aiEngineUrl: process.env.AI_ENGINE_URL ?? 'http://localhost:8000',
+        aiEngineUrl: config.aiEngineUrl,
       }),
     });
     if (!res.ok) {
@@ -166,7 +164,7 @@ export async function executeTaskViaAiEngine(task: {
   input: string;
   department: string;
 }): Promise<void> {
-  const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
+  const aiEngineUrl = config.aiEngineUrl;
   const org = await prisma.organization.findUnique({
     where: { id: task.orgId },
     select: { plan: true },
@@ -265,7 +263,7 @@ export async function executeTaskViaAgentEngine(
   task: { id: string; orgId: string; input: string },
   agent: AgentRunContext,
 ): Promise<void> {
-  const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
+  const aiEngineUrl = config.aiEngineUrl;
   const org = await prisma.organization.findUnique({
     where: { id: task.orgId },
     select: { plan: true },

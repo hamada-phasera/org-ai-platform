@@ -12,6 +12,7 @@ import {
 } from './format';
 import { groupDraftsByDate, type CalendarTask } from './calendar';
 import { aiEngineHeaders } from '../../services/ai-engine-auth';
+import { config } from '../../config/env';
 
 /**
  * SNS投稿 下書き生成 & 承認待ちキュー（N-1 / N-2）。
@@ -90,7 +91,7 @@ export async function snsPostsRoutes(app: FastifyInstance): Promise<void> {
     const plan = org?.plan ?? 'STARTER';
     const messages = buildSnsMessages(platform, inputs);
 
-    const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
+    const aiEngineUrl = config.aiEngineUrl;
     let res: Response;
     try {
       res = await fetch(`${aiEngineUrl}/llm/chat`, {

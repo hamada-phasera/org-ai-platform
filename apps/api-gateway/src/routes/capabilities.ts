@@ -17,6 +17,7 @@ import { validateUrlTemplate } from '../services/http-node/url-guard';
 import { scrubSecrets } from '../services/secret-scrubber';
 import { executeHttpCapabilityDetailed } from '../services/http-node/executor';
 import { aiEngineHeaders } from '../services/ai-engine-auth';
+import { config } from '../config/env';
 
 const resolveSchema = z.object({
   rawInput: z.string().optional(),
@@ -162,7 +163,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
       select: { plan: true },
     });
 
-    const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
+    const aiEngineUrl = config.aiEngineUrl;
     try {
       const res = await fetch(`${aiEngineUrl}/plan/http-node`, {
         method: 'POST',

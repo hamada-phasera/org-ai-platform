@@ -8,12 +8,13 @@
 //    本番では CHANNEL_CREDENTIAL_ENC_KEY を独立に設定すること（render.yaml 参照）。
 
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
+import { config } from '../config/env';
 
 const SEAL_VERSION = 'v1';
 const IV_BYTES = 12; // GCM 推奨の 96bit nonce
 
 function getKey(): Buffer {
-  const raw = process.env.CHANNEL_CREDENTIAL_ENC_KEY;
+  const raw = config.channelCredentialEncKey;
   if (raw) {
     if (/^[0-9a-fA-F]{64}$/.test(raw)) {
       return Buffer.from(raw, 'hex');
@@ -27,7 +28,7 @@ function getKey(): Buffer {
     );
   }
   // フォールバック: JWT_SECRET から導出（JWT_SECRET ローテで既存暗号文は復号不能になる）
-  return createHash('sha256').update(`${process.env.JWT_SECRET}:channel-secret-box`).digest();
+  return createHash('sha256').update(`${config.jwtSecret}:channel-secret-box`).digest();
 }
 
 /** 平文を暗号化して DB 保存用の文字列にする。 */

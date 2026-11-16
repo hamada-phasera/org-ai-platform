@@ -16,8 +16,9 @@ import { prisma } from '../utils/prisma';
 import { resolveAndExecute } from './capability-resolver';
 import { httpMethodOf } from './http-node/template';
 import { aiEngineHeaders } from './ai-engine-auth';
+import { config } from '../config/env';
 
-const AI_ENGINE_URL = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
+const AI_ENGINE_URL = config.aiEngineUrl;
 
 // ── pure（vitest 対象） ────────────────────────────────────────────
 

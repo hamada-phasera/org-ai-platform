@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../utils/prisma';
 import { requireAuth } from '../middleware/auth';
 import { aiEngineHeaders } from '../services/ai-engine-auth';
+import { config } from '../config/env';
 
 const llmChatSchema = z.object({
   messages: z
@@ -33,7 +34,7 @@ export async function llmRoutes(app: FastifyInstance): Promise<void> {
     const org = await prisma.organization.findUnique({ where: { id: payload.orgId } });
     const plan = org?.plan ?? 'STARTER';
 
-    const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
+    const aiEngineUrl = config.aiEngineUrl;
     let res: Response;
     try {
       res = await fetch(`${aiEngineUrl}/llm/chat`, {

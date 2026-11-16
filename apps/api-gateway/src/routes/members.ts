@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import { isUserRole } from '@org-ai/shared-types';
 import { prisma } from '../utils/prisma';
 import { requireAuth, requireOwner } from '../middleware/auth';
+import { config } from '../config/env';
 
 /**
  * メンバーと招待。prefix: `/api/members`
@@ -20,7 +21,7 @@ import { requireAuth, requireOwner } from '../middleware/auth';
  */
 
 /** 招待リンクの既定の有効期限（日）。手渡し前提なので当日中に踏まれるとは限らない。 */
-const INVITE_TTL_DAYS = Number(process.env.INVITE_TTL_DAYS ?? 7);
+const INVITE_TTL_DAYS = config.inviteTtlDays;
 
 const createInviteSchema = z.object({
   email: z.string().email().max(200).optional(),
@@ -233,7 +234,7 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
 
     const jwtToken = app.jwt.sign(
       { sub: created.id, orgId: created.orgId, role: created.role, email: created.email },
-      { expiresIn: process.env.JWT_EXPIRES_IN ?? '24h' },
+      { expiresIn: config.jwtExpiresIn },
     );
     return reply.code(201).send({ success: true, data: { token: jwtToken, user: created } });
   });

@@ -9,6 +9,7 @@ import { extractText } from '../utils/fileExtractor';
 import { indexFile } from '../services/rag';
 import { aiEngineHeaders } from '../services/ai-engine-auth';
 import { tracked } from '../services/lifecycle-core';
+import { config } from '../config/env';
 
 const ALLOWED_DEPARTMENTS = new Set(['SALES', 'MARKETING', 'ACCOUNTING', 'ANALYTICS', 'GENERAL']);
 
@@ -233,7 +234,7 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
       question,
     ].filter(Boolean).join('\n');
 
-    const aiEngineUrl = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
+    const aiEngineUrl = config.aiEngineUrl;
     let res: Response;
     try {
       res = await fetch(`${aiEngineUrl}/orchestrate`, {

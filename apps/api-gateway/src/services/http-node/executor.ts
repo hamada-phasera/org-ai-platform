@@ -16,6 +16,7 @@ import {
   pickOutput,
 } from './template';
 import { assertSafeUrl } from './url-guard';
+import { config as appConfig } from '../../config/env';
 
 export interface HttpCapabilityRow {
   id?: string;
@@ -87,7 +88,7 @@ export async function executeHttpCapabilityDetailed(
   args: Record<string, unknown>,
   orgId: string,
 ): Promise<ExecuteHttpResult> {
-  if ((process.env.HTTP_NODE_ENABLED ?? 'true') === 'false') {
+  if (!appConfig.httpNodeEnabled) {
     return {
       envelope: envelope('error', 'NODE_FAILED', 'カスタムノードの実行は現在停止されています。'),
       authDead: false,

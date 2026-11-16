@@ -34,6 +34,7 @@ import { installShutdownHandlers } from './services/lifecycle';
 import { startInternalScheduler } from './services/schedule-dispatcher';
 import { recoverStaleRunningTasks } from './services/step-runner';
 import { prisma } from './utils/prisma';
+import { config, ENV_DEFAULTS } from './config/env';
 
 const app = Fastify({ logger: true });
 
@@ -47,15 +48,12 @@ async function start(): Promise<void> {
   //   - プロジェクトエイリアス: flow-hamahiro1668s-projects.vercel.app
   //   - デプロイ毎: flow-<hash>-hamahiro1668s-projects.vercel.app（毎回変わる）
   // 末尾のアカウント固有サフィックスは他人が取得できないため、これだけワイルドカードにする。
-  const explicitOrigins = (process.env.FRONTEND_URL ?? 'http://localhost:3000')
+  const explicitOrigins = (config.frontendUrlRaw ?? ENV_DEFAULTS.FRONTEND_URL)
     .split(',')
     .map((s) => s.trim())
     .filter((s) => s && s !== '*');
-  const extraHosts = (process.env.ALLOWED_ORIGIN_HOSTS ?? 'org-ai-platform.vercel.app')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const vercelSuffix = process.env.VERCEL_PREVIEW_SUFFIX ?? '-hamahiro1668s-projects.vercel.app';
+  const extraHosts = config.allowedOriginHosts;
+  const vercelSuffix = config.vercelPreviewSuffix;
   await app.register(cors, {
     origin: (origin, cb) => {
       // 同一オリジン / 非ブラウザ (origin 無し) は許可
@@ -77,7 +75,7 @@ async function start(): Promise<void> {
     credentials: true,
   });
 
-  const jwtSecret = process.env.JWT_SECRET;
+  const jwtSecret = config.jwtSecret;
   if (!jwtSecret || jwtSecret.length < 32) {
     throw new Error('JWT_SECRET is required and must be at least 32 characters. Set it in your environment.');
   }
@@ -137,7 +135,7 @@ async function start(): Promise<void> {
   await app.register(billingRoutes, { prefix: '/api/billing' });
   await app.register(stripeWebhookRoutes, { prefix: '/api/webhooks/stripe' });
 
-  const port = parseInt(process.env.PORT ?? '4000');
+  const port = config.port;
   await app.listen({ port, host: '0.0.0.0' });
   console.log(`API Gateway running on port ${port}`);
 

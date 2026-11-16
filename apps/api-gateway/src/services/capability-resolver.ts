@@ -6,17 +6,18 @@ import { nativeProviderFor } from './adapters/provider-map';
 import { httpMethodOf } from './http-node/template';
 import { scrubJson } from './secret-scrubber';
 import { aiEngineHeaders } from './ai-engine-auth';
+import { config } from '../config/env';
 
 // 型は capability-executor に移設済み。既存 import 互換のため re-export する。
 export type { ErrorType, N8nEnvelope } from './capability-executor';
 
-const AI_ENGINE_URL = process.env.AI_ENGINE_URL ?? 'http://localhost:8000';
-const N8N_URL = process.env.N8N_CLOUD_URL ?? process.env.N8N_URL ?? 'http://localhost:5678';
-const N8N_API_KEY = process.env.N8N_API_KEY ?? '';
+const AI_ENGINE_URL = config.aiEngineUrl;
+const N8N_URL = config.n8nUrl;
+const N8N_API_KEY = config.n8nApiKey;
 const CREDS_CACHE_TTL_MS = 3 * 60 * 1000;
-const ADMIN_SLACK_CHANNEL = process.env.ADMIN_SLACK_CHANNEL ?? '#org-ai-admin';
+const ADMIN_SLACK_CHANNEL = config.adminSlackChannel;
 // rawInput 推論の確信度がこれ未満なら実行せず NEEDS_CONFIRMATION を返す（人が確認して確定実行）。
-const CONFIDENCE_THRESHOLD = Number(process.env.CAPABILITY_CONFIDENCE_THRESHOLD ?? 0.7);
+const CONFIDENCE_THRESHOLD = config.capabilityConfidenceThreshold;
 
 const ajv = new Ajv({ allErrors: true, strict: false });
 addFormats(ajv);
