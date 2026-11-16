@@ -1,0 +1,100 @@
+# PR と main への push で、TypeScript / Python / Go の lint・型チェック・テスト・ビルドを回す。
+#
+# ⚠️ DB・外部 API・シークレットには一切触れない。
+#   - gateway のテストは prisma をモックしているので DB 不要（prisma generate だけ要る）
+#   - ai-engine のテストは LLM をスタブしているので API キー不要
+#   - どちらも環境変数を何も設定しない状態（env -i）で通ることをローカルで確認済み
+# ローカルで同じことをするなら: README.md「テスト・lint・型チェック」を参照。
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: TypeScript (web / api-gateway / packages)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Dockerfile (node:20-alpine) に合わせる
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Prisma generate
+        run: npm run prisma:generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build (shared-types → api-gateway, web)
+        run: npm run build
+
+  python:
+    name: Python (ai-engine)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/ai-engine
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11' # 本番 Dockerfile と同じ
+          cache: pip
+          cache-dependency-path: |
+            apps/ai-engine/requirements.txt
+            apps/ai-engine/requirements-dev.txt
+
+      - name: Install
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Ruff
+        run: ruff check .
+
+      - name: Pytest
+        run: python -m pytest -q
+
+  go:
+    name: Go (usage-metrics-svc)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: usage-metrics-svc
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: usage-metrics-svc/go.mod
+          cache-dependency-path: usage-metrics-svc/go.sum
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...

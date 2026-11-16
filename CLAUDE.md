@@ -28,10 +28,13 @@ org-ai-platform/
 ├── apps/
 │   ├── web/                   # React SPA (port 3000)
 │   ├── api-gateway/           # Fastify (port 4000)
-│   └── ai-engine/             # FastAPI (port 8000)
+│   ├── ai-engine/             # FastAPI (port 8000)
+│   └── n8n-workflows/         # n8n にインポートするワークフロー JSON
 ├── packages/
 │   ├── shared-types/          # 共有TypeScript型定義
-│   └── db-schema/             # DBマイグレーション (Prisma + SQLite)
+│   └── db-schema/             # DBマイグレーション (Prisma + PostgreSQL/pgvector)
+├── usage-metrics-svc/         # Go の AILog 集計サービス (読み取り専用)
+├── docs/                      # ARCHITECTURE.md ほか設計・運用ドキュメント
 ├── docker-compose.yml
 ├── .env.example
 └── tasks/                     # エージェントチーム用タスク定義
@@ -47,6 +50,17 @@ org-ai-platform/
 - PII検知を通過してからLLMに送信する
 - エラーハンドリングは統一フォーマットで返す: `{ success: false, error: { code, message } }`
 - 環境変数は .env ファイルで管理する
+- 環境変数の読み口は1か所: gateway は `src/config/env.ts`（`envSchema` に追加し既定値は `ENV_DEFAULTS` だけに書く。
+  読むときは `config.*`）、ai-engine は `app/config.py`（`settings.*`）。`process.env` / `os.environ` を直接読まない。
+  変数を足したら `.env.example` にも載せる
+- gateway のエラー応答は `utils/http-error.ts` の `sendError(reply, status, code, message)` で返す
+- gateway のログは `utils/logger.ts` の `createLogger('scope')`（`console.*` 直書き禁止）。ai-engine は
+  `logging.getLogger(__name__)`（`print` 禁止）。秘密の値はログにもレスポンスにも出さない
+- 変更前後にルートで `npm run lint` / `npm run typecheck` / `npm test` / `npm run build`、
+  Python は `npm run lint:ai` / `npm run typecheck:ai` / `npm run test:ai`（`apps/ai-engine/.venv` 前提）、
+  Go は `npm run test:go`。CI（`.github/workflows/ci.yml`）も同じことを回す
+- テストコードも型チェック対象（gateway / shared-types は `tsconfig.test.json`）。DB・外部 API はモックし、シークレット無しで通すこと
+- 構成とデータフローは `docs/ARCHITECTURE.md`、整理で見送った項目・既知の問題は `docs/maintenance/cleanup-hold-list.md`
 
 ## 環境変数
 

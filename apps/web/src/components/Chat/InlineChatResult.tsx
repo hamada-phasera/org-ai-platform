@@ -306,6 +306,15 @@ const CONSTRUCTION_CATEGORY_LABEL: Record<string, string> = {
   OTHER: '経費',
 };
 
+/** AI が読み取った原価明細 1 行（ai-engine の出力そのまま。どの項目も欠けうる） */
+interface ConstructionCostEntryPreview {
+  incurredOn?: string | null;
+  projectHint?: string | null;
+  category?: string | null;
+  vendorHint?: string | null;
+  amountIncludingTax?: number | string | null;
+}
+
 /**
  * 工事原価の読み取り結果。
  *
@@ -315,7 +324,7 @@ const CONSTRUCTION_CATEGORY_LABEL: Record<string, string> = {
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function ConstructionCostPreview({ data }: { data: any }) {
-  const entries: any[] = Array.isArray(data.entries) ? data.entries : [];
+  const entries: ConstructionCostEntryPreview[] = Array.isArray(data.entries) ? data.entries : [];
   const total = entries.reduce((s, e) => s + (Number(e.amountIncludingTax) || 0), 0);
   return (
     <div className="space-y-2">
@@ -341,7 +350,7 @@ function ConstructionCostPreview({ data }: { data: any }) {
                   <td className="py-1 pr-2 text-text-muted">{e.incurredOn ?? '—'}</td>
                   <td className="py-1 pr-2 text-primary">{e.projectHint ?? '—'}</td>
                   <td className="py-1 pr-2 text-text-muted">
-                    {CONSTRUCTION_CATEGORY_LABEL[e.category] ?? e.category ?? '—'}
+                    {CONSTRUCTION_CATEGORY_LABEL[e.category ?? ''] ?? e.category ?? '—'}
                   </td>
                   <td className="py-1 pr-2 text-text-muted">{e.vendorHint ?? '—'}</td>
                   <td className="py-1 text-right text-primary font-medium">

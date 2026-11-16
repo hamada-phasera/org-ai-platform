@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { AgentStepDef } from '@org-ai/shared-types';
 
 process.env.AI_ENGINE_URL = 'https://ai.test';
 
@@ -38,7 +39,7 @@ const AGENT = {
   steps: [
     { capabilityName: 'create_google_doc', argTemplate: { title: '日報', content: '{{input}}' } },
     { capabilityName: 'notify_slack', argTemplate: { channel: '#general', text: '{{prev}}' } },
-  ],
+  ] as AgentStepDef[],
 };
 
 /** Task.update に渡された最後のデータを取る */

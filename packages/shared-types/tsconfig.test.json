@@ -1,0 +1,9 @@
+{
+  // テストも含めた型チェック用（npm run typecheck）。ビルド (tsc) は tsconfig.json で
+  // __tests__ を除外したまま（dist にテストを出さないため）。
+  // テストは vitest が ESM として実行し、vitest の型定義も ESM 解決を前提にしているので module を切り替える。
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "module": "esnext", "moduleResolution": "bundler" },
+  "include": ["src/**/*"],
+  "exclude": ["dist", "node_modules"]
+}
