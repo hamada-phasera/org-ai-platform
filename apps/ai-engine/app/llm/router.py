@@ -164,7 +164,7 @@ def provider_of_model(model: str) -> str:
     return "gemini" if model.startswith("gemini") else "anthropic"
 
 
-def _screen_user_messages(messages: list[ChatMessage]) -> tuple[list[ChatMessage], bool, list[str]]:
+def screen_user_messages(messages: list[ChatMessage]) -> tuple[list[ChatMessage], bool, list[str]]:
     pii_detected = False
     pii_types: list[str] = []
     screened = list(messages)
@@ -232,7 +232,7 @@ class LLMRouter:
         force_anthropic_model: str | None = None,
         task: TaskKind | None = None,
     ) -> tuple[LLMResponse, bool, list[str]]:
-        screened_messages, pii_detected, pii_types = _screen_user_messages(messages)
+        screened_messages, pii_detected, pii_types = screen_user_messages(messages)
 
         if force_anthropic_model:
             # エージェント構築など「全ユーザーで Claude 品質」を明示する経路
@@ -267,7 +267,7 @@ class LLMRouter:
         user_email: str | None = None,
     ) -> AsyncIterator[str]:
         """Stream tokens with PII screening applied to user messages（プロバイダは松竹梅で分岐）。"""
-        screened_messages, _, _ = _screen_user_messages(messages)
+        screened_messages, _, _ = screen_user_messages(messages)
         provider_name, model = resolve_provider_model(plan, user_email, json_mode=False)
         provider_name, model = await _degrade_if_over_limit(org_id, plan, provider_name, model)
         note_call(org_id)

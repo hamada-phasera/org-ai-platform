@@ -67,6 +67,30 @@ class BaseAgent:
     system_prompt: str = "あなたは有能なAIアシスタントです。"
     security_extra: ClassVar[str] = ""
 
+    def build_messages(
+        self,
+        user_message: str,
+        history: list[ChatMessage] | None = None,
+        context: str | None = None,
+    ) -> list[ChatMessage]:
+        """LLM に送るメッセージ列を組み立てる（通常応答とストリーミングで共通）。
+
+        並び: system(人格+セキュリティ核[+根拠資料の指示]) → system(参考資料) → 履歴 → user。
+        PII のマスクはここでは行わない（LLMRouter が送信直前に必ず通す）。
+        """
+        has_context = bool(context and context.strip())
+        system_content = _build_system_prompt(self.system_prompt, self.security_extra)
+        if has_context:
+            system_content = system_content + "\n\n" + GROUNDING_INSTRUCTION
+        messages: list[ChatMessage] = [ChatMessage(role="system", content=system_content)]
+        if has_context:
+            assert context is not None
+            messages.append(ChatMessage(role="system", content=f"【参考資料】\n{context.strip()}"))
+        if history:
+            messages.extend(_sanitize_history(history))
+        messages.append(ChatMessage(role="user", content=_wrap_user_message(user_message)))
+        return messages
+
     async def execute(
         self,
         user_message: str,
@@ -76,18 +100,7 @@ class BaseAgent:
         context: str | None = None,
         user_email: str | None = None,
     ) -> tuple[LLMResponse, bool, list[str]]:
-        system_content = _build_system_prompt(self.system_prompt, self.security_extra)
-        if context and context.strip():
-            system_content = system_content + "\n\n" + GROUNDING_INSTRUCTION
-        messages: list[ChatMessage] = [
-            ChatMessage(role="system", content=system_content),
-        ]
-        if context and context.strip():
-            messages.append(ChatMessage(role="system", content=f"【参考資料】\n{context.strip()}"))
-        if history:
-            messages.extend(_sanitize_history(history))
-        messages.append(ChatMessage(role="user", content=_wrap_user_message(user_message)))
-
+        messages = self.build_messages(user_message, history=history, context=context)
         return await llm_router.chat(
             messages=messages,
             department=self.department,

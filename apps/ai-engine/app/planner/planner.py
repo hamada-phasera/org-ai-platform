@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Any
 
+from app.departments import DEPARTMENTS
 from app.llm.router import TaskKind, llm_router
 from app.models.llm import ChatMessage
 from app.planner.prompts import (
@@ -19,7 +20,7 @@ from app.planner.prompts import (
 
 logger = logging.getLogger(__name__)
 
-_VALID_DEPARTMENTS = {"SALES", "MARKETING", "ACCOUNTING", "ANALYTICS", "GENERAL"}
+_VALID_DEPARTMENTS = frozenset(DEPARTMENTS)
 
 
 async def plan_capability(

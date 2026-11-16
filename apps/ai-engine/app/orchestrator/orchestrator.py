@@ -2,21 +2,35 @@ from __future__ import annotations
 
 from app.agents.accounting import AccountingAgent
 from app.agents.analytics import AnalyticsAgent
+from app.agents.base import BaseAgent
 from app.agents.general import GeneralAgent
 from app.agents.marketing import MarketingAgent
 from app.agents.sales import SalesAgent
+from app.departments import DEFAULT_DEPARTMENT
 from app.governance.audit_logger import schedule_llm_log
 from app.llm.router import provider_of_model
-from app.models.llm import OrchestrateResponse
+from app.models.llm import ChatMessage, OrchestrateResponse
 from app.orchestrator.intent_classifier import classify_intent
 
-_agents = {
+_agents: dict[str, BaseAgent] = {
     "SALES": SalesAgent(),
     "MARKETING": MarketingAgent(),
     "ACCOUNTING": AccountingAgent(),
     "ANALYTICS": AnalyticsAgent(),
     "GENERAL": GeneralAgent(),
 }
+
+
+async def resolve_department(user_message: str, department: str | None) -> str:
+    """明示された部署が有効ならそれを、無ければキーワードで分類した部署を返す。"""
+    if department and department in _agents:
+        return department
+    return await classify_intent(user_message)
+
+
+def get_agent(department: str) -> BaseAgent:
+    """部署のエージェント。未知の部署は GENERAL。"""
+    return _agents.get(department, _agents[DEFAULT_DEPARTMENT])
 
 
 class Orchestrator:
@@ -27,14 +41,11 @@ class Orchestrator:
         plan: str = "STARTER",
         department: str | None = None,
         context: str | None = None,
-        history=None,
+        history: list[ChatMessage] | None = None,
         user_email: str | None = None,
     ) -> OrchestrateResponse:
-        if department and department in _agents:
-            resolved_dept = department
-        else:
-            resolved_dept = await classify_intent(user_message)
-        agent = _agents.get(resolved_dept, _agents["GENERAL"])
+        resolved_dept = await resolve_department(user_message, department)
+        agent = get_agent(resolved_dept)
 
         response, pii_detected, pii_types = await agent.execute(
             user_message=user_message,

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import logging
 
-logger = logging.getLogger(__name__)
+from app.departments import DEFAULT_DEPARTMENT, DEPARTMENTS  # noqa: F401 — DEPARTMENTS は旧来の公開名
 
-DEPARTMENTS = ["SALES", "MARKETING", "ACCOUNTING", "ANALYTICS", "GENERAL"]
+logger = logging.getLogger(__name__)
 
 # キーワードベースの分類（LLM呼び出し不要 → レート制限回避）
 _KEYWORD_MAP: dict[str, list[str]] = {
@@ -43,4 +43,4 @@ async def classify_intent(user_message: str) -> str:
         logger.info("classify_intent: keyword match -> %s (score=%d)", best, scores[best])
         return best
     logger.info("classify_intent: no keyword match, falling back to GENERAL")
-    return "GENERAL"
+    return DEFAULT_DEPARTMENT

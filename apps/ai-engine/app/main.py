@@ -1,96 +1,60 @@
 import json
+import logging
 import secrets
 import time
+from collections.abc import AsyncIterator, Awaitable, Callable
+from datetime import UTC, datetime
+from typing import Any
 
 from dotenv import load_dotenv
 
+# ⚠️ 他の app.* より先に .env を読む。import 時に env を読んで定数にするモジュールがある
+#    （CORS の許可オリジン・内部トークン・Gemini のモデル名・DB の接続先）。
 load_dotenv()
 
-from typing import Any
-
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
 
 from app.config import settings
+from app.departments import DEFAULT_DEPARTMENT
 from app.governance.audit_logger import schedule_llm_log
-from app.governance.pii_screener import screen
+from app.governance.pii_screener import PIIResult, screen
 from app.llm.router import (
     AGENT_BUILD_MODEL,
+    EXTRACT_MODEL,
     llm_router,
     provider_of_model,
     resolve_provider_model,
+    screen_user_messages,
+)
+from app.models.api import (
+    ALLOWED_RECEIPT_MEDIA_TYPES,
+    MAX_RECEIPT_IMAGE_BYTES,
+    AgentStep,
+    PlanAgentRequest,
+    PlanAgentResponse,
+    PlanHttpNodeRequest,
+    PlanHttpNodeResponse,
+    PlanRequest,
+    PlanResponse,
+    Ranking,
+    RankRequest,
+    RankResponse,
+    ReadReceiptRequest,
+    ReadReceiptResponse,
 )
 from app.models.llm import ChatMessage, LLMRequest, LLMResponse, OrchestateRequest, OrchestrateResponse
-from app.orchestrator.intent_classifier import classify_intent
-from app.orchestrator.orchestrator import orchestrator
+from app.orchestrator.orchestrator import get_agent, orchestrator, resolve_department
 from app.planner import plan_agent, plan_capability
 from app.planner.planner import plan_http_node, screen_agent
+from app.planner.receipt_vision import read_receipt
 
+logger = logging.getLogger(__name__)
 
-class PlanCapability(BaseModel):
-    name: str
-    displayName: str | None = None
-    description: str
-    department: str | None = None
-    inputSchema: dict[str, Any]
+APP_VERSION = "1.0.0"
 
-
-class PlanRequest(BaseModel):
-    message: str
-    org_id: str
-    plan: str = "STARTER"
-    available_capabilities: list[PlanCapability]
-    user_email: str | None = None  # 松竹梅ルーティング（admin判定）用
-
-
-class PlanResponse(BaseModel):
-    capability_name: str | None
-    args: dict[str, Any]
-    confidence: float
-    reasoning: str
-    inferred_name: str | None = None
-    pii_detected: bool = False
-    pii_types: list[str] = []
-
-
-class CurrentAgent(BaseModel):
-    """既存エージェントを修正するときに渡す現状。これがあると planner は
-    「土台にして、依頼された変更だけを加えた steps 全体」を返す（差分ではなく完成形）。"""
-
-    name: str | None = None
-    instructions: str | None = None
-    steps: list[dict[str, Any]] = []
-
-
-class PlanAgentRequest(BaseModel):
-    description: str
-    org_id: str
-    plan: str = "STARTER"
-    available_capabilities: list[PlanCapability] = []
-    current_agent: CurrentAgent | None = None
-    # 受動的な提案（会話から勝手に拾う経路）だけ True。
-    # 明示的に依頼された設計（/agents/suggest・チャットでの修正）では判定を挟まない。
-    screen_first: bool = False
-
-
-
-class AgentStep(BaseModel):
-    capabilityName: str
-    argTemplate: dict[str, Any] = {}
-
-
-class PlanAgentResponse(BaseModel):
-    name: str | None = None
-    department: str = "GENERAL"
-    instructions: str | None = None
-    steps: list[AgentStep] = []
-    trigger: str = "MANUAL"
-    confidence: float = 0.0
-    reasoning: str = ""
-
-app = FastAPI(title="AI Engine", version="1.0.0")
+app = FastAPI(title="AI Engine", version=APP_VERSION)
 
 allowed_origins = settings.allowed_origins
 app.add_middleware(
@@ -117,7 +81,7 @@ INTERNAL_API_TOKEN = settings.internal_api_token
 PUBLIC_PATHS = frozenset({"/health", "/docs", "/redoc", "/openapi.json"})
 
 if not INTERNAL_API_TOKEN:
-    print(
+    logger.warning(
         "[ai-engine] ⚠️ INTERNAL_API_TOKEN が未設定です。"
         "公開 URL の全エンドポイントが無認証で叩けます（課金・AILog 汚染のリスク）。"
         "gateway と同じ値を設定してください。"
@@ -125,7 +89,7 @@ if not INTERNAL_API_TOKEN:
 
 
 @app.middleware("http")
-async def require_internal_token(request: Request, call_next):
+async def require_internal_token(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     """gateway 以外からの呼び出しを弾く。"""
     # ⚠️ CORS プリフライト(OPTIONS)にはカスタムヘッダが載らないので通す（本体は弾かれる）
     if INTERNAL_API_TOKEN and request.url.path not in PUBLIC_PATHS and request.method != "OPTIONS":
@@ -136,13 +100,56 @@ async def require_internal_token(request: Request, call_next):
     return await call_next(request)
 
 
+# ── 共通ヘルパ ────────────────────────────────────────────────────
+
+
+def _utc_timestamp() -> str:
+    """タイムゾーン表記なしの UTC ISO 8601（従来の datetime.utcnow().isoformat() と同じ形）。"""
+    return datetime.now(UTC).replace(tzinfo=None).isoformat()
+
+
+def _pii_types(result: PIIResult) -> list[str]:
+    return list(result.types) if result.detected else []
+
+
+def _log_masked_call(
+    *,
+    org_id: str,
+    department: str,
+    provider: str,
+    model: str,
+    pii_result: PIIResult,
+    result: dict[str, Any],
+) -> None:
+    """planner 系エンドポイントの AILog 記録。入力は**マスク後**だけを残す。"""
+    schedule_llm_log(
+        org_id=org_id,
+        department=department,
+        provider=provider,
+        model=model,
+        input_text=pii_result.text,
+        output_text=json.dumps(result, ensure_ascii=False),
+        tokens=None,
+        latency_ms=None,
+        pii_detected=pii_result.detected,
+        pii_types=_pii_types(pii_result),
+    )
+
+
+def _sse(payload: dict[str, Any]) -> str:
+    return f"data: {json.dumps(payload)}\n\n"
+
+
+# ── エンドポイント ────────────────────────────────────────────────
+
+
 @app.get("/health")
 async def health() -> dict:
     return {
         "status": "ok",
         "service": "ai-engine",
-        "version": "1.0.0",
-        "timestamp": __import__("datetime").datetime.utcnow().isoformat(),
+        "version": APP_VERSION,
+        "timestamp": _utc_timestamp(),
     }
 
 
@@ -156,7 +163,7 @@ async def ready() -> dict:
         # 松竹梅ルーティング: 梅/竹=Gemini。未設定なら全プラン Anthropic フォールバック
         "gemini": has_gemini,
         "admin_emails_configured": bool(settings.admin_emails_raw),
-        "timestamp": __import__("datetime").datetime.utcnow().isoformat(),
+        "timestamp": _utc_timestamp(),
     }
 
 
@@ -182,54 +189,24 @@ async def orchestrate(request: OrchestateRequest) -> OrchestrateResponse:
 @app.post("/orchestrate/stream")
 async def orchestrate_stream(request: OrchestateRequest) -> StreamingResponse:
     """SSE ストリーミングエンドポイント。トークンを1つずつ返す。"""
-    # 部署を解決
-    if request.department and request.department in (
-        "SALES",
-        "MARKETING",
-        "ACCOUNTING",
-        "ANALYTICS",
-        "GENERAL",
-    ):
-        resolved_dept = request.department
-    else:
-        resolved_dept = await classify_intent(request.message)
+    resolved_dept = await resolve_department(request.message, request.department)
 
-    # エージェントのシステムプロンプトを取得（セキュリティ核 + エージェント化提案を含む統一ビルダ経由）
-    from app.agents.base import GROUNDING_INSTRUCTION, _build_system_prompt, _sanitize_history, _wrap_user_message
-    from app.orchestrator.orchestrator import _agents
-    agent = _agents.get(resolved_dept, _agents["GENERAL"])
-    system_content = _build_system_prompt(agent.system_prompt, getattr(agent, "security_extra", ""))
-    has_context = bool(request.context and request.context.strip())
-    if has_context:
-        system_content = system_content + "\n\n" + GROUNDING_INSTRUCTION
-    messages = [ChatMessage(role="system", content=system_content)]
-    if has_context:
-        messages.append(ChatMessage(role="system", content=f"【参考資料】\n{request.context.strip()}"))
-    # 直近の会話履歴（ヒアリングが前回の回答を踏まえて進行できるように）
-    if request.history:
-        messages.extend(_sanitize_history(request.history))
-    messages.append(ChatMessage(role="user", content=_wrap_user_message(request.message)))
+    # /orchestrate と同じ組み立て（セキュリティ核 + エージェント化提案を含む統一ビルダ経由）
+    agent = get_agent(resolved_dept)
+    messages = agent.build_messages(request.message, history=request.history, context=request.context)
 
-    # PII スクリーニング
-    pii_detected = False
-    pii_types: list[str] = []
-    for i, msg in enumerate(messages):
-        if msg.role == "user":
-            result = screen(msg.content)
-            if result.detected:
-                pii_detected = True
-                pii_types.extend(result.types)
-                messages[i] = ChatMessage(role=msg.role, content=result.text)
+    # PII スクリーニング（LLMRouter と同じ関数。router 側でも送信直前にもう一度かかる）
+    messages, pii_detected, pii_types = screen_user_messages(messages)
 
     # ⚠️ AILog には **マスク後** だけを残す。request.message を直接記録すると、
     #    LLM には送っていない生の資格情報・個人情報が DB に永久に残る。
     logged_input = "\n".join(m.content for m in messages if m.role == "user")
 
-    async def event_generator():
+    async def event_generator() -> AsyncIterator[str]:
         start = time.monotonic()
         full_content = ""
         # 最初に部署情報を送信
-        yield f"data: {json.dumps({'type': 'department', 'department': resolved_dept})}\n\n"
+        yield _sse({"type": "department", "department": resolved_dept})
         try:
             stream_provider, stream_model = resolve_provider_model(request.plan, request.user_email)
             async for token in llm_router.chat_stream(
@@ -240,11 +217,11 @@ async def orchestrate_stream(request: OrchestateRequest) -> StreamingResponse:
                 user_email=request.user_email,
             ):
                 full_content += token
-                yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+                yield _sse({"type": "token", "content": token})
 
             latency_ms = int((time.monotonic() - start) * 1000)
             # 完了イベント
-            yield f"data: {json.dumps({'type': 'done', 'department': resolved_dept})}\n\n"
+            yield _sse({"type": "done", "department": resolved_dept})
 
             # 監査ログを非同期で記録
             schedule_llm_log(
@@ -260,7 +237,7 @@ async def orchestrate_stream(request: OrchestateRequest) -> StreamingResponse:
                 pii_types=pii_types,
             )
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            yield _sse({"type": "error", "message": str(e)})
 
     return StreamingResponse(
         event_generator(),
@@ -312,17 +289,13 @@ async def plan(request: PlanRequest) -> PlanResponse:
         user_email=request.user_email,
     )
     plan_provider, plan_model = resolve_provider_model(request.plan, request.user_email, json_mode=True)
-    schedule_llm_log(
+    _log_masked_call(
         org_id=request.org_id,
-        department="GENERAL",
+        department=DEFAULT_DEPARTMENT,
         provider=plan_provider,
         model=plan_model,
-        input_text=pii_result.text,  # マスク後だけを記録する
-        output_text=json.dumps(result, ensure_ascii=False),
-        tokens=None,
-        latency_ms=None,
-        pii_detected=pii_result.detected,
-        pii_types=list(pii_result.types) if pii_result.detected else [],
+        pii_result=pii_result,
+        result=result,
     )
     return PlanResponse(
         capability_name=result.get("capability_name"),
@@ -331,31 +304,40 @@ async def plan(request: PlanRequest) -> PlanResponse:
         reasoning=result.get("reasoning", ""),
         inferred_name=result.get("inferred_name"),
         pii_detected=pii_result.detected,
-        pii_types=list(pii_result.types) if pii_result.detected else [],
+        pii_types=_pii_types(pii_result),
     )
 
 
-class RankItem(BaseModel):
-    id: str
-    title: str
-    summary: str = ""
-    department: str | None = None
+_RANK_SYSTEM_PROMPT = (
+    "あなたは中小企業の社長補佐です。"
+    "以下の成果物リストを、ビジネス上の重要度で high / mid / low に分類してください。\n"
+    "- high: 売上・顧客・契約・重要な意思決定に直結（提案書、見積、重要顧客向けメール、経営判断材料など）\n"
+    "- mid: 通常業務の資料・分析・社内向け\n"
+    "- low: 参考・下書き・定型の軽微なもの\n"
+    '必ず JSON のみを返す: {"rankings":[{"id":"<元のid>","importance":"high|mid|low","reason":"20字程度の理由"}]}。'
+    "すべての id を必ず含めること。"
+)
+
+_VALID_IMPORTANCE = frozenset({"high", "mid", "low"})
 
 
-class RankRequest(BaseModel):
-    items: list[RankItem]
-    org_id: str = ""
-    plan: str = "STARTER"
-
-
-class Ranking(BaseModel):
-    id: str
-    importance: str = "mid"  # high | mid | low
-    reason: str = ""
-
-
-class RankResponse(BaseModel):
-    rankings: list[Ranking]
+def _parse_rankings(content: str) -> dict[str, Ranking]:
+    """LLM の出力から id → Ranking を取り出す。壊れていれば例外（呼び出し側で全件 mid に倒す）。"""
+    raw = content.strip()
+    # ⚠️ planner._safe_parse_json とは順序が違う（こちらはフェンスを先に剥がす）。挙動を変えないため共通化しない
+    if "```" in raw:
+        body = raw.split("```", 2)[1]
+        raw = body[4:] if body.startswith("json") else body
+    parsed = json.loads(raw.strip())
+    by_id: dict[str, Ranking] = {}
+    for r in parsed.get("rankings", []):
+        if not isinstance(r, dict):
+            continue
+        rid = r.get("id")
+        imp = r.get("importance")
+        if rid and imp in _VALID_IMPORTANCE:
+            by_id[str(rid)] = Ranking(id=str(rid), importance=imp, reason=str(r.get("reason", ""))[:60])
+    return by_id
 
 
 @app.post("/rank", response_model=RankResponse)
@@ -368,97 +350,23 @@ async def rank(request: RankRequest) -> RankResponse:
         f'- id={it.id} | 部署={it.department or "?"} | {it.title}: {(it.summary or "")[:200]}'
         for it in request.items
     ]
-    system = (
-        "あなたは中小企業の社長補佐です。"
-        "以下の成果物リストを、ビジネス上の重要度で high / mid / low に分類してください。\n"
-        "- high: 売上・顧客・契約・重要な意思決定に直結（提案書、見積、重要顧客向けメール、経営判断材料など）\n"
-        "- mid: 通常業務の資料・分析・社内向け\n"
-        "- low: 参考・下書き・定型の軽微なもの\n"
-        '必ず JSON のみを返す: {"rankings":[{"id":"<元のid>","importance":"high|mid|low","reason":"20字程度の理由"}]}。'
-        "すべての id を必ず含めること。"
-    )
     messages = [
-        ChatMessage(role="system", content=system),
+        ChatMessage(role="system", content=_RANK_SYSTEM_PROMPT),
         ChatMessage(role="user", content="成果物:\n" + "\n".join(lines)),
     ]
-    valid = {"high", "mid", "low"}
     by_id: dict[str, Ranking] = {}
     try:
         response, _pii, _types = await llm_router.chat(
             messages=messages, department="GENERAL", org_id=request.org_id, plan=request.plan, json_mode=True
         )
-        raw = response.content.strip()
-        if "```" in raw:
-            body = raw.split("```", 2)[1]
-            raw = body[4:] if body.startswith("json") else body
-        parsed = json.loads(raw.strip())
-        for r in parsed.get("rankings", []):
-            if not isinstance(r, dict):
-                continue
-            rid = r.get("id")
-            imp = r.get("importance")
-            if rid and imp in valid:
-                by_id[str(rid)] = Ranking(id=str(rid), importance=imp, reason=str(r.get("reason", ""))[:60])
-    except Exception:
-        pass  # 失敗時は全件 mid にフォールバック
+        by_id = _parse_rankings(response.content)
+    except Exception as e:
+        # 失敗時は全件 mid にフォールバック
+        logger.warning("[rank] 重要度の判定に失敗したため全件 mid で返します: %s", type(e).__name__)
 
     # 欠けた id は mid で補完（全件返す）
     rankings = [by_id.get(it.id, Ranking(id=it.id, importance="mid", reason="")) for it in request.items]
     return RankResponse(rankings=rankings)
-
-
-class PlanHttpNodeRequest(BaseModel):
-    """貼られた curl / API ドキュメントからカスタムノード設定を起こす。"""
-
-    source: str
-    org_id: str
-    plan: str = "STARTER"
-
-
-class PlanHttpNodeResponse(BaseModel):
-    name: str | None = None
-    displayName: str | None = None
-    description: str | None = None
-    department: str = "GENERAL"
-    params: list[dict[str, Any]] = []
-    http: dict[str, Any] | None = None
-    confidence: float = 0.5
-    reasoning: str = ""
-
-
-ALLOWED_RECEIPT_MEDIA_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
-"""Anthropic の画像入力が受け付ける形式。それ以外は送らずに落とす。"""
-
-MAX_RECEIPT_IMAGE_BYTES = 5 * 1024 * 1024
-
-
-class ReadReceiptRequest(BaseModel):
-    """領収書画像の読み取り。
-
-    ⚠️ 画像はここで一度使うだけで、**どこにも保存しない**。
-    保管すると電子帳簿保存法の保管要件を背負うことになるため、v1 では抽出結果だけを持つ。
-    """
-
-    image_base64: str
-    media_type: str = "image/jpeg"
-    org_id: str
-    # ⚠️ 受け取るが**ルーティングには使わない**。領収書の読み取りは全プラン Claude 固定。
-    #    松竹梅の Gemini 側に画像入力の口が無いことに加え、金額の読み違いは
-    #    トークン代より高くつくため（エージェント構築を全ユーザー Opus 固定にしているのと同じ判断）。
-    #    互換のために残しているだけで、外すと gateway 側の呼び出しが壊れる。
-    plan: str = "STARTER"
-
-
-class ReadReceiptResponse(BaseModel):
-    amountIncludingTax: int | None = None
-    taxAmount: int | None = None
-    incurredOn: str | None = None
-    vendorHint: str | None = None
-    category: str | None = None
-    projectHint: str | None = None
-    description: str | None = None
-    confidence: float = 0.0
-    notes: str | None = None
 
 
 @app.post("/vision/receipt", response_model=ReadReceiptResponse)
@@ -467,8 +375,6 @@ async def read_receipt_endpoint(request: ReadReceiptRequest) -> ReadReceiptRespo
 
     返すのは候補だけ。工事・取引先の紐付けと確定は gateway 側で人が承認する。
     """
-    from app.planner.receipt_vision import read_receipt
-
     if request.media_type not in ALLOWED_RECEIPT_MEDIA_TYPES:
         return ReadReceiptResponse(notes="対応していない画像形式です。写真で撮り直してください。")
 
@@ -482,7 +388,7 @@ async def read_receipt_endpoint(request: ReadReceiptRequest) -> ReadReceiptRespo
     except Exception as e:  # noqa: BLE001 — 読めなかったことを人に返す（例外で 500 にしない）
         # ⚠️ 例外の中身をそのまま出さない。このフレームは request.image_base64 を握っており、
         #    例外の型は無制限なので、将来どこかで画像が文字列化される余地を残さない
-        print(f"[vision/receipt] 読み取りに失敗: {type(e).__name__}")
+        logger.warning("[vision/receipt] 読み取りに失敗: %s", type(e).__name__)
         return ReadReceiptResponse(notes="領収書を読み取れませんでした。手入力で登録してください。")
 
     # ⚠️ AILog には画像も base64 も残さない。入力は「領収書画像」という事実だけ。
@@ -490,7 +396,7 @@ async def read_receipt_endpoint(request: ReadReceiptRequest) -> ReadReceiptRespo
         org_id=request.org_id,
         department="ACCOUNTING",
         provider="anthropic",
-        model="claude-sonnet-4-6",
+        model=EXTRACT_MODEL,
         input_text="[領収書画像]",
         output_text=json.dumps(result, ensure_ascii=False),
         tokens=None,
@@ -514,17 +420,13 @@ async def plan_http_node_endpoint(request: PlanHttpNodeRequest) -> PlanHttpNodeR
         org_id=request.org_id,
         plan=request.plan,
     )
-    schedule_llm_log(
+    _log_masked_call(
         org_id=request.org_id,
-        department="GENERAL",
+        department=DEFAULT_DEPARTMENT,
         provider="anthropic",
         model=AGENT_BUILD_MODEL,
-        input_text=pii_result.text,  # マスク後だけを記録する
-        output_text=json.dumps(result, ensure_ascii=False),
-        tokens=None,
-        latency_ms=None,
-        pii_detected=pii_result.detected,
-        pii_types=list(pii_result.types) if pii_result.detected else [],
+        pii_result=pii_result,
+        result=result,
     )
     return PlanHttpNodeResponse(**result)
 
@@ -556,21 +458,17 @@ async def plan_agent_endpoint(request: PlanAgentRequest) -> PlanAgentResponse:
         capabilities=capabilities,
         current_agent=request.current_agent.model_dump() if request.current_agent else None,
     )
-    schedule_llm_log(
+    _log_masked_call(
         org_id=request.org_id,
-        department=result.get("department", "GENERAL"),
+        department=result.get("department", DEFAULT_DEPARTMENT),
         provider="anthropic",
         model=AGENT_BUILD_MODEL,  # エージェント構築は全ユーザー Opus 固定（松竹梅の例外）
-        input_text=pii_result.text,  # マスク後だけを記録する
-        output_text=json.dumps(result, ensure_ascii=False),
-        tokens=None,
-        latency_ms=None,
-        pii_detected=pii_result.detected,
-        pii_types=list(pii_result.types) if pii_result.detected else [],
+        pii_result=pii_result,
+        result=result,
     )
     return PlanAgentResponse(
         name=result.get("name"),
-        department=result.get("department", "GENERAL"),
+        department=result.get("department", DEFAULT_DEPARTMENT),
         instructions=result.get("instructions"),
         steps=[AgentStep(**s) for s in result.get("steps", [])],
         trigger=result.get("trigger", "MANUAL"),
