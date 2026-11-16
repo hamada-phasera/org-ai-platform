@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit -p .",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage --coverage.include=src/**",
     "check:tokens": "node scripts/check-design-tokens.mjs"
   },
   "dependencies": {

@@ -26,10 +26,11 @@ knip（`npx -y knip@5`、ルートの `knip.json` で `ignoreExportsUsedInFile: 
 | 項目 | 理由 |
 |---|---|
 | `api-gateway/src/services/http-node/client.ts`: `resetHttpNodeAgent` | テスト用のリセットフック（現状どのテストからも未参照だが、モジュール内の keep-alive Agent を作り直す意図的な口） |
-| `api-gateway/src/services/storage/driver.ts`: `resetStorageDrivers` | 同上。env を差し替えたテストでドライバのキャッシュを捨てるための口 |
 | `api-gateway/src/routes/accounting/shared.ts`: `jstDateOnly` | 「保存する日付は必ずこれを通す」という規約を持つ日付ヘルパー。今は未使用だが、日付保存を追加するときの正しい入口として残す |
 | `api-gateway/src/routes/sales/pipeline-core.ts`: `Deal`（型） | API レスポンス形の定義（ドキュメントとしての型）。`pipeline.ts` から型として再参照される |
 | `web/src/components/Analytics/kpiEvents.ts`: `deriveCostUsd`, `PLACEHOLDER_MODEL_RATE_USD_PER_1K`, `KpiEventKind`, `DepartmentKpi` | gateway `routes/analytics/kpi-events.ts` の契約ミラー（A-2 画面 / A-3 集計 API 用に提案中の形）。統合フェーズで使う前提のため残す |
+
+> `storage/driver.ts` の `resetStorageDrivers` は今回追加した `storage-driver.test.ts` から使うようになったので、保留から外れた。
 
 ## knip の設定について
 
