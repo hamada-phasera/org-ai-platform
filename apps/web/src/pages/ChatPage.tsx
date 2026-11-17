@@ -18,7 +18,7 @@ import { AgentCtaCard, type AgentDraft } from '../components/Chat/AgentCtaCard';
 import { NodeCtaCard, type NodeDraft } from '../components/Chat/NodeCtaCard';
 import { looksLikeApiSpec } from '../utils/apiSpecDetect';
 import { isChatPhase, type ChatPhase } from '../utils/chatProgress';
-import { BILLING_PATH, needsPlanLink } from '../utils/planNotice';
+import { BILLING_PATH, canOpenBilling, needsPlanLink } from '../utils/planNotice';
 import { ChatProgress } from '../components/Chat/ChatProgress';
 import { DeliverableBar, type DeliverableKind } from '../components/Chat/DeliverableBar';
 import { RunPreviewRow } from '../components/exec-kernel/RunPreviewRow';
@@ -129,7 +129,8 @@ export default function ChatPage() {
   const [phaseChars, setPhaseChars] = useState<number | null>(null);
   const [lastEventAt, setLastEventAt] = useState<number | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
-  const isOwner = useAuthStore((s) => s.user?.role) === 'OWNER';
+  const role = useAuthStore((s) => s.user?.role);
+  const isOwner = role === 'OWNER';
   /* ノードの表示名を引くためのレジストリ（設定>連携 と同じキャッシュを共有） */
   const capabilitiesQ = useQuery({
     queryKey: ['capabilities'],
@@ -567,7 +568,8 @@ export default function ChatPage() {
         // サーバの文言には上限値が入っている（「1ファイルの上限は 10MB です。」など）ので、そのまま出す
         const err = e as { response?: { data?: { error?: { code?: string; message?: string } } } };
         setUploadError(`${file.name}：${err.response?.data?.error?.message ?? 'アップロードに失敗しました'}`);
-        setUploadErrorPlanLink(needsPlanLink(err.response?.data?.error?.code));
+        // メンバーには押しても何もできない契約画面へのリンクを出さない（帯と同じ）
+        setUploadErrorPlanLink(canOpenBilling(role) && needsPlanLink(err.response?.data?.error?.code));
       }
     }
     setUploading(false);

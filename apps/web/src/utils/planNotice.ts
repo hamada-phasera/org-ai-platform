@@ -3,6 +3,7 @@ import {
   ENTITLED_STATUSES,
   STORAGE_WARN_RATIO,
   effectiveSubscriptionStatus,
+  hasRoleAtLeast,
   readOnlyReasonOf,
   usageState,
 } from '@org-ai/shared-types';
@@ -99,8 +100,37 @@ export function planNoticeOf(
 
 export type NoticeTone = 'danger' | 'warning' | 'muted';
 
-/** 帯の文言（1 文）と色。none は呼ばない。 */
-export function planNoticeText(notice: PlanNotice): { text: string; tone: NoticeTone } {
+/**
+ * 契約の画面（設定 > プラン）へのリンクを出す役割か。契約の操作はオーナー（gateway の requireOwner）で、
+ * 管理者は契約状態を見られる。メンバーには押しても何もできないリンクを出さない（saas-review #14）。
+ */
+export function canOpenBilling(role: unknown): boolean {
+  return hasRoleAtLeast(role, 'ADMIN');
+}
+
+/** メンバー向けの文言（リンクの代わりに「オーナーにご連絡ください」。1 文のまま） */
+function memberText(notice: PlanNotice): string {
+  switch (notice.kind) {
+    case 'expired':
+      return '閲覧のみです（再開はオーナーにご連絡ください）。';
+    case 'trial':
+      return `無料期間は残り${notice.daysLeft}日です（ご契約はオーナーにご連絡ください）。`;
+    case 'storage-over':
+      return '保存容量が上限に達しました（オーナーにご連絡ください）。';
+    case 'ai-over':
+      return '今月の AI 上限を超えたため、軽いモデルで応答しています（オーナーにご連絡ください）。';
+    case 'storage-warn':
+      return '保存容量が残りわずかです（オーナーにご連絡ください）。';
+    case 'ai-warn':
+      return '今月の AI 利用が上限の8割を超えました（オーナーにご連絡ください）。';
+    default:
+      return '';
+  }
+}
+
+/** 帯の文言（1 文）と色。none は呼ばない。forMember はリンクを出さない役割向けの文言。 */
+export function planNoticeText(notice: PlanNotice, opts: { forMember?: boolean } = {}): { text: string; tone: NoticeTone } {
+  if (opts.forMember) return { text: memberText(notice), tone: planNoticeText(notice).tone };
   switch (notice.kind) {
     case 'expired':
       return { text: '閲覧のみです（ご契約で保存と実行を再開できます）。', tone: 'danger' };

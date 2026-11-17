@@ -6,7 +6,7 @@ import { api } from '../../services/api';
 import { useNow } from '../../hooks/useNow';
 import { useAuthStore } from '../../store/authStore';
 import { usePlanNoticeStore } from '../../store/planNoticeStore';
-import { BILLING_PATH, isReadOnly, planNoticeOf, planNoticeText } from '../../utils/planNotice';
+import { BILLING_PATH, canOpenBilling, isReadOnly, planNoticeOf, planNoticeText } from '../../utils/planNotice';
 import type { NoticeTone } from '../../utils/planNotice';
 
 const TONE_TEXT: Record<NoticeTone, string> = {
@@ -17,11 +17,13 @@ const TONE_TEXT: Record<NoticeTone, string> = {
 
 /**
  * 本文の上の 1 行の帯（契約状態・上限）。PC とスマホの両方に出す。
- * 白地・下罫線・文言 1 文・リンク 1 つ。判定は utils/planNotice.ts の planNoticeOf だけ。
+ * 白地・下罫線・文言 1 文・リンク 1 つ（メンバーにはリンクを出さず「オーナーにご連絡ください」）。
+ * 判定は utils/planNotice.ts の planNoticeOf だけ。
  */
 export function PlanNotice() {
   const qc = useQueryClient();
   const orgId = useAuthStore((s) => s.user?.orgId ?? null);
+  const showLink = canOpenBilling(useAuthStore((s) => s.user?.role));
   const readOnlyOrgId = usePlanNoticeStore((s) => s.readOnlyOrgId);
   const markedAt = usePlanNoticeStore((s) => s.markedAt);
   const now = useNow();
@@ -49,7 +51,7 @@ export function PlanNotice() {
   const notice = planNoticeOf(billing, usage, now, { readOnly });
   if (notice.kind === 'none') return null;
 
-  const { text, tone } = planNoticeText(notice);
+  const { text, tone } = planNoticeText(notice, { forMember: !showLink });
   return (
     <div
       role="status"
@@ -57,9 +59,11 @@ export function PlanNotice() {
       className="flex shrink-0 items-center gap-3 border-b border-border bg-elevated px-4 py-2 text-xs lg:px-6"
     >
       <p className={`min-w-0 flex-1 ${TONE_TEXT[tone]}`}>{text}</p>
-      <Link to={BILLING_PATH} className="shrink-0 font-semibold text-accent hover:underline">
-        プラン
-      </Link>
+      {showLink && (
+        <Link to={BILLING_PATH} className="shrink-0 font-semibold text-accent hover:underline">
+          プラン
+        </Link>
+      )}
     </div>
   );
 }

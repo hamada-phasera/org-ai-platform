@@ -169,3 +169,24 @@ describe('planNoticeText / needsPlanLink', () => {
     expect(needsPlanLink(undefined)).toBe(false);
   });
 });
+
+describe('メンバーには契約画面へのリンクを出さない（saas-review #14）', () => {
+  it('オーナーと管理者だけリンクを出す', async () => {
+    const { canOpenBilling } = await import('../planNotice');
+    expect(canOpenBilling('OWNER')).toBe(true);
+    expect(canOpenBilling('ADMIN')).toBe(true);
+    expect(canOpenBilling('MEMBER')).toBe(false);
+    expect(canOpenBilling(undefined)).toBe(false);
+  });
+
+  it('メンバー向けの文言は全部 1 文で「オーナーにご連絡ください」を含み、色は同じ', async () => {
+    const { planNoticeText } = await import('../planNotice');
+    for (const kind of ['expired', 'trial', 'storage-over', 'ai-over', 'storage-warn', 'ai-warn'] as const) {
+      const notice = { kind, daysLeft: 3 };
+      const m = planNoticeText(notice, { forMember: true });
+      expect(m.text).toContain('オーナーにご連絡ください');
+      expect(m.text.match(/。/g)?.length).toBe(1);
+      expect(m.tone).toBe(planNoticeText(notice).tone);
+    }
+  });
+});
