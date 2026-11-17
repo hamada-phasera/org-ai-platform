@@ -75,7 +75,7 @@ export async function inboxMessagesRoutes(app: FastifyInstance): Promise<void> {
     if (!assertTransition(msg.status, 'regenerate')) {
       return sendError(reply, 409, 'INVALID_STATE', `この状態では再生成できません(現在: ${msg.status})`);
     }
-    await generateInboxDraft(id, { allowRegenerate: true });
+    await generateInboxDraft(db, id, { allowRegenerate: true });
     const updated = await db.inboundMessage.findUnique({ where: { id } });
     return reply.send({ success: true, data: updated });
   });

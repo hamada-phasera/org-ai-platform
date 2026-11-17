@@ -26,6 +26,17 @@ vi.mock('../../src/services/storage/driver', () => ({
   writeDriver: () => ({ name: 'local', put: async () => {}, delete: async () => {} }),
 }));
 vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'down' }), { status: 503 })));
+// RAG の検索を通すときだけ埋め込みを有効にする（既定は無効 = 従来どおり no-op）
+const embed = { enabled: false };
+vi.mock('../../src/services/embeddings', async (orig) => {
+  const actual = await orig<typeof import('../../src/services/embeddings')>();
+  return {
+    ...actual,
+    isEmbeddingEnabled: () => embed.enabled,
+    embedQuery: async () => (embed.enabled ? new Array(actual.EMBEDDING_DIM).fill(0.1) : null),
+    embedTexts: async (texts: string[]) => (embed.enabled ? texts.map(() => new Array(actual.EMBEDDING_DIM).fill(0.1)) : null),
+  };
+});
 
 const { registerTenantContext } = await import('../../src/tenancy/context');
 const { clearMembershipCache } = await import('../../src/tenancy/membership-cache');
@@ -157,6 +168,7 @@ const token = (sub: string, orgId: string) => app.jwt.sign({ sub, orgId, role: '
 const as = (sub: string, orgId: string) => ({ authorization: `Bearer ${token(sub, orgId)}` });
 
 beforeEach(async () => {
+  embed.enabled = false;
   fake = new FakePrisma(seed());
   clearMembershipCache();
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -427,5 +439,131 @@ describe('ai-engine への伝播（I11）', () => {
     const init = call![1] as { headers: Record<string, string>; body: string };
     expect(init.headers['X-Org-Id']).toBe('org-A');
     expect(JSON.parse(init.body).org_id).toBe('org-A');
+  });
+});
+
+// ── services 経由の経路（チャンク 10: services を tenantDb にしたことの確認） ──
+// ルートを通らない実行（エージェントのステップ実行・RAG の検索・LINE の取り込み）でも、
+// 組織 A として動いている処理が B の行を読まない・書かないことを確かめる。
+
+const services = {
+  stepRunner: await import('../../src/services/step-runner'),
+  rag: await import('../../src/services/rag'),
+  lineInbox: await import('../../src/services/inbox/line-inbox'),
+  draft: await import('../../src/services/inbox/draft-generator'),
+  receipt: await import('../../src/services/inbox/receipt-capture'),
+  lifecycle: await import('../../src/services/lifecycle-core'),
+  tenancy: await import('../../src/tenancy/tenant-db'),
+};
+
+/** B の行（orgId が org-B、または B の組織そのもの）だけを取り出したスナップショット。 */
+function bRows(): string {
+  const all = JSON.parse(fake.snapshot()) as Record<string, { orgId?: string; id: string }[]>;
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.entries(all)
+        .map(([t, rows]) => [t, rows.filter((r) => r.orgId === 'org-B' || r.id === 'org-B')] as const)
+        // 処理中に初めて触られた表（空）は差分に数えない
+        .filter(([, rows]) => rows.length > 0),
+    ),
+  );
+}
+
+/** tracked() で起動したバックグラウンド処理（下書き生成など）が終わるのを待つ。次のテストの fake に書かせない */
+async function settle(): Promise<void> {
+  await vi.waitFor(() => expect(services.lifecycle.jobs.size).toBe(0));
+}
+
+describe('S-1: エージェント実行（step-runner → capability-resolver）', () => {
+  const agentA = { id: 'agent-A', instructions: 'do', department: 'GENERAL', createdBy: 'u-a' };
+
+  it('A のエージェントが B のケイパビリティ名を指しても見つからず、B の行は変わらない', async () => {
+    const before = bRows();
+    await services.stepRunner.runAgentTask(
+      { id: 'task-A', orgId: 'org-A', input: 'x' },
+      { ...agentA, steps: [{ capabilityName: 'cap_B' }] },
+    );
+    const task = fake.rows('task').find((r) => r.id === 'task-A')!;
+    expect(task.status).toBe('FAILED');
+    expect(String(task.lastError)).toContain('capability が見つかりません');
+    expect(bRows()).toBe(before);
+    // 未対応の記録（CapabilityGap。管理者通知の分を含む）も A にだけ積まれる
+    const gaps = fake.rows('capabilityGap').filter((r) => String(r.id).startsWith('new-'));
+    expect(gaps.length).toBeGreaterThan(0);
+    expect(new Set(gaps.map((g) => g.orgId))).toEqual(new Set(['org-A']));
+  });
+
+  it('A として B の Task の承認再開を呼んでも、B の Task は動かない', async () => {
+    fake.rows('task').find((r) => r.id === 'task-B')!.status = 'RUNNING';
+    const before = bRows();
+    await services.stepRunner.resumeAgentTask('task-B', { orgId: 'org-A' });
+    expect(bRows()).toBe(before);
+  });
+});
+
+describe('S-2: RAG の検索（raw SQL）', () => {
+  it('検索の SQL はすべて A の orgId を束ね、B の orgId を含まない', async () => {
+    embed.enabled = true;
+    fake.rawCalls.length = 0;
+    const res = await services.rag.retrieveContext({ orgId: 'org-A', query: '見積', fileIds: ['file-B'] });
+    expect(res).toBeNull(); // 偽 DB の raw SQL は 0 行
+    expect(fake.rawCalls.length).toBe(2);
+    for (const call of fake.rawCalls) {
+      const sql = call[0] as { strings?: readonly string[]; values?: unknown[] };
+      expect((sql.strings ?? []).join('?')).toContain('"orgId"');
+      expect(sql.values).toContain('org-A');
+      expect(sql.values).not.toContain('org-B');
+    }
+  });
+
+  it('索引の書き込みも A の orgId で行う', async () => {
+    embed.enabled = true;
+    fake.rawCalls.length = 0;
+    await services.rag.indexMessages('org-A', 'session-A', [{ messageId: 'msg-A', role: 'user', content: '十分な長さのある本文をここに書きます。' }]);
+    expect(fake.rawCalls.length).toBe(1);
+    expect(fake.rawCalls[0]).toContain('org-A');
+    expect(fake.rawCalls[0]).not.toContain('org-B');
+  });
+});
+
+describe('S-3: LINE の受信（line-inbox → draft-generator / receipt-capture）', () => {
+  const event = {
+    type: 'message',
+    webhookEventId: 'ev-new',
+    timestamp: now.getTime(),
+    source: { type: 'user', userId: 'U9' },
+    message: { id: 'line-msg', type: 'text', text: '見積をください' },
+  } as const;
+
+  it('接続 A の受信は A に積まれ、B の接続・受信は変わらない', async () => {
+    const before = bRows();
+    await services.lineInbox.processLineEvents({ id: 'conn-A', orgId: 'org-A', accessTokenEnc: 'enc' }, [event]);
+    await settle();
+    const created = fake.rows('inboundMessage').filter((r) => String(r.id).startsWith('new-'));
+    expect(created.map((r) => r.orgId)).toEqual(['org-A']);
+    expect(fake.rows('channelConnection').find((r) => r.id === 'conn-A')!.lastEventAt).toBeInstanceOf(Date);
+    expect(bRows()).toBe(before);
+  });
+
+  it('組織と食い違う接続（id が B・orgId が A）では B の接続を更新しない', async () => {
+    const before = bRows();
+    await services.lineInbox.processLineEvents({ id: 'conn-B', orgId: 'org-A', accessTokenEnc: 'enc' }, [event]);
+    await settle();
+    expect(bRows()).toBe(before);
+  });
+
+  it('A のクライアントで B の受信の下書きを作り直そうとしても、B の受信は変わらない', async () => {
+    const before = bRows();
+    await services.draft.generateInboxDraft(services.tenancy.tenantDb('org-A'), 'inbound-B', { allowRegenerate: true });
+    expect(bRows()).toBe(before);
+  });
+
+  it('領収書の工事・取引先の照合は A の中だけ（B の工事名・番号・業者名は当たらない）', async () => {
+    expect(await services.receipt.matchProject('org-A', '工事B')).toBeNull();
+    expect(await services.receipt.matchProject('org-A', 'K-B')).toBeNull();
+    expect(await services.receipt.matchVendor('org-A', '業者B')).toBeNull();
+    // 絞りすぎていない
+    expect((await services.receipt.matchProject('org-A', 'K-A'))?.id).toBe('project-A');
+    expect((await services.receipt.matchVendor('org-A', '業者A'))?.id).toBe('vendor-A');
   });
 });

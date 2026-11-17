@@ -1,4 +1,4 @@
-import { prisma } from '../utils/prisma';
+import { tenantDb } from '../tenancy/tenant-db';
 import { agentWorkflowName } from './n8n-workflow-builder';
 import { aiEngineHeaders } from './ai-engine-auth';
 import { config } from '../config/env';
@@ -90,7 +90,8 @@ export async function triggerN8nWorkflowByPath(
   systemPrompt?: string,
   agentSteps?: { capabilityName: string }[],
 ): Promise<boolean> {
-  const org = await prisma.organization.findUnique({
+  const db = tenantDb(task.orgId);
+  const org = await db.organization.findUnique({
     where: { id: task.orgId },
     select: { plan: true },
   });
@@ -170,12 +171,13 @@ export async function executeTaskViaAiEngine(task: {
   department: string;
 }): Promise<void> {
   const aiEngineUrl = config.aiEngineUrl;
-  const org = await prisma.organization.findUnique({
+  const db = tenantDb(task.orgId);
+  const org = await db.organization.findUnique({
     where: { id: task.orgId },
     select: { plan: true },
   });
   try {
-    await prisma.taskLog.create({
+    await db.taskLog.create({
       data: { taskId: task.id, message: 'AI Engineで直接実行を開始', level: 'INFO' },
     });
     const res = await fetch(`${aiEngineUrl}/orchestrate`, {
@@ -191,20 +193,20 @@ export async function executeTaskViaAiEngine(task: {
     });
     if (!res.ok) throw new Error(`AI Engine returned ${res.status}`);
     const result = (await res.json()) as { content: string; department: string };
-    await prisma.task.update({
+    await db.task.update({
       where: { id: task.id },
       data: { status: 'DONE', output: result.content, executedAt: new Date() },
     });
-    await prisma.taskLog.create({
+    await db.taskLog.create({
       data: { taskId: task.id, message: 'AI Engineで実行完了', level: 'INFO' },
     });
   } catch (e) {
     aiEngineFallbackLog.error('failed:', e);
-    await prisma.task.update({
+    await db.task.update({
       where: { id: task.id },
       data: { status: 'FAILED', lastError: String(e) },
     });
-    await prisma.taskLog.create({
+    await db.taskLog.create({
       data: { taskId: task.id, message: `実行失敗: ${String(e)}`, level: 'ERROR' },
     });
   }
@@ -269,12 +271,13 @@ export async function executeTaskViaAgentEngine(
   agent: AgentRunContext,
 ): Promise<void> {
   const aiEngineUrl = config.aiEngineUrl;
-  const org = await prisma.organization.findUnique({
+  const db = tenantDb(task.orgId);
+  const org = await db.organization.findUnique({
     where: { id: task.orgId },
     select: { plan: true },
   });
   try {
-    await prisma.taskLog.create({
+    await db.taskLog.create({
       data: { taskId: task.id, message: 'AI Engine でエージェントを直接実行', level: 'INFO' },
     });
     const res = await fetch(`${aiEngineUrl}/llm/chat`, {
@@ -293,20 +296,20 @@ export async function executeTaskViaAgentEngine(
     });
     if (!res.ok) throw new Error(`AI Engine returned ${res.status}`);
     const result = (await res.json()) as { content: string };
-    await prisma.task.update({
+    await db.task.update({
       where: { id: task.id },
       data: { status: 'DONE', output: result.content, executedAt: new Date() },
     });
-    await prisma.taskLog.create({
+    await db.taskLog.create({
       data: { taskId: task.id, message: 'AI Engine で実行完了', level: 'INFO' },
     });
   } catch (e) {
     agentEngineFallbackLog.error('failed:', e);
-    await prisma.task.update({
+    await db.task.update({
       where: { id: task.id },
       data: { status: 'FAILED', lastError: String(e) },
     });
-    await prisma.taskLog.create({
+    await db.taskLog.create({
       data: { taskId: task.id, message: `実行失敗: ${String(e)}`, level: 'ERROR' },
     });
   }
@@ -322,6 +325,7 @@ export async function dispatchAgentTask(
   task: { id: string; orgId: string; title: string; input: string; taskType?: string | null },
   agent: AgentRunContext,
 ): Promise<void> {
+  const db = tenantDb(task.orgId);
   const wantsN8n = !!agent.webhookPath && agent.n8nStatus === 'ACTIVE';
   if (wantsN8n) {
     const workflowName = agentWorkflowName(agent.id);
@@ -338,7 +342,7 @@ export async function dispatchAgentTask(
       for (let attempt = 0; attempt < AGENT_WEBHOOK_RETRY_DELAYS_MS.length; attempt++) {
         const delay = AGENT_WEBHOOK_RETRY_DELAYS_MS[attempt];
         if (delay > 0) {
-          await prisma.taskLog.create({
+          await db.taskLog.create({
             data: {
               taskId: task.id,
               message: `n8n起動中… (${Math.round(delay / 1000)}秒待機して再試行)`,
@@ -350,7 +354,7 @@ export async function dispatchAgentTask(
         const ok = await triggerN8nWorkflowByPath(agent.webhookPath!, triggerTask, agent.instructions, agent.steps);
         if (ok) return; // 受理。完了は n8n コールバックが Task を DONE に更新する
       }
-      await prisma.taskLog.create({
+      await db.taskLog.create({
         data: { taskId: task.id, message: 'n8n 応答なし → AI Engine で実行に切替', level: 'WARN' },
       });
     }

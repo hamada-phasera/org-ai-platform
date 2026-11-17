@@ -14,6 +14,7 @@ import type { AgentRunState, AgentStepApprovalData, AgentStepDef, StepState } fr
 import { APPROVAL_REQUIRED_CAPS, LLM_TRANSFORM_STEP } from '@org-ai/shared-types';
 import { prisma } from '../utils/prisma';
 import { currentTenant, runAsTenant } from '../tenancy/context';
+import { tenantDb, type TenantDb } from '../tenancy/tenant-db';
 import { resolveAndExecute } from './capability-resolver';
 import { httpMethodOf } from './http-node/template';
 import { aiEngineHeaders } from './ai-engine-auth';
@@ -130,8 +131,8 @@ export async function loadStepMeta(
     (n) => n !== LLM_TRANSFORM_STEP,
   );
   if (names.length === 0) return new Map();
-  const rows = await prisma.capability.findMany({
-    where: { orgId, name: { in: names } },
+  const rows = await tenantDb(orgId).capability.findMany({
+    where: { name: { in: names } },
     select: { name: true, kind: true, httpConfig: true },
   });
   return new Map(
@@ -173,23 +174,29 @@ export interface StepAgentContext {
   steps: AgentStepDef[];
 }
 
-async function persistState(taskId: string, state: AgentRunState): Promise<void> {
-  await prisma.task.update({
+async function persistState(db: TenantDb, taskId: string, state: AgentRunState): Promise<void> {
+  await db.task.update({
     where: { id: taskId },
     data: { executionResult: JSON.stringify(state) },
   });
 }
 
-async function log(taskId: string, message: string, level: 'INFO' | 'WARN' | 'ERROR' = 'INFO'): Promise<void> {
-  await prisma.taskLog.create({ data: { taskId, message, level } });
+/** TaskLog は子モデル。Task をこの組織のクライアントで引けたときだけ書く（I2）。 */
+async function log(
+  db: Pick<TenantDb, 'taskLog'>,
+  taskId: string,
+  message: string,
+  level: 'INFO' | 'WARN' | 'ERROR' = 'INFO',
+): Promise<void> {
+  await db.taskLog.create({ data: { taskId, message, level } });
 }
 
 /** Task を FAILED にして理由をログにも残す。RUNNING で claim 済みの Task を放置しないための出口。 */
-async function failTask(taskId: string, message: string): Promise<void> {
-  await prisma.task
+async function failTask(db: TenantDb, taskId: string, message: string): Promise<void> {
+  await db.task
     .update({ where: { id: taskId }, data: { status: 'FAILED', lastError: message } })
     .catch(() => {});
-  await log(taskId, message, 'ERROR').catch(() => {});
+  await log(db, taskId, message, 'ERROR').catch(() => {});
 }
 
 /** 再起動で取り残された RUNNING Task に入れる理由（UI にそのまま出る）。 */
@@ -197,11 +204,12 @@ export const STALE_RUNNING_MESSAGE = 'gateway の再起動により中断され�
 
 /** AI Engine /llm/chat を直接呼ぶ予約ステップ（capability レジストリ・承認は通らない）。 */
 async function runLlmTransform(
-  orgId: string,
+  db: TenantDb,
   agent: StepAgentContext,
   prompt: string,
 ): Promise<{ ok: true; content: string } | { ok: false; error: string }> {
-  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { plan: true } });
+  const orgId = db.orgId;
+  const org = await db.organization.findUnique({ where: { id: orgId }, select: { plan: true } });
   try {
     const res = await fetch(`${AI_ENGINE_URL}/llm/chat`, {
       method: 'POST',
@@ -238,9 +246,9 @@ function stringifyOutput(data: unknown, message: string): string {
   return message;
 }
 
-async function capabilityLabel(orgId: string, name: string): Promise<string> {
-  const cap = await prisma.capability.findUnique({
-    where: { orgId_name: { orgId, name } },
+async function capabilityLabel(db: TenantDb, name: string): Promise<string> {
+  const cap = await db.capability.findUnique({
+    where: { orgId_name: { orgId: db.orgId, name } },
     select: { displayName: true },
   });
   return cap?.displayName ?? name;
@@ -248,7 +256,7 @@ async function capabilityLabel(orgId: string, name: string): Promise<string> {
 
 /** 1 ステップを実際に実行する（承認判定は呼び出し側で済んでいる前提）。 */
 async function executeStep(
-  orgId: string,
+  db: TenantDb,
   agent: StepAgentContext,
   capabilityName: string,
   args: Record<string, unknown>,
@@ -257,7 +265,7 @@ async function executeStep(
   if (capabilityName === LLM_TRANSFORM_STEP) {
     // prompt が配列等で来ても落とさない（文字列でなければ fallback）
     const prompt = typeof args.prompt === 'string' && args.prompt ? args.prompt : fallbackPrompt;
-    const result = await runLlmTransform(orgId, agent, prompt);
+    const result = await runLlmTransform(db, agent, prompt);
     if (result.ok) return { ok: true, output: result.content };
     return { ok: false, output: '', error: result.error };
   }
@@ -267,7 +275,7 @@ async function executeStep(
     args,
     // 定期実行にはリクエストユーザーがいないため、エージェント作成者として実行する（決め）
     userId: agent.createdBy,
-    orgId,
+    orgId: db.orgId,
   });
   switch (outcome.outcome) {
     case 'EXECUTED':
@@ -291,11 +299,11 @@ async function executeStep(
  * currentIndex から残りステップを進める。承認が必要なステップの手前で
  * PENDING_APPROVAL にして返る。全部終われば Task を DONE にする。
  */
-async function advance(taskId: string, orgId: string, agent: StepAgentContext, state: AgentRunState): Promise<void> {
+async function advance(db: TenantDb, taskId: string, agent: StepAgentContext, state: AgentRunState): Promise<void> {
   const total = state.steps.length;
   /* 承認要否の判定に使う capability メタ。ループ前に1回だけ引く。
      ⚠️ ここを try/catch しない（握ると承認ゲートが fail-open する） */
-  const meta = await loadStepMeta(orgId, agent.steps);
+  const meta = await loadStepMeta(db.orgId, agent.steps);
   for (let i = state.currentIndex; i < total; i++) {
     const def = agent.steps[i];
     const step: StepState = state.steps[i];
@@ -313,10 +321,10 @@ async function advance(taskId: string, orgId: string, agent: StepAgentContext, s
         kind: 'agent_step',
         stepIndex: i,
         capabilityName: def.capabilityName,
-        capabilityLabel: await capabilityLabel(orgId, def.capabilityName),
+        capabilityLabel: await capabilityLabel(db, def.capabilityName),
         args,
       };
-      await prisma.task.update({
+      await db.task.update({
         where: { id: taskId },
         data: {
           status: 'PENDING_APPROVAL',
@@ -324,7 +332,7 @@ async function advance(taskId: string, orgId: string, agent: StepAgentContext, s
           executionResult: JSON.stringify(state),
         },
       });
-      await log(taskId, `承認待ち: ${approval.capabilityLabel}（ステップ ${i + 1}/${total}）。受信ページから承認すると送信されます`);
+      await log(db, taskId, `承認待ち: ${approval.capabilityLabel}（ステップ ${i + 1}/${total}）。受信ページから承認すると送信されます`);
       return;
     }
 
@@ -332,16 +340,16 @@ async function advance(taskId: string, orgId: string, agent: StepAgentContext, s
     step.args = args;
     step.startedAt = new Date().toISOString();
     state.currentIndex = i;
-    await persistState(taskId, state);
+    await persistState(db, taskId, state);
 
     const fallbackPrompt = prev || state.input;
-    const result = await executeStep(orgId, agent, def.capabilityName, args, fallbackPrompt);
+    const result = await executeStep(db, agent, def.capabilityName, args, fallbackPrompt);
     step.finishedAt = new Date().toISOString();
 
     if (!result.ok) {
       step.status = 'FAILED';
       step.error = result.error;
-      await prisma.task.update({
+      await db.task.update({
         where: { id: taskId },
         data: {
           status: 'FAILED',
@@ -349,23 +357,23 @@ async function advance(taskId: string, orgId: string, agent: StepAgentContext, s
           executionResult: JSON.stringify(state),
         },
       });
-      await log(taskId, `ステップ ${i + 1}/${total} 失敗 (${def.capabilityName}): ${result.error ?? ''}`, 'ERROR');
+      await log(db, taskId, `ステップ ${i + 1}/${total} 失敗 (${def.capabilityName}): ${result.error ?? ''}`, 'ERROR');
       return;
     }
 
     step.status = 'DONE';
     step.output = result.output;
     state.currentIndex = i + 1;
-    await persistState(taskId, state);
-    await log(taskId, `ステップ ${i + 1}/${total} 完了: ${def.capabilityName}`);
+    await persistState(db, taskId, state);
+    await log(db, taskId, `ステップ ${i + 1}/${total} 完了: ${def.capabilityName}`);
   }
 
   const lastOutput = state.steps[total - 1]?.output ?? '';
-  await prisma.task.update({
+  await db.task.update({
     where: { id: taskId },
     data: { status: 'DONE', output: lastOutput, executedAt: new Date() },
   });
-  await log(taskId, 'すべてのステップが完了しました');
+  await log(db, taskId, 'すべてのステップが完了しました');
 }
 
 /** steps を持つエージェントの Task 実行エントリ（手動 run / 定期どちらもここ）。 */
@@ -396,20 +404,21 @@ async function runAgentTaskInner(
   task: { id: string; orgId: string; input: string },
   agent: StepAgentContext,
 ): Promise<void> {
+  const db = tenantDb(task.orgId);
   try {
     const state = initRunState(task.input, agent.steps);
-    await prisma.task.update({
+    await db.task.update({
       where: { id: task.id },
       data: { status: 'RUNNING', executionResult: JSON.stringify(state) },
     });
-    await log(task.id, `ステップ実行を開始（全 ${agent.steps.length} ステップ）`);
-    await advance(task.id, task.orgId, agent, state);
+    await log(db, task.id, `ステップ実行を開始（全 ${agent.steps.length} ステップ）`);
+    await advance(db, task.id, agent, state);
   } catch (e) {
     stepRunnerLog.error('runAgentTask failed:', e);
-    await prisma.task
+    await db.task
       .update({ where: { id: task.id }, data: { status: 'FAILED', lastError: String(e) } })
       .catch(() => {});
-    await log(task.id, `実行失敗: ${String(e)}`, 'ERROR').catch(() => {});
+    await log(db, task.id, `実行失敗: ${String(e)}`, 'ERROR').catch(() => {});
   }
 }
 
@@ -427,25 +436,34 @@ export async function resumeAgentTask(
   taskId: string,
   opts?: { editedArgs?: Record<string, unknown>; orgId?: string },
 ): Promise<void> {
+  let orgId = opts?.orgId;
   try {
-    /* 呼び出し元（承認 API = テナント経路）は orgId を渡す。渡されたらその組織の Task だけを引く（E6） */
-    const task = await prisma.task.findUnique({
-      where: opts?.orgId ? { id: taskId, orgId: opts.orgId } : { id: taskId },
-    });
+    /* 呼び出し元（承認 API = テナント経路）は orgId を渡す。渡されたらその組織の Task だけを引く（E6）。
+       渡されないとき（組織が決まる前の経路）だけ、Task の組織を素の prisma で逆引きする */
+    if (!orgId) {
+      const owner = await prisma.task.findUnique({ where: { id: taskId }, select: { orgId: true } });
+      if (!owner) return;
+      orgId = owner.orgId;
+    }
+    const db = tenantDb(orgId);
+    const task = await db.task.findUnique({ where: { id: taskId } });
     if (!task) return;
-    if (opts?.orgId && task.orgId !== opts.orgId) return;
-    await withTaskTenant(task.orgId, () => resumeLoaded(taskId, task, opts));
+    if (task.orgId !== orgId) return;
+    await withTaskTenant(task.orgId, () => resumeLoaded(db, taskId, task, opts));
   } catch (e) {
     stepRunnerLog.error('resumeAgentTask failed:', e);
-    await prisma.task
-      .update({ where: { id: taskId }, data: { status: 'FAILED', lastError: String(e) } })
-      .catch(() => {});
+    if (orgId) {
+      await tenantDb(orgId)
+        .task.update({ where: { id: taskId }, data: { status: 'FAILED', lastError: String(e) } })
+        .catch(() => {});
+    }
   }
 }
 
-type TaskRow = NonNullable<Awaited<ReturnType<typeof prisma.task.findUnique>>>;
+type TaskRow = NonNullable<Awaited<ReturnType<TenantDb['task']['findUnique']>>>;
 
 async function resumeLoaded(
+  db: TenantDb,
   taskId: string,
   task: TaskRow,
   opts?: { editedArgs?: Record<string, unknown> },
@@ -458,17 +476,17 @@ async function resumeLoaded(
       return;
     }
     if (!task.agentId) {
-      await failTask(taskId, 'エージェントが紐づいていないため再開できません');
+      await failTask(db, taskId, 'エージェントが紐づいていないため再開できません');
       return;
     }
     // ⚠️ Task と同じ組織のエージェントだけを使う（E6）
-    const agentRow = await prisma.agent.findUnique({ where: { id: task.agentId, orgId: task.orgId } });
+    const agentRow = await db.agent.findUnique({ where: { id: task.agentId } });
     if (!agentRow) {
-      await failTask(taskId, 'エージェントが削除されています');
+      await failTask(db, taskId, 'エージェントが削除されています');
       return;
     }
     if (agentRow.orgId !== task.orgId) {
-      await failTask(taskId, 'エージェントが見つかりません');
+      await failTask(db, taskId, 'エージェントが見つかりません');
       return;
     }
     const state = parseRunState(task.executionResult);
@@ -477,7 +495,7 @@ async function resumeLoaded(
       : null;
     if (!state || !approval || approval.kind !== 'agent_step') {
       // claim 済みだと RUNNING のまま固まるので必ず出口を作る
-      await failTask(taskId, '承認内容を復元できませんでした（実行状態が壊れています）');
+      await failTask(db, taskId, '承認内容を復元できませんでした（実行状態が壊れています）');
       return;
     }
 
@@ -493,7 +511,7 @@ async function resumeLoaded(
     const step = state.steps[i];
     const def = agent.steps[i];
     if (!step || !def) {
-      await failTask(taskId, `承認されたステップ (${i + 1}) がエージェント定義に見つかりません`);
+      await failTask(db, taskId, `承認されたステップ (${i + 1}) がエージェント定義に見つかりません`);
       return;
     }
 
@@ -503,6 +521,7 @@ async function resumeLoaded(
     //    照合しないと「Slack に通知」を承認したはずが「メール送信」が走る。
     if (def.capabilityName !== approval.capabilityName) {
       await failTask(
+        db,
         taskId,
         'エージェントの手順が承認後に変更されました。安全のため実行を中止しました。もう一度実行してください。',
       );
@@ -523,20 +542,20 @@ async function resumeLoaded(
     step.status = 'RUNNING';
     step.args = args;
     step.startedAt = new Date().toISOString();
-    await prisma.task.update({
+    await db.task.update({
       where: { id: taskId },
       data: { status: 'RUNNING', executionResult: JSON.stringify(state) },
     });
-    await log(taskId, `承認されました: ${approval.capabilityLabel} を実行します`);
+    await log(db, taskId, `承認されました: ${approval.capabilityLabel} を実行します`);
 
     const prev = i > 0 ? (state.steps[i - 1].output ?? '') : '';
-    const result = await executeStep(task.orgId, agent, def.capabilityName, args, prev || state.input);
+    const result = await executeStep(db, agent, def.capabilityName, args, prev || state.input);
     step.finishedAt = new Date().toISOString();
 
     if (!result.ok) {
       step.status = 'FAILED';
       step.error = result.error;
-      await prisma.task.update({
+      await db.task.update({
         where: { id: taskId },
         data: {
           status: 'FAILED',
@@ -544,20 +563,20 @@ async function resumeLoaded(
           executionResult: JSON.stringify(state),
         },
       });
-      await log(taskId, `ステップ ${i + 1} 失敗 (${def.capabilityName}): ${result.error ?? ''}`, 'ERROR');
+      await log(db, taskId, `ステップ ${i + 1} 失敗 (${def.capabilityName}): ${result.error ?? ''}`, 'ERROR');
       return;
     }
 
     step.status = 'DONE';
     step.output = result.output;
     state.currentIndex = i + 1;
-    await persistState(taskId, state);
-    await log(taskId, `ステップ ${i + 1}/${state.steps.length} 完了: ${def.capabilityName}`);
+    await persistState(db, taskId, state);
+    await log(db, taskId, `ステップ ${i + 1}/${state.steps.length} 完了: ${def.capabilityName}`);
 
-    await advance(taskId, task.orgId, agent, state);
+    await advance(db, taskId, agent, state);
   } catch (e) {
     stepRunnerLog.error('resumeAgentTask failed:', e);
-    await prisma.task
+    await db.task
       .update({ where: { id: taskId }, data: { status: 'FAILED', lastError: String(e) } })
       .catch(() => {});
   }
@@ -590,7 +609,7 @@ export async function recoverStaleRunningTasks(olderThanMs = 30 * 60_000): Promi
     });
     if (claimed.count === 0) continue;
     recovered += 1;
-    await log(id, STALE_RUNNING_MESSAGE, 'ERROR').catch(() => {});
+    await log(prisma, id, STALE_RUNNING_MESSAGE, 'ERROR').catch(() => {});
   }
   if (recovered > 0) {
     stepRunnerLog.warn(`中断されていた RUNNING タスクを ${recovered} 件回収しました`);

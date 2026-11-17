@@ -41,21 +41,21 @@ export function matchesSchedule(
  * ここで必ず握り、ログと Task の FAILED 記録まで best-effort で行う。
  * start() が同期 throw しても Promise 化して受けられるよう Promise.resolve().then() を挟む。
  */
-function fireAndForget(taskId: string, label: string, start: () => Promise<void> | void): void {
+function fireAndForget(db: TenantDb, taskId: string, label: string, start: () => Promise<void> | void): void {
   void Promise.resolve()
     .then(start)
-    .catch((e) => markDispatchFailed(taskId, label, e));
+    .catch((e) => markDispatchFailed(db, taskId, label, e));
 }
 
 /** 発火に失敗した Task を FAILED + TaskLog(ERROR) に落とす。この更新自体の失敗も握りつぶす。 */
-async function markDispatchFailed(taskId: string, label: string, error: unknown): Promise<void> {
+async function markDispatchFailed(db: TenantDb, taskId: string, label: string, error: unknown): Promise<void> {
   scheduleLog.error(`${label} failed (task=${taskId}):`, error);
   try {
-    await prisma.task.update({
+    await db.task.update({
       where: { id: taskId },
       data: { status: 'FAILED', lastError: String(error) },
     });
-    await prisma.taskLog.create({
+    await db.taskLog.create({
       data: { taskId, message: `定期実行の起動に失敗: ${String(error)}`, level: 'ERROR' },
     });
   } catch (e) {
@@ -130,7 +130,7 @@ async function enqueueClaimed(db: TenantDb, st: ScheduledTaskRow): Promise<Enque
     });
     const steps = (agent.steps as unknown as AgentStepDef[] | null) ?? [];
     if (steps.length > 0) {
-      fireAndForget(task.id, 'runAgentTask', () =>
+      fireAndForget(db, task.id, 'runAgentTask', () =>
         runAgentTask(
           { id: task.id, orgId: task.orgId, input: task.input },
           {
@@ -145,7 +145,7 @@ async function enqueueClaimed(db: TenantDb, st: ScheduledTaskRow): Promise<Enque
     } else {
       // steps 無しエージェント: instructions を効かせた単発実行
       // （従来は dispatchQueuedTask に流れて instructions が無視されていたギャップの修正）
-      fireAndForget(task.id, 'dispatchAgentTask', () =>
+      fireAndForget(db, task.id, 'dispatchAgentTask', () =>
         dispatchAgentTask(
           { id: task.id, orgId: task.orgId, title: task.title, input: task.input, taskType: 'agent' },
           {
@@ -175,7 +175,7 @@ async function enqueueClaimed(db: TenantDb, st: ScheduledTaskRow): Promise<Enque
   await db.taskLog.create({
     data: { taskId: task.id, message: `定期実行から起動 (scheduledTaskId=${st.id})`, level: 'INFO' },
   });
-  fireAndForget(task.id, 'dispatchQueuedTask', () => dispatchQueuedTask(task));
+  fireAndForget(db, task.id, 'dispatchQueuedTask', () => dispatchQueuedTask(task));
   return { enqueued: true, taskId: task.id };
 }
 

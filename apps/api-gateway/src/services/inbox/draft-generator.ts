@@ -4,7 +4,7 @@
 // 下書きは InboundMessage.draft に保存し、status を DRAFTED / DRAFT_FAILED に遷移させる。
 // 実送信は絶対にしない（送信は承認 API → adapter.sendReply だけ）。
 
-import { prisma } from '../../utils/prisma';
+import type { TenantDb } from '../../tenancy/tenant-db';
 import { aiEngineHeaders } from '../ai-engine-auth';
 import { config } from '../../config/env';
 import { createLogger, errorMessage } from '../../utils/logger';
@@ -97,23 +97,25 @@ export function parseReplyBody(raw: string): string {
  * void 呼び出し前提のため、内部で throw しない。
  */
 export async function generateInboxDraft(
+  /** 受信メッセージの組織のテナントクライアント（別組織の id なら見つからず何もしない） */
+  db: TenantDb,
   id: string,
   opts: { allowRegenerate?: boolean } = {},
 ): Promise<void> {
   try {
-    const msg = await prisma.inboundMessage.findUnique({ where: { id } });
+    const msg = await db.inboundMessage.findUnique({ where: { id } });
     if (!msg || !msg.text) return;
     const allowed = opts.allowRegenerate
       ? ['RECEIVED', 'DRAFTED', 'DRAFT_FAILED']
       : ['RECEIVED'];
     if (!allowed.includes(msg.status)) return;
 
-    const org = await prisma.organization.findUnique({ where: { id: msg.orgId } });
+    const org = await db.organization.findUnique({ where: { id: db.orgId } });
     const plan = org?.plan ?? 'STARTER';
 
     // 同じ会話の直近履歴（古い順に整形）。
     // 1:1（groupId=null）は同一 connection 上の別ユーザーの会話が混ざらないよう lineUserId でも絞る。
-    const historyRows = await prisma.inboundMessage.findMany({
+    const historyRows = await db.inboundMessage.findMany({
       where: {
         connectionId: msg.connectionId,
         groupId: msg.groupId,
@@ -155,7 +157,7 @@ export async function generateInboxDraft(
       }
       llm = JSON.parse(text) as LLMChatResponse;
     } catch (e) {
-      await prisma.inboundMessage.update({
+      await db.inboundMessage.update({
         where: { id },
         data: {
           status: 'DRAFT_FAILED',
@@ -167,7 +169,7 @@ export async function generateInboxDraft(
 
     const draft = parseReplyBody(llm.content ?? '');
 
-    await prisma.inboundMessage.update({
+    await db.inboundMessage.update({
       where: { id },
       data: {
         status: 'DRAFTED',
@@ -180,7 +182,7 @@ export async function generateInboxDraft(
     // void 呼び出し前提: ここで握って unhandled rejection にしない
     inboxDraftLog.error(`下書き生成に失敗 (id=${id}):`, errorMessage(e));
     try {
-      await prisma.inboundMessage.update({
+      await db.inboundMessage.update({
         where: { id },
         data: {
           status: 'DRAFT_FAILED',

@@ -77,7 +77,8 @@ describe('processLineEvents', () => {
       status: 'RECEIVED',
     });
     expect(data.receivedAt).toEqual(new Date(1757300000000));
-    expect(generateInboxDraftMock).toHaveBeenCalledWith('m1');
+    // 下書き生成には接続の組織に絞ったテナントクライアントを渡す（チャンク 10）
+    expect(generateInboxDraftMock).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org1' }), 'm1');
   });
 
   it('group テキストでもメンション無し → 取り込まない', async () => {
@@ -184,7 +185,8 @@ describe('processLineEvents', () => {
     prismaMock.channelConnection.update.mockRejectedValue(new Error('db down'));
     await processLineEvents(CONNECTION, [groupTextEvent()]);
     expect(prismaMock.channelConnection.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'conn1' } }),
+      // テナントクライアント経由なので接続の組織が where に入る
+      expect.objectContaining({ where: { id: 'conn1', orgId: 'org1' } }),
     );
     expect(prismaMock.inboundMessage.create).toHaveBeenCalledTimes(1);
   });

@@ -9,7 +9,7 @@
 // ⚠️ 画像は保存しない。読み取った値だけを DB に持つ。
 //    保管すると電子帳簿保存法の保管要件を背負うことになるため、v1 では持たない。
 
-import { prisma } from '../../utils/prisma';
+import { tenantDb } from '../../tenancy/tenant-db';
 import { splitTaxInclusive } from '../../routes/accounting/accounting-core';
 import { parseDateOnly } from '../../routes/accounting/shared';
 import { fetchLineMessageContent } from './line-client';
@@ -84,7 +84,7 @@ export async function matchProject(
   if (!hint || hint.trim().length < 2) return null;
   const needle = hint.trim();
 
-  const byCode = await prisma.project.findFirst({
+  const byCode = await tenantDb(orgId).project.findFirst({
     where: { orgId, code: needle },
     select: { id: true, name: true, code: true },
   });
@@ -93,7 +93,7 @@ export async function matchProject(
   // ⚠️ Project.name には一意制約が無い（unique なのは code だけ）。
   //    findFirst だと「山田邸 1期(請求済)」と「山田邸 2期(施工中)」が両方ある組織で
   //    どちらが返るか非決定的になり、完成済みの現場に原価が付く。しかも再現しない。
-  const byName = await prisma.project.findMany({
+  const byName = await tenantDb(orgId).project.findMany({
     where: { orgId, name: needle },
     select: { id: true, name: true, code: true },
     take: 2,
@@ -101,7 +101,7 @@ export async function matchProject(
   if (byName.length === 1) return byName[0];
   if (byName.length > 1) return null;
 
-  const partial = await prisma.project.findMany({
+  const partial = await tenantDb(orgId).project.findMany({
     where: { orgId, name: { contains: escapeLike(needle), mode: 'insensitive' } },
     select: { id: true, name: true, code: true },
     take: 2,
@@ -117,13 +117,13 @@ export async function matchVendor(
   if (!hint || hint.trim().length < 2) return null;
   const needle = hint.trim();
 
-  const exact = await prisma.vendor.findFirst({
+  const exact = await tenantDb(orgId).vendor.findFirst({
     where: { orgId, name: needle },
     select: { id: true, name: true },
   });
   if (exact) return exact;
 
-  const partial = await prisma.vendor.findMany({
+  const partial = await tenantDb(orgId).vendor.findMany({
     where: { orgId, name: { contains: escapeLike(needle), mode: 'insensitive' } },
     select: { id: true, name: true },
     take: 2,
@@ -246,7 +246,7 @@ export async function captureReceiptFromLine(args: {
 
   /* 同じ写真を2回送るのは日常的に起きる（「送れたか不安でもう一度」）。
      webhookEventId の unique 制約は LINE の再送しか弾けないので、内容で見る。 */
-  const duplicate = await prisma.costEntry.findFirst({
+  const duplicate = await tenantDb(args.orgId).costEntry.findFirst({
     where: { orgId: args.orgId, projectId: project.id, incurredOn: incurredOnIso, amount, category },
     select: { id: true },
   });
@@ -257,7 +257,7 @@ export async function captureReceiptFromLine(args: {
     };
   }
 
-  const entry = await prisma.costEntry.create({
+  const entry = await tenantDb(args.orgId).costEntry.create({
     data: {
       orgId: args.orgId,
       projectId: (project as { id: string }).id,

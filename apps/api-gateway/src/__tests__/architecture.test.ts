@@ -38,19 +38,11 @@ export const RAW_PRISMA_ALLOWLIST: Record<string, string> = {
   'services/organizations.ts': '組織の作成・作成上限・作成者ごとのトライアル（組織をまたいで数える）',
   'services/billing/sync.ts': 'Stripe の写し込み（組織自体を更新する）',
   'services/lifecycle.ts': 'シャットダウン時の後始末（状態を FAILED にするだけ）',
-  'services/schedule-dispatcher.ts': '定期実行の claim と候補スキャン（claim 後は runAsTenant + tenantDb）',
-  'services/step-runner.ts': '取り残された実行の回収と、Task の組織での実行（Phase 1.5 で tenantDb へ）',
-  // ── 受け取った orgId で必ず where/data を書いているサービス（Phase 1.5 で tenantDb へ移す） ──
-  'services/task-executor.ts': 'Task を引数で受け取り、その id/orgId で更新する',
-  'services/capability-resolver.ts': 'orgId を引数で受け取る（where に orgId）',
-  'services/capability-executor.ts': 'orgId を引数で受け取る（where に orgId）',
-  'services/adapters/index.ts': 'ctx.orgId で ProviderConnection を引く',
-  'services/google-auth.ts': 'orgId で ProviderConnection を引く',
-  'services/integration-sync.ts': 'orgId で RequiredCredential を同期する',
-  'services/rag.ts': 'pgvector の raw SQL（"orgId" = ${orgId}）',
-  'services/inbox/line-inbox.ts': 'connection.orgId で取り込む（runAsTenant の中）',
-  'services/inbox/draft-generator.ts': 'InboundMessage の orgId で下書きを書く',
-  'services/inbox/receipt-capture.ts': 'InboundMessage の orgId で原価の下書きを作る',
+  'services/schedule-dispatcher.ts': '定期実行の claim と候補スキャンだけ（claim 後と失敗の記録は runAsTenant + tenantDb）',
+  'services/step-runner.ts':
+    '取り残された RUNNING の回収（組織をまたぐ）と、orgId 無しで呼ばれた再開の Task の逆引きだけ。以降は tenantDb',
+  // チャンク 10 で tenantDb に移したもの（task-executor・capability-resolver/executor・adapters・google-auth・
+  // integration-sync・rag・inbox の 3 つ）はここに戻さない。組織が決まっているなら tenantDb(orgId) を使う
 };
 
 /** raw SQL を書いてよいファイル。どれも "orgId" か "Organization" を条件に含むこと。 */

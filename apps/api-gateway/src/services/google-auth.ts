@@ -5,7 +5,7 @@
 // drive.file は「このアプリが作成したファイル」に限定される非センシティブスコープで、
 // Docs/Sheets/Slides の create + その後の batchUpdate をすべてカバーする。
 
-import { prisma } from '../utils/prisma';
+import { tenantDb } from '../tenancy/tenant-db';
 import { sealSecret, openSecret } from './secret-box';
 import { syncRequiredCredentialStatus } from './integration-sync';
 import { config } from '../config/env';
@@ -42,7 +42,7 @@ export type GoogleTokenResult =
  * 楽観的に last-write-wins とする（ロックは持たない）。
  */
 export async function getGoogleAccessToken(orgId: string): Promise<GoogleTokenResult> {
-  const conn = await prisma.providerConnection.findUnique({
+  const conn = await tenantDb(orgId).providerConnection.findUnique({
     where: { orgId_provider: { orgId, provider: 'google' } },
   });
   if (!conn || conn.status === 'DISABLED') return { ok: false, reason: 'NOT_CONNECTED' };
@@ -88,7 +88,7 @@ export async function getGoogleAccessToken(orgId: string): Promise<GoogleTokenRe
     return { ok: false, reason: 'NEEDS_RECONNECT' };
   }
 
-  await prisma.providerConnection.update({
+  await tenantDb(orgId).providerConnection.update({
     where: { id: conn.id },
     data: {
       accessTokenEnc: sealSecret(refreshed.accessToken),
@@ -100,7 +100,7 @@ export async function getGoogleAccessToken(orgId: string): Promise<GoogleTokenRe
 }
 
 async function markNeedsReconnect(connectionId: string, orgId: string): Promise<void> {
-  await prisma.providerConnection.update({
+  await tenantDb(orgId).providerConnection.update({
     where: { id: connectionId },
     data: { status: 'NEEDS_RECONNECT', lastCheckedAt: new Date() },
   });
