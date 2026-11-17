@@ -28,6 +28,10 @@
   `STRIPE_PRICE_STARTER_MONTHLY` の**両方**があるとき（`config.billingConfigured`）。キーだけだと契約できないのに止まる。
 - **解約・未払いのあとは「閲覧のみ」**。新しい実行と保存は 402 で止まり、台帳・ファイル・
   過去のやり取りの閲覧と書き出しは続けられる。データは消さない。
+- **認証の無い経路も止める**。定期実行（gateway 内 tick と n8n の `enqueue-scheduled-task`）は claim の前に組織を見て
+  skip し（`lastRunAt` を進めない＝契約し直せばその時間帯のうちに走る）、n8n の `scheduled-jobs` 一覧からも外す。
+  LINE 受信は**メッセージの保存だけ続け**、下書き生成と領収書の読み取り（AI）はしない（受信箱には「ご契約が無いため…」と出る。
+  画像は保存しないので、契約後に撮り直してもらう）。判定は `services/org-entitlement.ts` → `entitlementDecision` の 1 か所。
   削除するなら90日後に予告してから、という方針だが**自動削除はまだ実装していない**（運用で行う）。
 - **月間の AI 呼び出しは、超えても止めない**。8割で画面に警告を出し、超えたら軽いモデルに
   落として使い続けさせる。上限と挙動は `tests/fixtures/plan-models.json` が正本。

@@ -10,10 +10,17 @@ import { generateInboxDraft } from './draft-generator';
 import type { LineMentionee, LineWebhookEvent } from './line-types';
 import { captureReceiptFromLine } from './receipt-capture';
 import { tracked } from '../lifecycle-core';
+import { orgEntitlement } from '../org-entitlement';
 import { config } from '../../config/env';
 import { createLogger, errorMessage } from '../../utils/logger';
 
 const lineInboxLog = createLogger('line-inbox');
+
+/** 閲覧のみの組織で領収書を読まなかったときの本文（画像は保存しないので、契約後に撮り直してもらう） */
+export const RECEIPT_SKIPPED_TEXT =
+  '📷 領収書を受け取りましたが、ご契約が無いため読み取っていません。ご契約後にもう一度送ってください。';
+/** 閲覧のみの組織で下書きを作らなかった理由（受信箱の draftError） */
+export const DRAFT_SKIPPED_ERROR = 'ご契約が無いため、返信の下書きを作っていません。';
 
 /** processLineEvents が必要とする最小形（Prisma の ChannelConnection 互換）。 */
 export interface InboxConnection {
@@ -55,8 +62,10 @@ interface CreateArgs {
    * RECEIVED = 返信の下書きを生成する対象
    * SKIPPED  = 対応できない受信（スタンプ等）
    * CAPTURED = 領収書として読み取り済み。返信するものではなく、次の操作は 経理 > 原価
+   * DRAFT_FAILED = 契約が無い（閲覧のみ）ので下書きを作らなかった。受信は残す（手書きの返信は契約後に）
    */
-  status: 'RECEIVED' | 'SKIPPED' | 'CAPTURED';
+  status: 'RECEIVED' | 'SKIPPED' | 'CAPTURED' | 'DRAFT_FAILED';
+  draftError?: string;
 }
 
 /** InboundMessage を作成する。webhookEventId 重複 (P2002 = LINE 再送) は静かに skip して null。 */
@@ -75,6 +84,7 @@ async function createInboundMessage(db: TenantDb, args: CreateArgs): Promise<{ i
         messageType: args.messageType,
         text: args.text,
         status: args.status,
+        ...(args.draftError ? { draftError: args.draftError } : {}),
         receivedAt: new Date(args.event.timestamp),
       },
     });
@@ -152,6 +162,22 @@ export async function processLineEvents(
     lineInboxLog.error('lastEventAt の更新に失敗:', errorMessage(e));
   }
 
+  /* 閲覧のみ（期限切れ・解約済み）の組織では AI を動かさない（下書き生成・領収書の読み取り）。
+     受信メッセージ自体は保存する（データを失わない。契約し直せば受信箱から続きを扱える）。saas-review #1 */
+  let aiAllowed = true;
+  try {
+    const decision = await orgEntitlement(db);
+    if (decision.access === 'read_only') {
+      aiAllowed = false;
+      lineInboxLog.info(
+        `契約が無いため LINE の AI 処理を skip（受信は保存）(connection=${connection.id}, org=${connection.orgId}, reason=${decision.reason})`,
+      );
+    }
+  } catch (e) {
+    // 判定が読めないときは止めない（fail-open。entitlementDecision と同じ方針）
+    lineInboxLog.error('契約の確認に失敗（AI 処理は続行）:', errorMessage(e));
+  }
+
   for (const event of events) {
     try {
       if (event.type === 'leave') {
@@ -181,12 +207,12 @@ export async function processLineEvents(
             lineUserId,
             senderName: null,
             messageType: 'image',
-            text: null,
+            text: aiAllowed ? null : RECEIPT_SKIPPED_TEXT,
             // ⚠️ RECEIVED にしてはいけない。受信箱は RECEIVED を「返信の下書きを生成中」と
             //    解釈するので、返信欄が出たまま永久に対応待ちに滞留する（この画像に返信はしない）
             status: 'CAPTURED',
           });
-          if (created) {
+          if (created && aiAllowed) {
             // 読み取りは完全非同期（webhook 応答にも取り込みループにも影響させない）。
             // LINE は 1 分以内に 200 を返さないと再送してくるので、ここで待たない。
             const messageId = event.message.id;
@@ -239,9 +265,10 @@ export async function processLineEvents(
         senderName,
         messageType: 'text',
         text,
-        status: 'RECEIVED',
+        // RECEIVED は受信箱で「下書きを生成中」と読まれるので、作らないときは最初から DRAFT_FAILED にする
+        ...(aiAllowed ? { status: 'RECEIVED' as const } : { status: 'DRAFT_FAILED' as const, draftError: DRAFT_SKIPPED_ERROR }),
       });
-      if (created) {
+      if (created && aiAllowed) {
         // 下書き生成は完全非同期（webhook 応答にも取り込みループにも影響させない）
         tracked('inbox-draft', created.id, () => generateInboxDraft(db, created.id));
       }

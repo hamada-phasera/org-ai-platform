@@ -11,6 +11,7 @@ import { runAsTenant } from '../tenancy/context';
 import { tenantDb, type TenantDb } from '../tenancy/tenant-db';
 import { dispatchQueuedTask, dispatchAgentTask } from './task-executor';
 import { runAgentTask } from './step-runner';
+import { orgEntitlement } from './org-entitlement';
 import { config } from '../config/env';
 import { createLogger } from '../utils/logger';
 
@@ -66,7 +67,7 @@ async function markDispatchFailed(db: TenantDb, taskId: string, label: string, e
 
 export type EnqueueResult =
   | { enqueued: true; taskId: string }
-  | { enqueued: false; reason: 'already_ran' | 'not_found' | 'agent_gone' };
+  | { enqueued: false; reason: 'already_ran' | 'not_found' | 'agent_gone' | 'read_only' };
 
 /**
  * 定期タスク 1 件を（まだ当該時間帯に走っていなければ）Task 化して発火する。
@@ -77,6 +78,20 @@ export async function claimAndEnqueueScheduledTask(
   scheduledTaskId: string,
   now: Date = new Date(),
 ): Promise<EnqueueResult> {
+  /* 閲覧のみ（期限切れ・解約済み）の組織は発火しない。claim より前に見るので lastRunAt も進めない
+     （契約し直せば、その時間帯のうちに次の tick で走る）。docs/plan/saas-review.md #1 */
+  const head = await prisma.scheduledTask.findUnique({ where: { id: scheduledTaskId }, select: { orgId: true } });
+  if (!head) return { enqueued: false, reason: 'not_found' };
+  if (head.orgId) {
+    const decision = await orgEntitlement(tenantDb(head.orgId), now);
+    if (decision.access === 'read_only') {
+      scheduleLog.info(
+        `契約が無いため定期実行を skip (scheduledTask=${scheduledTaskId}, org=${head.orgId}, reason=${decision.reason})`,
+      );
+      return { enqueued: false, reason: 'read_only' };
+    }
+  }
+
   const hourStart = startOfCurrentHourUtc(now);
   const claimed = await prisma.scheduledTask.updateMany({
     where: {
