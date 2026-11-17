@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
@@ -60,6 +61,26 @@ _db_url, _connect_args = build_engine_url(settings.database_url)
 
 engine = create_async_engine(_db_url, echo=False, connect_args=_connect_args)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+
+def rls_applies(db_url: str | None = None) -> bool:
+    """RLS_MODE=on かつ接続先が PostgreSQL のときだけ真（SQLite に set_config は無い）。"""
+    url = _db_url if db_url is None else db_url
+    return settings.rls_mode == "on" and url.startswith("postgresql")
+
+
+async def set_tenant(session: Any, org_id: str) -> None:
+    """RLS Phase 2a: このセッションの**今のトランザクション**に組織を設定する（docs/design/multi-tenancy.md）。
+
+    - set_config(..., true) は is_local=true。コミット / ロールバックで消え、プールの接続に残らない
+      （SET は使わない。次に同じ接続を使う別の組織の要求に漏れる）
+    - SQLAlchemy の AsyncSession は最初の execute でトランザクションを始めるので、AILog / RiskEvent を触る
+      **前に**、同じセッションで呼ぶこと。値はバインド変数で渡す（SQL に埋め込まない）
+    - RLS_MODE=off（既定）・SQLite では何もしない
+    """
+    if not rls_applies():
+        return
+    await session.execute(text("SELECT set_config('app.org_id', :org_id, true)"), {"org_id": org_id})
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:

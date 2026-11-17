@@ -81,6 +81,13 @@ class Settings:
         不正な値の扱いは app.tenancy.org_header_mode が決める。"""
         return _env("ORG_HEADER_MODE", "warn").strip().lower()
 
+    @property
+    def rls_mode(self) -> str:
+        """RLS Phase 2a: 'on' | 'off'（小文字化・前後空白除去。on 以外はすべて off）。既定 off。
+        on のとき AILog / RiskEvent を触る前に同じトランザクションで set_config('app.org_id', …, true) を呼ぶ
+        （app.db.set_tenant）。packages/db-schema/rls/phase2a.sql を流して接続を flow_app に替えてから on にする。"""
+        return "on" if _env("RLS_MODE", "off").strip().lower() == "on" else "off"
+
     # ── ネットワーク・DB ───────────────────────────────────────
     @property
     def allowed_origins(self) -> list[str]:
