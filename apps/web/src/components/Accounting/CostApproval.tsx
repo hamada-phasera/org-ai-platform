@@ -79,7 +79,7 @@ function AddCostForm({
     },
   });
 
-  const selectClass = 'rounded-sm border border-border bg-elevated px-3 py-2 text-xs text-primary';
+  const selectClass = 'rounded-sm border border-border bg-elevated px-3 py-2 text-xs text-primary max-lg:min-h-11';
 
   return (
     <Card variant="regular" padding="md" radius="2xl" className="space-y-3">
@@ -149,7 +149,7 @@ function AddCostForm({
           onChange={(e) => setForm({ ...form, description: e.target.value })}
         />
       </div>
-      <label className="flex items-center gap-2 text-xs text-secondary">
+      <label className="flex items-center gap-2 text-xs text-secondary max-lg:min-h-11">
         <input
           type="checkbox"
           checked={form.taxExempt}
@@ -158,7 +158,7 @@ function AddCostForm({
         消費税がかからない支出（自社の給与・賃金など）
       </label>
       {error && <p className="text-xs text-danger">{error}</p>}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
           loading={mut.isPending}
@@ -357,7 +357,55 @@ export function CostApproval() {
         />
       ) : (
         <Card variant="regular" padding="none" radius="2xl" className="overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* スマホ: 表を縦積みの行にする。行の左（44px）で選び、上の「選択した N 件を確定」で承認する */}
+          <ul className="divide-y divide-hairline lg:hidden">
+            {costs.map((c) => {
+              const draft = c.status === 'DRAFT';
+              return (
+                <li key={c.id} className={`flex items-start ${draft ? '' : 'opacity-70'}`}>
+                  <label className="flex h-11 w-11 shrink-0 items-center justify-center">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(c.id)}
+                      disabled={!draft}
+                      onChange={() => toggle(c.id)}
+                      aria-label={`${c.description ?? '明細'} を選択`}
+                    />
+                  </label>
+                  <div className="min-w-0 flex-1 py-3">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="truncate text-xs font-bold text-primary">{c.project?.name ?? '—'}</p>
+                      <p className="tabular shrink-0 text-xs font-bold text-primary">{yen(c.amount)}</p>
+                    </div>
+                    <p className="tabular text-micro text-secondary">
+                      {c.incurredOn} · {COST_CATEGORY_LABEL[c.category as CostCategory] ?? c.category} ·{' '}
+                      {c.vendor?.name ?? '取引先なし'} · 消費税 {yen(c.taxAmount)}
+                    </p>
+                    {c.vendor && !c.vendor.invoiceRegistered && (
+                      <p className="text-micro text-warning">インボイス未登録</p>
+                    )}
+                    <p className={`text-micro font-bold ${draft ? 'text-warning' : 'text-success'}`}>
+                      {draft ? `未確認・${SOURCE_LABEL[c.source] ?? c.source}` : '確定'}
+                      {c.description && <span className="font-normal text-text-muted"> · {c.description}</span>}
+                    </p>
+                  </div>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    icon={<Trash2 size={11} />}
+                    loading={deleteMut.isPending && deleteMut.variables === c.id}
+                    onClick={() => {
+                      if (confirm('この原価明細を削除しますか？')) deleteMut.mutate(c.id);
+                    }}
+                    aria-label="原価明細を削除"
+                    className="shrink-0"
+                  />
+                </li>
+              );
+            })}
+          </ul>
+
+          <div className="hidden overflow-x-auto lg:block">
             <table className="w-full text-sm">
               <thead className="border-b border-border bg-sunken">
                 <tr>

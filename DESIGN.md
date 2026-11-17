@@ -57,10 +57,11 @@
 
 ## 4. レイアウト
 
-- シェルは `shell/AppShell` の1つ（サイドバー＋部署トグルのトップバー＋本文＋MobileNav）。ルート追加は `shell/navConfig.ts`（※ MobileNav.tsx の TABS/MOBILE_OK が別定義なので両方更新）
+- シェルは `shell/AppShell` の1つ（サイドバー＋部署トグルのトップバー＋本文＋MobileNav）。ルート追加は `shell/navConfig.ts` の表だけ（各行の `mobile: 'exact' | 'prefix' | false` と `tab`）。サイドバー・下部タブ・メニュー・`isMobileRoute` はすべてこの表から出す。ルートを足したら `shell/__tests__/navConfig.test.ts` の表にも足す（App.tsx と突き合わせて落ちる）
 - サイドバー選択中 = `bg-accent-soft text-accent`
 - TOP (`/`) は最小: ブランドストリップ＋指示入力＋入口4つ。KPI数字は置かない（例外は承認件数のみ）
-- モバイルで開けるのは `MOBILE_ROUTES` のみ、他は `DesktopOnly`
+- モバイルで開けるのは `mobile` が付いた行だけ、他は `DesktopOnly`。分担は「閲覧・承認・チャット・契約（設定）・経理の確認・エージェントの一覧と実行はスマホ、エージェント詳細・ガバナンス・タスク・営業・分析・SNS はパソコン」
+- スマホでは表を縦積みの行にする（`lg:hidden` の一覧と `hidden lg:block` の表）。横スクロールを出さない。トークン貼り付けなど長い入力はパソコンだけに出す
 
 ## 5. アクセシビリティ
 
@@ -68,6 +69,7 @@
 - モーダル: `role="dialog"` `aria-modal` `aria-labelledby`、Escape、初期フォーカスと復帰
 - ストリーミング/非同期状態は `aria-live="polite"`、アイコンだけのボタンに `aria-label`
 - コントラスト: 文字は `--text-muted` が下限（キャンバス地で4.9:1）
+- 押せる要素はスマホ（lg 未満）で 44px 以上。`Button` と `LiquidTabs` は `max-lg:min-h-11` / `max-lg:h-11` を内蔵。素の `<button>` `<select>` は `h-11 w-11` か `max-lg:min-h-11` を付ける
 
 ## 6. 検証
 

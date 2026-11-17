@@ -60,7 +60,12 @@ function InviteResult({ token, onClose }: { token: string; onClose: () => void }
             （サーバには保存していません）。
           </p>
         </div>
-        <button type="button" onClick={onClose} aria-label="閉じる" className="text-muted hover:text-primary">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="閉じる"
+          className="-my-3 -mr-3 flex h-11 w-11 shrink-0 items-center justify-center text-muted hover:text-primary"
+        >
           <X size={13} />
         </button>
       </div>
@@ -180,7 +185,7 @@ export function MembersSection() {
                 className="sm:col-span-2"
               />
               <select
-                className="rounded-sm border border-border bg-elevated px-3 py-2 text-xs text-primary"
+                className="rounded-sm border border-border bg-elevated px-3 py-2 text-xs text-primary max-lg:min-h-11"
                 value={inviteRole}
                 onChange={(e) => setInviteRole(e.target.value as 'ADMIN' | 'MEMBER')}
                 aria-label="役割"
@@ -192,7 +197,7 @@ export function MembersSection() {
             <p className="text-micro leading-relaxed text-text-muted">
               {ROLE_HELP[inviteRole]}
             </p>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
                 loading={inviteMut.isPending}
@@ -219,7 +224,7 @@ export function MembersSection() {
               </p>
               <ul className="divide-y divide-hairline">
                 {invitations.map((inv) => (
-                  <li key={inv.id} className="flex items-center gap-2 py-2">
+                  <li key={inv.id} className="flex flex-wrap items-center gap-2 py-2">
                     <span className="min-w-0 flex-1 truncate text-xs text-primary">
                       {inv.email ?? '（メール未設定）'}
                     </span>
@@ -283,7 +288,7 @@ export function MembersSection() {
                       </span>
                     ) : isOwner && !isSelf ? (
                       <select
-                        className="rounded-sm border border-border bg-elevated px-2 py-1 text-micro text-primary"
+                        className="rounded-sm border border-border bg-elevated px-2 py-1 text-micro text-primary max-lg:min-h-11"
                         value={role}
                         onChange={(e) =>
                           roleMut.mutate({ id: m.id, role: e.target.value as 'ADMIN' | 'MEMBER' })

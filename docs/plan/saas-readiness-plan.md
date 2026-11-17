@@ -398,6 +398,10 @@
 | チャンク 4 の `/plan` の model | `plan_capability_with_model` で応答の実モデル名を受け取って記録。応答が無い（ケイパビリティ 0 件・呼び出し失敗）ときだけ事前に決めたモデル名で埋める（従来どおり 1 行記録） |
 | チャンク 4 のエラー応答 | `/orchestrate` は鍵未設定 503・それ以外 502、`/orchestrate/stream` は SSE の error。いずれも固定文言（`ERROR_AI_NOT_CONFIGURED` / `ERROR_AI_FAILED`）で、詳細は `logger.exception` のみ。以前の「RuntimeError 以外は投げ直し（500）」のテストは意図が変わったので 502 の固定文言に書き換えた。gateway は status と本文を見ずに扱うので影響なし |
 | チャンク 4 の DATABASE_URL | 既定値（SQLite）は変えず、`settings.database_url_configured` が偽なら起動時に警告するだけ（`test_config.py` の既定値の固定はそのまま） |
+| チャンク 5 の表の形 | `MAIN_NAV` / `WORK_PAGES` / `ADMIN_NAV` の各行に `mobile: 'exact' \| 'prefix' \| false` と `tab` を持たせ、`NAV_ROUTES`（3 つの連結）から `MOBILE_TABS`・`MOBILE_MENU`・`DESKTOP_MENU`・`isMobileRoute` を出す。前方一致は区切り単位（`/chatroom` は `/chat` に含めない）。`/dashboard` は従来どおりパソコン向けのまま（D6 に無いため） |
+| チャンク 5 の 44px | 画面ごとに足すと漏れるので、`Button` に `max-lg:min-h-11`（アイコンだけなら幅も）、`LiquidTabs` に `max-lg:h-11` を内蔵した。PC の見た目は変わらない。スマホではチャット等の既存画面のボタンも 44px になる（DESIGN.md §5 に追記） |
+| チャンク 5 のスマホの範囲 | 設定の連携はスマホでは一覧と接続状態まで（トークン貼り付け・Google の接続開始はパソコン）。経理の「取引先・インボイス」タブはスマホでは `DesktopOnly`。工事と原価の追加フォームは残す（縦積みで入力できるため）。エージェントの作成はスマホでも残す（モーダルが 1 列のため。詳細 `/agents/:id` はパソコン） |
+| チャンク 5 のプラン表 | 「カードの入れ子禁止」に合わせ、3 プランの枠（角丸・枠線・塗り）を区切り線に置き換えた（スマホは縦積みの行、md 以上は 3 列）。「ご契約中」はボタンの文言で示す |
 
 > オーケストレーター追記（チャンク 3 で対応）: 「決済設定済み」の判定は `STRIPE_SECRET_KEY` だけでなく、梅の月額価格 ID（`STRIPE_PRICE_STARTER_MONTHLY`）もあるときに限る。キーだけ入れて価格が無いと、期限切れ組織が閲覧のみになり契約もできない詰みになるため。
 

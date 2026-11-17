@@ -140,13 +140,13 @@ export default function SettingsPage() {
   const modelLabel = PLAN_LIMITS[planKey].modelLabel;
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6">
       <PageHeader
         eyebrow="Settings"
         title="設定"
         description="プロフィール・組織・メンバー・連携・プランをここで管理します。"
         actions={
-          <div className="w-10 h-10 rounded-2xl flex items-center justify-center bg-accent-soft text-accent">
+          <div className="hidden w-10 h-10 rounded-2xl items-center justify-center bg-accent-soft text-accent sm:flex">
             <SettingsIcon size={18} />
           </div>
         }
@@ -242,7 +242,7 @@ export default function SettingsPage() {
           )}
           <ul className="divide-y divide-hairline">
             {(files ?? []).map((f) => (
-              <li key={f.id} className="flex items-center gap-3 py-3">
+              <li key={f.id} className="flex flex-wrap items-center gap-3 py-3">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-primary flex items-center gap-2 min-w-0">
                     <span className="truncate">{f.originalName}</span>

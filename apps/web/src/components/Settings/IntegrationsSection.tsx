@@ -60,6 +60,19 @@ const statusChip = (connected: boolean, labelOn = '接続済み', labelOff = '�
     <span className="rounded-full bg-warning/10 px-2.5 py-1 text-micro font-bold text-warning">{labelOff}</span>
   );
 
+/**
+ * 接続の入力（トークンの貼り付け・OAuth の開始）はパソコンだけに出す。
+ * スマホでは一覧と接続状態まで（D6）。長いトークンの貼り付けと別タブの OAuth はスマホで失敗しやすい。
+ */
+function DesktopForm({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      <p className="text-xs text-text-muted lg:hidden">接続はパソコンで行えます。</p>
+      <div className="hidden lg:block">{children}</div>
+    </>
+  );
+}
+
 function IntegrationsSection() {
   const qc = useQueryClient();
   const [secret, setSecret] = useState('');
@@ -321,6 +334,7 @@ function IntegrationsSection() {
               </ul>
             )}
 
+            <DesktopForm>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <label htmlFor="line-secret" className="mb-1 block text-xs font-semibold text-secondary">
@@ -397,6 +411,7 @@ function IntegrationsSection() {
                 </ul>
               </div>
             )}
+            </DesktopForm>
           </>
         )}
       </Card>
@@ -441,7 +456,7 @@ function IntegrationsSection() {
                 </Button>
               </div>
             ) : (
-              <>
+              <DesktopForm>
                 {slack?.status === 'NEEDS_RECONNECT' && (
                   <p className="mb-3 text-xs text-warning">
                     トークンが無効になりました。新しい Bot User OAuth Token を貼り直してください。
@@ -480,7 +495,7 @@ function IntegrationsSection() {
                     <b>chat:write.public</b> を付けてインストールしてください。
                   </p>
                 </div>
-              </>
+              </DesktopForm>
             )}
             {slackWarning && (
               <p className="mt-2 text-xs text-warning" aria-live="polite">
@@ -529,7 +544,7 @@ function IntegrationsSection() {
             </Button>
           </div>
         ) : (
-          <>
+          <DesktopForm>
             {google?.status === 'NEEDS_RECONNECT' && (
               <p className="mb-3 text-xs text-warning">
                 Google の許可が切れました。もう一度接続してください。
@@ -543,7 +558,7 @@ function IntegrationsSection() {
                 このアプリが作成したファイルだけにアクセスします（既存のドライブは読みません）。
               </p>
             </div>
-          </>
+          </DesktopForm>
         )}
       </Card>
 

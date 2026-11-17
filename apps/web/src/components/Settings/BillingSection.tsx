@@ -77,7 +77,12 @@ function Banner({ tone, children, onClose }: { tone: 'danger' | 'accent'; childr
       <Icon size={14} className="mt-0.5 flex-shrink-0" aria-hidden="true" />
       <p className="min-w-0 flex-1 leading-relaxed">{children}</p>
       {onClose && (
-        <button type="button" onClick={onClose} aria-label="閉じる" className="shrink-0 text-muted hover:text-primary">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="閉じる"
+          className="-my-2.5 -mr-3 flex h-11 w-11 shrink-0 items-center justify-center text-muted hover:text-primary"
+        >
           <X size={12} />
         </button>
       )}
@@ -248,7 +253,8 @@ export function BillingSection() {
             <span className="ml-auto text-xs text-muted">ユーザー数は全プラン無制限・初期費用 0円</span>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          {/* 3 プランは区切り線で並べる（カードの入れ子にしない）。スマホは縦積みの行、md 以上は 3 列 */}
+          <div className="grid grid-cols-1 divide-y divide-hairline md:grid-cols-3 md:divide-x md:divide-y-0">
             {PLAN_ORDER.map((plan) => {
               const amount = priceOf(plan, cycle);
               const limits = PLAN_LIMITS[plan];
@@ -257,9 +263,7 @@ export function BillingSection() {
               return (
                 <div
                   key={plan}
-                  className={`flex flex-col rounded-2xl border p-4 ${
-                    isCurrent ? 'border-accent-soft-border bg-accent-soft' : 'border-border bg-sunken'
-                  }`}
+                  className="flex flex-col py-4 first:pt-0 last:pb-0 md:px-4 md:py-0 md:first:pl-0 md:last:pr-0"
                 >
                   <p className="text-lg font-bold text-primary">
                     {PLAN_NAME[plan].name}
@@ -350,7 +354,7 @@ export function BillingSection() {
                 aria-label="1口減らす"
                 onClick={() => setDraftUnits(Math.max(0, units - 1))}
                 disabled={!addon.purchasable || !isOwner || units <= 0}
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-secondary hover:text-primary disabled:opacity-40"
+                className="flex h-11 w-11 items-center justify-center rounded-lg text-secondary hover:text-primary disabled:opacity-40"
               >
                 <Minus size={13} />
               </button>
@@ -362,7 +366,7 @@ export function BillingSection() {
                 aria-label="1口増やす"
                 onClick={() => setDraftUnits(Math.min(50, units + 1))}
                 disabled={!addon.purchasable || !isOwner || units >= 50}
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-secondary hover:text-primary disabled:opacity-40"
+                className="flex h-11 w-11 items-center justify-center rounded-lg text-secondary hover:text-primary disabled:opacity-40"
               >
                 <Plus size={13} />
               </button>
