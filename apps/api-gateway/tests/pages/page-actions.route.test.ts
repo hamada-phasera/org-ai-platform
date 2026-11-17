@@ -300,7 +300,7 @@ describe('POST /api/pages/:slug/actions/:actionId（submit）', () => {
     ['origin が無い', { input: FORM_INPUT }],
     ['requestId が UUID でない', { input: FORM_INPUT, origin: { blockIndex: 2 }, requestId: 'abc' }],
     ['body に余分なキー', { input: FORM_INPUT, origin: { blockIndex: 2 }, orgId: 'org-B' }],
-  ])('%s は 400 VALIDATION_ERROR で n8n に届かず、記録もしない', async (_n, body) => {
+  ] as Array<[string, Record<string, unknown>]>)('%s は 400 VALIDATION_ERROR で n8n に届かず、記録もしない', async (_n, body) => {
     const action = (body.origin as { blockIndex: number } | undefined)?.blockIndex === 3 ? 'remind' : 'create';
     const res = await submit(action, { requestId: randomUUID(), ...body });
     expect(res.statusCode).toBe(400);
