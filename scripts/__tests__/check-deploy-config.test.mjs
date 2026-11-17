@@ -23,6 +23,8 @@ const FILES = [
   'docker-compose.yml',
   'vercel.json',
   '.github/workflows/ci.yml',
+  'docs/DEPLOY.md',
+  'DEPLOYMENT_RUNBOOK.md',
 ];
 
 /** 突き合わせに使うファイルだけを一時ディレクトリに写し、edit で 1 か所変えてから検査する */
@@ -141,6 +143,24 @@ test('リポジトリに node:20 の記述が無い（受け入れ条件 4）', 
   });
   // git grep は一致なしで 1
   assert.equal(r.status, 1, r.stdout);
+});
+
+test('デプロイ手順は docs/DEPLOY.md の 1 本（チャンク 12 受け入れ条件 3）', () => {
+  // render.yaml の sync: false を手順から消すと落ちる
+  const missingKey = checkWith('docs/DEPLOY.md', (s) => s.replaceAll('STRIPE_TAX_RATE_ID', 'STRIPE_TAX_RATE'));
+  assert.ok(missingKey.some((e) => e.includes('STRIPE_TAX_RATE_ID')), missingKey.join('\n'));
+  const aiKey = checkWith('docs/DEPLOY.md', (s) => s.replaceAll('ADMIN_EMAILS', 'ADMINS'));
+  assert.ok(aiKey.some((e) => e.includes('org-ai-ai-engine') && e.includes('ADMIN_EMAILS')), aiKey.join('\n'));
+
+  // 移行済みの DB の記述が戻ると落ちる
+  const stale = checkWith('docs/DEPLOY.md', (s) => `${s}\n接続先は Neon の ep-xxx\n`);
+  assert.ok(stale.some((e) => e.includes('移行済み')), stale.join('\n'));
+
+  // RUNBOOK に手順が戻る・案内が消えると落ちる
+  const forked = checkWith('DEPLOYMENT_RUNBOOK.md', (s) => `${s}\n\`\`\`bash\nvercel --prod\n\`\`\`\n`);
+  assert.ok(forked.some((e) => e.includes('コードブロック')), forked.join('\n'));
+  const noLink = checkWith('DEPLOYMENT_RUNBOOK.md', (s) => s.replaceAll('docs/DEPLOY.md', 'docs/X.md'));
+  assert.ok(noLink.some((e) => e.includes('案内が無い')), noLink.join('\n'));
 });
 
 test('envSchemaKeys は env.ts の全キーを拾う', () => {

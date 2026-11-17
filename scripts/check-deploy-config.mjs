@@ -11,6 +11,8 @@
 //   - リポジトリに書いた公開の JWT_SECRET（.env.example・compose の既定値）が、本番の起動拒否の表にある
 //   - Node は 22 以上: Dockerfile・.node-version・package.json の engines・render.yaml・CI
 //   - vercel.json の出力先が web のビルド先と同じ
+//   - デプロイ手順は docs/DEPLOY.md の 1 本（render.yaml の sync: false を全部載せる。古い DB の記述が無い。
+//     DEPLOYMENT_RUNBOOK.md は案内だけで手順＝コードブロックを持たない）
 // ■ 足したいキーが「読み口に無い」で落ちたら: 先に env.ts / config.py に足す（CLAUDE.md の開発ルール）。
 //   Render の基盤が読むだけのキーは PLATFORM_KEYS に理由付きで足す。
 
@@ -32,6 +34,11 @@ const GATEWAY_RENDER_NAME = 'org-ai-api-gateway';
 const AI_ENGINE_RENDER_NAME = 'org-ai-ai-engine';
 
 const read = (root, rel) => readFileSync(join(root, rel), 'utf8');
+
+const DEPLOY_DOC = 'docs/DEPLOY.md';
+const RUNBOOK = 'DEPLOYMENT_RUNBOOK.md';
+/** 移行済みの旧 DB（2026-08 に Supabase へ移った）。手順書に出てきたら古い手順が混ざっている */
+const STALE_DEPLOY_WORDS = [/neon/i];
 
 /** env.ts の `export const envSchema = z.object({ ... });` からキーを抜く */
 export function envSchemaKeys(envTs) {
@@ -140,6 +147,15 @@ export function checkDeployConfig(root = REPO_ROOT) {
     for (const k of ['ORG_HEADER_MODE', 'INTERNAL_API_TOKEN', 'DATABASE_URL']) {
       if (ai && !keysOf(ai).includes(k)) fail(`render.yaml: ai-engine に ${k} が無い`);
     }
+    // ── デプロイ手順書: ダッシュボードで入れるキー（sync: false）はすべて手順に載っている ──
+    if (existsSync(join(root, DEPLOY_DOC))) {
+      const doc = read(root, DEPLOY_DOC);
+      for (const svc of [gw, ai]) {
+        for (const v of svc?.envVars ?? []) {
+          if (v.sync === false && !doc.includes(v.key)) fail(`${DEPLOY_DOC}: ${svc.name} の ${v.key}（sync: false）が手順に無い`);
+        }
+      }
+    }
     const nodeVersion = (gw?.envVars ?? []).find((v) => v.key === 'NODE_VERSION')?.value;
     if (!(nodeMajor(nodeVersion) >= MIN_NODE_MAJOR)) fail(`render.yaml: gateway の NODE_VERSION が ${MIN_NODE_MAJOR} 以上でない`);
   }
@@ -226,6 +242,20 @@ export function checkDeployConfig(root = REPO_ROOT) {
   const webName = JSON.parse(read(root, 'apps/web/package.json')).name;
   if (vercel.outputDirectory !== 'apps/web/dist') fail('vercel.json: outputDirectory は apps/web/dist（リポジトリのルートから組む）');
   if (!String(vercel.buildCommand ?? '').includes(webName)) fail(`vercel.json: buildCommand が ${webName} を組んでいない`);
+
+  // ── デプロイ手順は 1 本 ──
+  if (!existsSync(join(root, DEPLOY_DOC))) fail(`${DEPLOY_DOC} が無い`);
+  else {
+    const doc = read(root, DEPLOY_DOC);
+    for (const w of STALE_DEPLOY_WORDS) {
+      if (w.test(doc)) fail(`${DEPLOY_DOC}: 移行済みの DB の記述（${w.source}）が残っている`);
+    }
+  }
+  if (existsSync(join(root, RUNBOOK))) {
+    const runbook = read(root, RUNBOOK);
+    if (!runbook.includes(DEPLOY_DOC)) fail(`${RUNBOOK}: ${DEPLOY_DOC} への案内が無い`);
+    if (runbook.includes('```')) fail(`${RUNBOOK}: 手順（コードブロック）を書かない。${DEPLOY_DOC} に書く`);
+  }
 
   return errors;
 }

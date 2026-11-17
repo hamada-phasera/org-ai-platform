@@ -1,162 +1,153 @@
-# デプロイ手順書 — サイクル1統合 2026-07-08
+# デプロイ手順（本番）
 
-> コードは E2E 合格・統合済み（`main`）。デプロイは **Render 支払い未完了で停止中**のためブロック。
-> Render 復旧後にこの手順で一発仕上げできるようにまとめる。
+**デプロイの手順はこのファイルだけ**（`DEPLOYMENT_RUNBOOK.md` はここへの案内）。設定はリポジトリ側が正で、
+ダッシュボードはこの表に合わせる。食い違いは `npm run check:deploy`（`npm test` にも含む）が検出する。
+ローカルで動かすだけなら README の「最短で動かす」（`docker compose up --build`）。
 
----
-
-## 追記 2026-07-24 — スキーマ昇格（Deal / Task.scheduledAt）を含むデプロイ
-
-ブランチ `claude/current-status-check-bwez6d` で **Prisma スキーマ昇格**を実施済み。次回デプロイで自動反映される。
-
-### 何が変わったか
-- **新マイグレーション** `packages/db-schema/prisma/migrations/20260724000000_add_deal_and_task_scheduled_at/`
-  - `Deal` テーブル新設（営業パイプラインの商談。従来はインメモリ Map で再起動消滅 → 永続化）。
-  - `Task.scheduledAt TIMESTAMP(3)` カラム + `@@index([orgId, scheduledAt])`（SNS 予約投稿日時。従来は output JSON 内）。
-- **すべて追加操作のみ**（`ADD COLUMN`(NULL可) / `CREATE TABLE` / `CREATE INDEX` / 新規テーブルへの `FK`）。
-  既存行に破壊的変更なし。`prisma migrate diff` で Prisma 生成物と一致することを確認済み。
-- `routes/sales/pipeline.ts` は `prisma.deal` を使用（純粋ロジックは `pipeline-core.ts` に分離）。
-  SNS `PATCH /schedule` は `scheduledAt` カラムに書き込み、`calendar.ts`/フロントは
-  **カラム優先 → 旧 output JSON フォールバック**で読むため既存下書きも消えない。
-- `Task.status` は **String カラムのまま**（`shared-types` の `TaskStatus` を8値に拡張して型で担保）。
-  DB enum 化は本番 `migrate deploy` 失敗リスク（既存行に想定外値があるとキャスト失敗＝gateway 起動不能）を避けて**意図的に見送り**。
-
-### デプロイ時の追加確認（本体手順は下記「手順」節に従う）
-- Render gateway の `startCommand` は `prisma migrate deploy` を含む → 起動時に `20260724000000` が自動適用される（追加のみなので冪等・安全）。
-- ローカル検証済み: api-gateway `vitest` **100/100 pass** / `tsc --noEmit` クリーン / gateway `tsc --noCheck` / web `vite build` すべて green。
-- **スモーク追加項目**:
-  - `/sales`: 商談を作成 → **サービス再起動後も一覧に残る**（永続化の確認。従来は消えていた）。
-  - `/sns`: 下書き → `PATCH /schedule` で日付設定 → カレンダーに反映。旧下書き（output JSON に日付）も引き続き表示されること。
-
----
-
-## 追記 2026-07-26 — `scripts/render-deploy.mjs` で Render 操作を 1 コマンド化
-
-Render の API は開発コンテナのネットワークポリシーから到達できない（`api.render.com` が 403）。
-そのため **手元のマシンから実行する**前提のヘルパーを用意した。依存ゼロ・`.env` 自動読込。
-
-```bash
-# .env か シェルに RENDER_API_KEY（Render → Account Settings → API Keys）を設定してから:
-npm run render:status     # 読み取りのみ。各サービスの repo/branch/plan/env キーを一覧（既定・安全）
-npm run render:set-env    # ai-engine に GEMINI_API_KEY / ADMIN_EMAILS を投入（キー単位更新＝他の env は消えない）
-npm run render:set-plan   # 3サービスを starter に変更（引数でプラン指定可: ... set-plan free）
-npm run render:rewire     # 3サービスの接続先を hamada-phasera/org-ai-platform · main へ張り替え
-npm run render:deploy     # デプロイ実行（gateway 起動時に prisma migrate deploy が走る）
-npm run render:verify     # 各サービスの /health をポーリング（401 は「起動済み・認証必須」＝正常）
-```
-
-推奨順序: `status` → `set-env` → `rewire` → `deploy` → `verify`。
-変更系は明示のサブコマンドが必要で、既定は読み取りのみ。シークレットは値を表示しない。
-
-> **2026-07-26 以降**: この P1001 の根本原因は Neon 無料枠の compute 時間枯渇だった。
-> Supabase への移行を決定済み。手順は **[docs/supabase-migration.md](./supabase-migration.md)**。
-
-### トラブルシュート: デプロイが `P1001: Can't reach database server` で落ちる
-
-2026-07-26 の本番デプロイで実際に発生。**ビルドは成功していて、失敗は起動時の DB 接続**:
-
-```
-==> Build successful 🎉
-==> Running 'npx prisma migrate deploy ... && node apps/api-gateway/dist/index.js'
-Error: P1001: Can't reach database server at `ep-....us-east-1.aws.neon.tech:5432`
-==> Exited with status 1
-```
-
-コードやマイグレーションの問題ではない（同一コミットで fresh / 既存データありの両経路とも
-ローカルの実 PostgreSQL 16 + pgvector で `migrate deploy` 成功を確認済み）。
-
-**対策（実装済み）**: `startCommand` を指数バックオフ付きリトライにした。Neon は scale-to-zero で
-アイドル時に compute が停止するため、デプロイ直後の 1 発目が起動待ちに当たると即死していた。
-10/20/30/40 秒で最大 5 回リトライし、全滅時のみ `exit 1`（未マイグレーションのままサーバーを
-起動させない。Render は直前のデプロイを生かしたままにする）。
-
-**それでも P1001 が続く場合のチェック順**:
-1. Neon コンソールでプロジェクト／ブランチが存在するか（削除・サスペンドされていないか）。
-   Neon はワイルドカード DNS なので、**名前が解決できても存在証明にはならない**。
-2. 無料枠の compute 時間・ストレージ上限を超えていないか（超過すると compute が起動しない）。
-3. Render の `DATABASE_URL` が現行エンドポイントと一致しているか。
-   ブランチを作り直すとエンドポイント ID (`ep-...`) が変わり、古い URL は永久に到達不能になる。
-4. 接続文字列に `?sslmode=require` が付いているか。
-5. Neon 側で IP Allow を有効にしている場合、Render の egress IP が許可されているか。
-
-手元での切り分け: `psql "$DATABASE_URL" -c 'select 1'` または
-`npx prisma migrate status --schema=packages/db-schema/prisma/schema.prisma`。
-
-### Render プラン（2026-07-26 決定: 3 サービスとも starter）
-`render.yaml` は宣言的で `plan` も管理対象。ダッシュボードだけで変更すると **Blueprint 同期時に
-render.yaml の値へ戻される**ため、プランはコード側を正本にする（今回 free → starter に更新済み）。
-
-- 課金優先度の考え方: **api-gateway > ai-engine > n8n**。
-  gateway は全 API の入口でスリープ＝アプリ全体が無反応に見える。n8n は
-  `task-executor` の AI Engine フォールバックがあるため寝ていても実行は完走する。
-- starter は「スリープしない」であって「RAM が増える」わけではない想定 → n8n の
-  `NODE_OPTIONS=--max-old-space-size=400`（OOM 対策）は残す。
-- 常時稼働に伴い `keepalive.yml` の定期実行は停止（手動実行のみ）。free に戻すなら `schedule` を復活。
-
-### 松竹梅ルーティングに必要な env（ai-engine）
-| キー | 必要性 | 効果 |
+| 部品 | 置き場所 | 正本 |
 |---|---|---|
-| `GEMINI_API_KEY` | 梅(STARTER)/竹(PRO) を無料枠で動かすなら**必須** | 未設定だと**全プランが Claude にフォールバック＝課金**（`router.py` の安全フォールバック） |
-| `ADMIN_EMAILS` | 任意 | 一致する email は常に Claude。**未設定なら全ユーザーが Gemini** |
-| `ANTHROPIC_API_KEY` | 松(MAX)/admin/エージェント構築に**必須** | `/plan/agent` は全ユーザー Opus 固定のため、未設定だとエージェント構築のみ失敗する |
+| web（Vite SPA） | Vercel | `vercel.json` |
+| api-gateway（Fastify） | Render `org-ai-api-gateway` | `render.yaml` |
+| ai-engine（FastAPI） | Render `org-ai-ai-engine` | `render.yaml` |
+| n8n（任意） | Render `org-ai-n8n-web` | `render.yaml`（落ちていても ai-engine にフォールバック。O-12） |
+| DB | Supabase Postgres（us-west-2）＋ pgvector | `packages/db-schema/prisma/` |
+| ファイル | Supabase Storage の非公開バケット `org-files` | `docs/supabase-migration.md` |
+| 決済 | Stripe | `docs/billing.md` |
 
-## 現状
-- 統合コード = `main`（feat/integration と同一）。3部署バーティカル + 配線 + compliance + usage-metrics-svc。
-- ローカルフルE2E合格（営業/SNS/分析すべて実DBで動作確認済み）。
-- コードレビュー用: `preview/cycle1-integration` を origin(hamada-phasera) に push 済み。
+Node は 22（`.node-version`・`engines`・Dockerfile・`NODE_VERSION`・CI）。Python は 3.11。
 
-## デプロイ構成（実態）
-- **フロント**: Vercel プロジェクト `flow`（team=hamahiro1668s-projects）。**Git自動連携ではなく `vercel` CLI 手動デプロイ**。
-- **バック**: Render `render.yaml` の3サービス（`org-ai-api-gateway` / `org-ai-ai-engine` / `org-ai-n8n`）。**← 支払い未完了で停止中（要復旧）**。
-- env は全て Render/Vercel ダッシュボード管理（`sync:false`）。本番 `DATABASE_URL`=Supabase の Session pooler（:5432。2026-08 に Neon から移行済み）、`ANTHROPIC_API_KEY`、`JWT_SECRET`、`N8N_*` 等。
+---
 
-## ⚠️ ブロッカー / 前提
-1. **Render 支払い解決**（or 代替ホスト）。これが無いとバックが動かず、フロントだけ出しても新API不達。
-2. アカウント差異に注意: Vercel=hamahiro1668 / GitHub origin=hamada-phasera（別）。CLI デプロイは hamahiro1668。
-3. デプロイは**安定ネットワーク環境**から（本セッションのローカルは外向きネットが不安定で Vercel/Render 監視がフレーキー）。
+## 1. 秘密の値を用意する
 
-## 手順（Render 復旧後）
-### 1. バックエンド（Render）
-- Render ダッシュボードで支払い復旧 → 3サービスを統合コミット（main）で Deploy。
-  - デプロイ枝を統合に向ける、or 手動 Deploy latest。
-- prod Neon への `prisma migrate deploy` は冪等（既に最新なら no-op）。
-- usage-metrics-svc の独自 `schema.sql`（rollup テーブル）を prod DB に適用（未適用だと rollup worker が警告・raw read は動く）。
-- 復旧確認: `GET https://<api-gateway>/api/...`（401 が返れば起動OK）。
+値はパスワードマネージャに置き、リポジトリ・チャット・ログに貼らない。git の履歴に載ったことのある鍵は作り直してから使う。
 
-### 2. フロント（Vercel `flow`）— **prebuilt でしか通らない**
+| キー | 作り方 | 入れる先 |
+|---|---|---|
+| `JWT_SECRET` | `openssl rand -hex 32`（32 文字以上。リポジトリに載っている見本の値だと本番の gateway は起動しない） | gateway |
+| `INTERNAL_API_TOKEN` | `openssl rand -hex 32` | gateway と ai-engine に**同じ値** |
+| `N8N_WEBHOOK_AUTH_TOKEN` | `openssl rand -hex 32`（未設定・既定値だと本番の gateway は起動しない） | gateway（n8n を使うなら n8n の Header Auth にも） |
+| `CHANNEL_CREDENTIAL_ENC_KEY` | `openssl rand -hex 32`（`JWT_SECRET` から独立させる。変えると LINE・Slack の接続が復号できなくなる） | gateway |
+| `ANTHROPIC_API_KEY` | console.anthropic.com | ai-engine |
+| `GEMINI_API_KEY` | aistudio.google.com（無料枠は入力が Google の製品改善に使われる。有償の顧客の前に有料へ切り替えて `GEMINI_PAID_TIER=true`。O-11） | ai-engine、gateway（埋め込み） |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API（RLS を貫通する。gateway だけに置く） | gateway |
+| Stripe の鍵と price | 3 章 | gateway |
+
+## 2. DB（Supabase）
+
+1. 接続文字列は **Session pooler（`aws-<n>-<region>.pooler.supabase.com:5432`）1 本**に `?sslmode=require` を付けて使う。gateway・ai-engine・n8n とも同じ。
+   - direct（`db.<ref>.supabase.co`）は IPv6 のみで Render から届かない（`P1001`）
+   - transaction pooler（6543）は Prisma のマイグレーションの advisory lock が保てない
+2. `vector` 拡張を Supabase の画面から有効にしない（マイグレーションが作る）。n8n は専用スキーマ `n8n`。詳細は `docs/supabase-migration.md`。
+3. Storage に非公開バケット `org-files` を作る。
+4. マイグレーションは gateway の起動時に `prisma migrate deploy` が流す（10/20/30/40 秒で最大 5 回リトライ、全滅なら起動しない）。手で流すなら:
+   ```bash
+   DATABASE_URL="<Session pooler の URL>" npx prisma migrate deploy --schema=packages/db-schema/prisma/schema.prisma
+   ```
+5. RLS は既定 off（`RLS_MODE=off`）。on にするのは `flow_app` ロールを作った後（O-5、`docs/design/multi-tenancy.md` §17）。
+6. 無料プランは 7 日アクセスが無いと一時停止する。`.github/workflows/db-keepalive.yml` が予防する（`DATABASE_URL` シークレットが要る）。
+
+## 3. Stripe
+
+テストモードの商品・価格・税率・ポータル・webhook は 1 コマンドで用意できる（`docs/billing.md`）。
 
 ```bash
-cd <repo root>                     # main と同一内容のツリー
-# .vercel/project.json が flow を指すこと（無ければ cp ルートの .vercel）
+STRIPE_SECRET_KEY=sk_test_... npm run stripe:bootstrap                      # 確認だけ
+STRIPE_SECRET_KEY=sk_test_... npm run stripe:bootstrap -- --apply \
+  --webhook-url=https://<gateway>/api/webhooks/stripe                        # 作る。出た値を Render へ
+```
+
+- webhook の署名鍵（`STRIPE_WEBHOOK_SECRET`）は作成時にしか出ない。
+- `STRIPE_SECRET_KEY` と `STRIPE_PRICE_STARTER_MONTHLY` の両方が入るまで「決済準備中」扱いで、トライアル切れでも誰も止めない。
+- 本番キーに替える前に、事業者情報・登録番号（O-2）と法務の 3 頁（7 章）を埋める。
+
+## 4. Render（gateway・ai-engine）
+
+1. Render → **New → Blueprint** → このリポジトリ。`render.yaml` から 3 サービスができる（プランは `render.yaml` が正。ダッシュボードで変えても同期で戻る）。
+2. `sync: false` のキーをダッシュボードで入れる。値の入ったキー（`NODE_VERSION`・`TRUST_PROXY_HOPS`・`ORG_HEADER_MODE`・`RLS_MODE` など）は `render.yaml` のまま。
+
+**`org-ai-api-gateway`**
+
+| キー | 値 |
+|---|---|
+| `DATABASE_URL` | Session pooler の URL |
+| `JWT_SECRET` / `INTERNAL_API_TOKEN` / `N8N_WEBHOOK_AUTH_TOKEN` / `CHANNEL_CREDENTIAL_ENC_KEY` | 1 章 |
+| `FRONTEND_URL` | Vercel の URL（カンマ区切り可。CORS 用で、URL の組み立てには使わない） |
+| `AI_ENGINE_URL` | `https://org-ai-ai-engine.onrender.com` |
+| `API_GATEWAY_URL` | gateway 自身の公開 URL（OAuth のコールバックと LINE webhook の表示に使う） |
+| `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | Supabase |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | 3 章 |
+| `STRIPE_PRICE_STARTER_MONTHLY` / `STRIPE_PRICE_STARTER_YEARLY` / `STRIPE_PRICE_PRO_MONTHLY` / `STRIPE_PRICE_PRO_YEARLY` / `STRIPE_PRICE_MAX_MONTHLY` / `STRIPE_PRICE_MAX_YEARLY` / `STRIPE_PRICE_STORAGE_ADDON` / `STRIPE_TAX_RATE_ID` | 3 章の出力 |
+| `GEMINI_API_KEY` / `EMBEDDING_API_KEY` | 埋め込み用（`EMBEDDING_API_KEY` が空なら `GEMINI_API_KEY` を使う） |
+| `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` | `docs/self-serve-integrations.md`。リダイレクト URI は `https://<gateway>/api/oauth/google/callback` |
+| `N8N_CLOUD_URL` / `N8N_API_KEY` | n8n を使うときだけ |
+
+`ALLOWED_ORIGIN_HOSTS` と `APP_BASE_URL` は `render.yaml` に公開フロントのホストで入っている。独自ドメインにしたらここを変える。
+
+**`org-ai-ai-engine`**
+
+| キー | 値 |
+|---|---|
+| `DATABASE_URL` | gateway と同じ 1 本（未設定だと AILog が欠け、AI の月間上限も効かない） |
+| `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` | 1 章 |
+| `INTERNAL_API_TOKEN` | gateway と同じ値 |
+| `API_GATEWAY_URL` | gateway の公開 URL |
+| `ADMIN_EMAILS` | 常に Claude を使う人のメール（カンマ区切り。任意） |
+
+3. デプロイして 2 サービスが Live になるのを待つ。手元から操作するなら `scripts/render-deploy.mjs`（`RENDER_API_KEY` が要る）:
+   ```bash
+   npm run render:status    # 読むだけ（既定）
+   npm run render:deploy
+   npm run render:verify    # /health を待つ
+   ```
+
+## 5. Vercel（web）
+
+| 項目 | 値 |
+|---|---|
+| Root Directory | 空（リポジトリのルート） |
+| Framework / Build / Output / Install | `vercel.json` に従う（ダッシュボードの上書きは外す） |
+| Node.js Version | 22.x |
+| 環境変数 | `VITE_API_URL=https://<gateway>/api`、`VITE_WS_URL=wss://<gateway>` |
+
+プロジェクト側がまだ Root Directory=`apps/web` のまま（O-4）なら、素の `vercel deploy --prod` は `No Output Directory named "dist"` で落ちる。設定を直すまでは手元で組んで送る:
+
+```bash
 vercel pull --yes --environment production
 vercel build --prod
 vercel deploy --prebuilt --prod --yes
 ```
 
-⚠️ **`vercel deploy --prod` を素で叩くと `No Output Directory named "dist"` で必ず落ちる。**
-リポジトリ直下の `vercel.json` は turbo でビルドして `apps/web/dist` を出す前提だが、
-Vercel プロジェクト側の設定は rootDirectory=`apps/web` / outputDirectory=`dist` になっており、
-この2つが噛み合わない。ローカルでビルドして成果物ごと送る prebuilt なら、その食い違いを踏まない。
-（2026-09 のデプロイで実際にここで詰まった。設定を片方に寄せるのが本筋だが、
-現状の本番を壊さずに直す手順が要るので prebuilt を正とする。）
+公開 URL が変わったら gateway の `FRONTEND_URL`・`ALLOWED_ORIGIN_HOSTS`・`APP_BASE_URL` を合わせる。
 
-- 公開しているフロントは **`org-ai-platform.vercel.app`**（200・認証なし）。
-  `flow-hamahiro1668s-projects.vercel.app` は Vercel の SSO 保護が掛かっていて外から見えない。
-  CORS の許可ホスト（`ALLOWED_ORIGIN_HOSTS`）は前者を入れること。
-- ⚠️ Render の `FRONTEND_URL` は現状 `*`（CORS 用のワイルドカード）。
-  **URL として使ってはいけない**（OAuth のリダイレクト先に使うと localhost に飛ぶ事故が起きた）。
-  URL が必要な箇所は `ALLOWED_ORIGIN_HOSTS` へフォールバックする実装になっている。
-- web の API 参照は本番 api-gateway URL（`VITE_API_URL` or プロキシ）を確認。
+## 6. 確かめる
 
-### 3. スモークテスト（本番）
-- register/login → `/sales`（商談作成/遷移）→ `/sns`（下書き→承認）→ `/analytics`（部署KPI）。
-- AILog 記録・RiskEvent（PII時）を確認。
+1. `curl https://<gateway>/health` → 200、`/ready` → 200（DB に届いている）。`https://<ai-engine>/health` → 200。
+2. オーナーでログインして **設定 > 基本 の「セットアップ状況」**がすべて「設定済み」（保存先と ai-engine に実際に問い合わせて判定する）。
+3. 通し: 登録 → チャットで 1 回指示 → ファイルを 1 つ保存 → 設定 > プラン → Checkout（テストカード `4242 4242 4242 4242`）→ 戻って「ご契約中」→ ポータルで解約 → 期間終了後に書き込みが 402。
+4. 未ログインで `/legal/terms` `/legal/privacy` `/legal/tokushoho` が開く。
+5. スマホ実機で 登録 → チャット → 設定 > プラン（O-10）。
 
-## 検証ログ（ローカルE2E・合格）
-- 営業: pipeline 作成/取得/ステージ遷移 + 提案テンプレ → 200/201。
-- SNS: 下書き→queue→承認(APPROVED, 自動投稿なし)→queue消滅 → 実DB確認。
-- 分析: gateway→usage-metrics-svc→AILog集計（コスト/レイテンシKPI）→ 200。
-- ビルド: web `vite build` / api `tsc --noCheck` / go `go test` すべて green。テスト 95/96（1件は既存 agents 債務・Bの回帰でない）。
+## 7. 公開の前に
 
-## 次サイクルの実装予定（n8n・別docs）
-`docs/n8n-integration-design.md` の D1（生成系をTask/dispatch化）・D2（SNS段階1=投稿準備まで）。
+| 項目 | どこ |
+|---|---|
+| 法務の 3 頁の文面と事業者情報（O-7） | `apps/web/src/pages/legal/content.ts` の `value: null` を埋める（画面には「未記入」と出ている） |
+| Stripe の本番申請と本番キー（O-2） | 3 章を本番モードでやり直す |
+| Gemini の有料化（O-11） | `GEMINI_PAID_TIER=true` を gateway と ai-engine に |
+| アプリのアイコン（O-8） | `apps/web/public/icons/` を同名・同寸法で差し替え |
+| 独自ドメイン | Vercel の Domains と gateway の CORS・`APP_BASE_URL` |
+| 履歴に載った鍵の掃除 | 鍵を作り直して本番に入れた**後**に `git filter-repo`（force push を伴うのでオーナーが判断する） |
+
+## 8. 困ったとき
+
+| 症状 | 見るところ |
+|---|---|
+| gateway が起動しない（ログに起動拒否） | `JWT_SECRET` が 32 文字未満か見本の値、`N8N_WEBHOOK_AUTH_TOKEN` が未設定か既定値（`docs/security.md`） |
+| `P1001: Can't reach database server` | ① direct ではなく Session pooler か ② Supabase が一時停止していないか（ダッシュボードで再開） ③ `?sslmode=require` ④ `DATABASE_URL` が現行のホストか。切り分けは `npx prisma migrate status --schema=packages/db-schema/prisma/schema.prisma` |
+| ブラウザで CORS エラー | gateway の `FRONTEND_URL` / `ALLOWED_ORIGIN_HOSTS` に公開 URL が無い |
+| 全員が 429 | `TRUST_PROXY_HOPS` の段数のずれ（`docs/security.md`） |
+| AI の応答が 401 / 届かない | `INTERNAL_API_TOKEN` が gateway と ai-engine で違う。`AI_ENGINE_URL` |
+| 契約が反映されない | Stripe の webhook の宛先と `STRIPE_WEBHOOK_SECRET`。Stripe ダッシュボードの webhook の配信記録 |
+| 再デプロイでファイルが消えた | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` が未設定でローカル保存になっている |
+| Render のプランが戻る | ダッシュボードで変えた。`render.yaml` の `plan` を変える |

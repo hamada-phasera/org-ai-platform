@@ -139,7 +139,7 @@ npm run dev --workspace=apps/web
 | Render | Blueprint | `render.yaml`（Node は `NODE_VERSION=22`） |
 | Render | 秘密の値 | `sync: false` のキーをダッシュボードで入れる（`JWT_SECRET`・`N8N_WEBHOOK_AUTH_TOKEN`・`INTERNAL_API_TOKEN` は必須。本番の gateway は公開されている値では起動しない） |
 
-詳しい手順は [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md)。
+手順（秘密の値・Supabase・Stripe・Render・Vercel・確認・困ったとき）は [docs/DEPLOY.md](docs/DEPLOY.md) の 1 本。
 
 ## テスト・lint・型チェック
 
@@ -218,13 +218,14 @@ org-ai-platform/
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | コンポーネント・データフロー・設定・エラー/ログ/テストの方針 |
 | [CLAUDE.md](CLAUDE.md) | 開発ルールと各機能の設計判断（経理・決済・ファイル保存・自動化） |
 | [DESIGN.md](DESIGN.md) | デザインシステム |
-| [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md) / [docs/DEPLOY.md](docs/DEPLOY.md) | デプロイ手順 |
+| [docs/DEPLOY.md](docs/DEPLOY.md) | デプロイ手順（これだけ。`DEPLOYMENT_RUNBOOK.md` は案内） |
+| [docs/security.md](docs/security.md) | レート制限・起動拒否・監査 |
 | [docs/llm-provider-tiers.md](docs/llm-provider-tiers.md) | 松竹梅の LLM ルーティング |
 | [docs/billing.md](docs/billing.md) | Stripe 決済 |
 | [docs/self-serve-integrations.md](docs/self-serve-integrations.md) / [docs/oauth-setup.md](docs/oauth-setup.md) | Slack / Google 連携 |
 | [docs/n8n-setup.md](docs/n8n-setup.md) / [docs/n8n-integration-design.md](docs/n8n-integration-design.md) | n8n |
 | [docs/capabilities.md](docs/capabilities.md) | Capability Registry |
-| [docs/supabase-migration.md](docs/supabase-migration.md) | Neon → Supabase 移行 |
+| [docs/supabase-migration.md](docs/supabase-migration.md) | DB の移行の経緯と Supabase の落とし穴 |
 | [docs/test-requirements.md](docs/test-requirements.md) | テスト要件 |
 | [docs/maintenance/cleanup-hold-list.md](docs/maintenance/cleanup-hold-list.md) | 整理で見送った項目と既知の問題 |
 | [docs/MASTERY_GUIDE.md](docs/MASTERY_GUIDE.md) | 開発・運用の総合ガイド（作成時点の内容。最新は上記を優先） |
