@@ -131,6 +131,54 @@ class TestLLMChat:
     def test_validation_error_is_422(self, client: TestClient) -> None:
         assert client.post("/llm/chat", json={"messages": []}).status_code == 422
 
+    def test_over_monthly_limit_answers_with_light_model(
+        self,
+        client: TestClient,
+        providers: Providers,
+        logged: list[dict[str, Any]],
+        counted: Any,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # saas-review #5(c): 上限を超えた組織の /llm/chat は止めずに軽いモデルで応答する。
+        # providers フィクスチャは is_over_limit を「常に上限内」に差し替えるので、本物（usage.is_over_limit）に戻す。
+        # DB は読まない（当月の回数は usage のキャッシュに置く）。松（MAX）の上限ちょうどを数えた状態から 1 回呼ぶ
+        monkeypatch.setattr(router, "is_over_limit", usage.is_over_limit)
+        usage._cache["o"] = (usage.time.time(), usage.limit_for_plan("MAX"))
+        providers.anthropic.reply = "answer"
+        res = client.post(
+            "/llm/chat",
+            json={
+                "messages": [{"role": "user", "content": "hi"}],
+                "department": "GENERAL",
+                "org_id": "o",
+                "plan": "MAX",
+            },
+        )
+        assert res.status_code == 200
+        assert res.json()["content"] == "answer"
+        assert res.json()["model"] == MODEL_HAIKU
+        assert providers.anthropic.calls[0]["model"] == MODEL_HAIKU
+        # 記録も落ちた後のモデル名。回数は 1 だけ進む（止めないので数え続ける）
+        assert logged[0]["model"] == MODEL_HAIKU
+        assert counted() == usage.limit_for_plan("MAX") + 1
+
+    def test_within_monthly_limit_keeps_plan_model(
+        self, client: TestClient, providers: Providers, counted: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # 比較: 上限内（当月 10 回）なら同じ要求でプランのモデルのまま（軽いモデルに落ちるのは超過のときだけ）
+        monkeypatch.setattr(router, "is_over_limit", usage.is_over_limit)
+        res = client.post(
+            "/llm/chat",
+            json={
+                "messages": [{"role": "user", "content": "hi"}],
+                "department": "GENERAL",
+                "org_id": "o",
+                "plan": "MAX",
+            },
+        )
+        assert res.status_code == 200
+        assert res.json()["model"] != MODEL_HAIKU
+
 
 class TestOrchestrate:
     def test_explicit_department(self, client: TestClient, providers: Providers, logged: list[dict[str, Any]]) -> None:

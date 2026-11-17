@@ -65,6 +65,23 @@ STRIPE_SECRET_KEY=sk_test_... npm run stripe:bootstrap -- --apply \
 - 課金の流れ全体は `apps/api-gateway/tests/billing/billing-flow.test.ts` が偽 Stripe で通しで確かめている
   （登録 → Checkout → 竹 → 未払いの猶予 → 解約で閲覧のみ → 再契約で復帰）。
 
+## 実 Stripe テストモードでの通し（オーナー作業 O-1・**未実施**）
+
+自動テストはすべて偽 Stripe（`tests/helpers/fake-stripe.ts`）で、**本物の Stripe には一度も流していない**。
+`subscription_data[trial_end]` などのフォームの符号化を Stripe が受け付けるか、webhook の署名と写し込みが本物で通るかは、
+テストモードのキーを持つオーナーが 1 回通して確かめる（コードからは確かめられない）。
+
+1. `STRIPE_SECRET_KEY=sk_test_... npm run stripe:bootstrap -- --apply --webhook-url=https://<gateway>/api/webhooks/stripe`。
+   出た値（`STRIPE_PRICE_*`・`STRIPE_TAX_RATE_ID`・`STRIPE_WEBHOOK_SECRET`）を gateway に入れる（`docs/DEPLOY.md` 3・4 章）。
+2. 新しいメールで登録 → 設定 > プラン が価格付きで出る（「準備中」でない）。
+3. 竹・月払いで Checkout → テストカード `4242 4242 4242 4242` → 戻ると数秒で「ご契約中」または「無料トライアル中」（登録時トライアルの残りを引き継ぐ）。
+   Stripe ダッシュボードのサブスクリプションの試用終了日が、登録日 + 30 日と同じこと。
+4. 3D セキュアのテストカード（`4000 0027 6000 3184`）で認証を失敗させる → 閲覧のみにならず、無料期間の残りが表示される（#4）。
+5. ポータルで解約（即時）→ 無料期間の残りがある間は書き込める。残りが無い組織では書き込みが 402。
+6. Stripe ダッシュボードの webhook の配信記録がすべて 2xx。
+
+結果（日付・確認者・各手順の可否・気づいたこと）はこの節に追記する。
+
 ## Stripe ダッシュボードで用意するもの
 
 テスト環境で一通り作って動作を確認してから、本番環境で同じものを作る（テストは上のスクリプトで足りる）。
