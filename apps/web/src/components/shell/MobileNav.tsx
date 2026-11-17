@@ -1,23 +1,30 @@
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { FileText, Home, Inbox, Menu, MessageCircle, Monitor, X } from 'lucide-react';
-import { ADMIN_NAV, MAIN_NAV, WORK_PAGES } from './navConfig';
-import type { NavEntry } from './navConfig';
+import { Menu, Monitor, X } from 'lucide-react';
+import { DESKTOP_MENU, MOBILE_MENU, MOBILE_TABS } from './navConfig';
+import type { NavItem } from './navConfig';
 import { useMotion } from '../motion/springs';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import { OrgSwitcher } from '../org/OrgSwitcher';
 
-const TABS: NavEntry[] = [
-  { to: '/', label: 'ホーム', icon: Home, end: true },
-  { to: '/chat', label: 'チャット', icon: MessageCircle },
-  { to: '/inbox', label: '受信', icon: Inbox },
-  { to: '/deliverables', label: '成果物', icon: FileText },
-];
-
-/** スマホで開ける画面。ここに無いものはパソコン向けとして畳んで見せる。 */
-const MOBILE_OK = new Set<string>(['/', '/chat', '/inbox', '/deliverables']);
+/** メニューの行頭。主ナビはアイコン、業務ページは部署色の小さな四角（サイドバーと同じ） */
+function ItemMark({ item, muted }: { item: NavItem; muted?: boolean }) {
+  if ('icon' in item) {
+    const Icon = item.icon;
+    return (
+      <Icon size={18} strokeWidth={2} className={muted ? 'text-ink-decorative' : undefined} aria-hidden="true" />
+    );
+  }
+  return (
+    <span
+      className={`h-2 w-2 shrink-0 rounded-[2px] ${muted ? 'opacity-60' : ''}`}
+      style={{ background: item.colorVar }}
+      aria-hidden="true"
+    />
+  );
+}
 
 const tabClass =
   'flex flex-1 flex-col items-center justify-center gap-0.5 h-14 min-w-[44px] text-micro font-semibold transition-colors duration-fast';
@@ -33,8 +40,6 @@ export function MobileNav() {
     staleTime: 5 * 60_000,
     enabled: menuOpen,
   });
-
-  const desktopOnly = [...MAIN_NAV, ...ADMIN_NAV].filter((e) => !MOBILE_OK.has(e.to));
 
   return (
     <>
@@ -71,18 +76,18 @@ export function MobileNav() {
               スマホで使える
             </p>
             <ul className="border-y border-border bg-elevated">
-              {[...TABS].map((tab) => (
-                <li key={tab.to}>
+              {MOBILE_MENU.map((item) => (
+                <li key={item.to} className="border-b border-hairline last:border-b-0">
                   <button
                     type="button"
                     onClick={() => {
                       setMenuOpen(false);
-                      navigate(tab.to);
+                      navigate(item.to);
                     }}
-                    className="flex h-[52px] w-full items-center gap-3 border-b border-hairline px-4 py-4 text-left text-sm font-semibold last:border-b-0"
+                    className="flex h-[52px] w-full items-center gap-3 px-4 text-left text-sm font-semibold"
                   >
-                    <tab.icon size={18} strokeWidth={2} aria-hidden="true" />
-                    {tab.label}
+                    <ItemMark item={item} />
+                    {item.label}
                   </button>
                 </li>
               ))}
@@ -93,34 +98,21 @@ export function MobileNav() {
               <Monitor size={13} strokeWidth={2} aria-hidden="true" />
             </p>
             <ul className="border-y border-border bg-elevated">
-              {desktopOnly.map((entry) => (
+              {DESKTOP_MENU.map((item) => (
                 <li
-                  key={entry.to}
+                  key={item.to}
                   className="flex items-center gap-3 border-b border-hairline px-4 py-4 text-sm font-semibold text-text-muted last:border-b-0"
                 >
-                  <entry.icon size={18} strokeWidth={2} className="text-ink-decorative" aria-hidden="true" />
-                  {entry.label}
-                </li>
-              ))}
-              {WORK_PAGES.map((page) => (
-                <li
-                  key={page.to}
-                  className="flex items-center gap-3 border-b border-hairline px-4 py-4 text-sm font-semibold text-text-muted last:border-b-0"
-                >
-                  <span
-                    className="h-2 w-2 shrink-0 rounded-[2px] opacity-60"
-                    style={{ background: page.colorVar }}
-                    aria-hidden="true"
-                  />
-                  {page.label}
+                  <ItemMark item={item} muted />
+                  {item.label}
                 </li>
               ))}
             </ul>
 
             <p className="px-4 py-4 text-sm leading-relaxed text-secondary">
               エージェントの手順編集や AI ログの監査は表が横に長く、スマホでは正確に扱えません。
-              <b className="text-primary">閲覧・承認・チャットはスマホ</b>、
-              <b className="text-primary">設定と監査はパソコン</b>という分担にしています。
+              <b className="text-primary">閲覧・承認・契約はスマホ</b>、
+              <b className="text-primary">編集と監査はパソコン</b>という分担にしています。
             </p>
           </motion.div>
         )}
@@ -130,7 +122,7 @@ export function MobileNav() {
         className="bg-elevated border border-border shadow-elev-3 fixed inset-x-0 bottom-0 z-50 flex rounded-none border-x-0 border-b-0 lg:hidden"
         aria-label="モバイルナビゲーション"
       >
-        {TABS.map((tab) => (
+        {MOBILE_TABS.map((tab) => (
           <NavLink
             key={tab.to}
             to={tab.to}

@@ -24,8 +24,8 @@ export function DesktopOnly({ what = 'この画面' }: DesktopOnlyProps) {
         </div>
         <p className="mt-2.5 text-sm leading-relaxed text-secondary">
           表が横に長く、スマホでは正確に扱えません。
-          <b className="text-primary">閲覧・承認・チャットはスマホ</b>、
-          <b className="text-primary">設定と監査はパソコン</b>という分担にしています。
+          <b className="text-primary">閲覧・承認・契約はスマホ</b>、
+          <b className="text-primary">編集と監査はパソコン</b>という分担にしています。
         </p>
       </div>
     </div>
