@@ -7,7 +7,7 @@
 | 新規契約 | 設定 > プラン → Stripe Checkout | カード入力は Stripe の画面。このサーバはカード情報を扱わない |
 | プラン・支払い間隔の変更 | 設定 > プラン | 契約中のみ。下げた先の容量に今のファイルが収まらなければ止める |
 | 支払い方法・請求書・解約 | Stripe のカスタマーポータル | 自前の画面は作らない |
-| 追加ストレージ | 設定 > プラン | 課金中（active）の契約だけ。1口 = 1GB / 月 |
+| 追加ストレージ | 設定 > プラン | 課金中（active）の契約だけ。1口 = 10GB / 月 |
 
 - **組織への写し込みは webhook が正本**（`/api/webhooks/stripe`）。イベントは順不同で届くので、
   毎回サブスクリプションを取り直して `Organization` に写す。処理済みの印（`BillingEvent`）は成功してから書く。
@@ -19,10 +19,13 @@
   判定は `services/entitlement.ts` の `entitlementOf`（純粋関数、要求時刻で判定）。
 - トライアルは**作成者ごとに1回**。すでに自分で組織を作った人の 2 つ目以降は、作成時点で期限切れ
   （契約するまで閲覧のみ）。招待で入った組織は数えない。
-- 登録時トライアル中に Checkout しても、Stripe 側で無料期間を重ねて付けない（`trialEndsAt` が入っているため即課金）。
-  残り期間の引き継ぎ（`subscription_data.trial_end`）は計画書チャンク 3 で足す。
+- 登録時トライアル中に Checkout すると、**残り期間をそのまま引き継ぐ**（`subscription_data.trial_end = trialEndsAt`）。
+  早く契約した人が損をしないためで、無料期間の終わりの日は延びない。Stripe は `trial_end` が 48 時間以上先でないと
+  拒否するので、残りが 49 時間（1 時間の余裕）未満ならその日から課金する。判定は `billing-core.ts` の `checkoutTrialEnd`。
+  画面の文言は overview の `checkoutTrialEndsAt` に従う。⚠️ 一度でも契約した組織（解約後の再契約など）には引き継がない。
 - ⚠️ 止めないもの: `trialEndsAt = null` の既存組織（登録時トライアルより前に作られた組織）と、
-  決済が未設定（`STRIPE_SECRET_KEY` なし）の環境の全組織。再開の手段が無い状態で止めないため。
+  決済が未設定の環境の全組織。再開の手段が無い状態で止めないため。「決済設定済み」は `STRIPE_SECRET_KEY` と
+  `STRIPE_PRICE_STARTER_MONTHLY` の**両方**があるとき（`config.billingConfigured`）。キーだけだと契約できないのに止まる。
 - **解約・未払いのあとは「閲覧のみ」**。新しい実行と保存は 402 で止まり、台帳・ファイル・
   過去のやり取りの閲覧と書き出しは続けられる。データは消さない。
   削除するなら90日後に予告してから、という方針だが**自動削除はまだ実装していない**（運用で行う）。
@@ -31,9 +34,29 @@
 - 解約予約は `cancel_at_period_end`（従来の請求モード）と `cancel_at`（柔軟な請求モード）の両方を読む。
 - 金額はコードに持たない。画面に出す金額も Stripe の価格から取る（10分キャッシュ）。
 
+## Stripe 側の用意（テストモードは 1 コマンド）
+
+```bash
+# 確認のみ（既定。何も作らない）
+STRIPE_SECRET_KEY=sk_test_... npm run stripe:bootstrap
+# 足りないものを作る。webhook の宛先も作るなら URL を渡す
+STRIPE_SECRET_KEY=sk_test_... npm run stripe:bootstrap -- --apply \
+  --webhook-url=https://<api-gateway のURL>/api/webhooks/stripe
+```
+
+- `scripts/stripe-bootstrap.mjs`（依存ゼロ）。下の 1・2・4・5 を作り、最後に貼り付け用の環境変数を出す
+  （`STRIPE_PRICE_*`・`STRIPE_TAX_RATE_ID`・作ったときだけ `STRIPE_WEBHOOK_SECRET`）。`STRIPE_SECRET_KEY` は出さない。
+- 何度流しても増えない（価格は `lookup_key = flow_<plan>_<monthly|yearly>` / `flow_storage_addon_10gb`、
+  商品・税率は metadata で既存を探す）。価格の金額が表と違っていても作り直さず警告だけ（Stripe の価格は変えられない）。
+- ⚠️ 本番キー（`sk_live_` / `rk_live_`）は Stripe を 1 回も呼ばずに拒否する。本番は下の手順を手で行う。
+- webhook の署名鍵は Stripe が作成時にしか返さない。出たらすぐ控える（2 回目以降はダッシュボードで確認）。
+- 請求書の登録番号（3）だけは手作業。
+- 課金の流れ全体は `apps/api-gateway/tests/billing/billing-flow.test.ts` が偽 Stripe で通しで確かめている
+  （登録 → Checkout → 竹 → 未払いの猶予 → 解約で閲覧のみ → 再契約で復帰）。
+
 ## Stripe ダッシュボードで用意するもの
 
-テスト環境で一通り作って動作を確認してから、本番環境で同じものを作る。
+テスト環境で一通り作って動作を確認してから、本番環境で同じものを作る（テストは上のスクリプトで足りる）。
 
 ### 1. 商品と価格（すべて JPY・税抜・継続課金）
 

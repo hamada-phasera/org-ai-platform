@@ -180,6 +180,8 @@ STRIPE_PRICE_STORAGE_ADDON= / STRIPE_TAX_RATE_ID= / BILLING_TRIAL_DAYS=30 / APP_
   期限後も未契約なら「閲覧のみ」（402 `SUBSCRIPTION_REQUIRED`）。判定は `entitlementOf`（`services/entitlement.ts`）1か所。
   ⚠️ `trialEndsAt` が null の既存組織と、決済未設定（`STRIPE_SECRET_KEY` なし）の環境は止めない。
 - トライアルは作成者ごとに1回。自分で作った2つ目以降の組織は作成時点で期限切れ（契約するまで閲覧のみ）。
+- 登録時トライアル中の Checkout は残り期間を `trial_end` で引き継ぐ（48 時間未満ならその日から課金。一度契約した組織には付けない）。
+  「決済設定済み」はキーと梅の月額 price の両方（`config.billingConfigured`）。テストモードの用意は `npm run stripe:bootstrap`（docs/billing.md）。
 - SDK は入れない（LINE・Supabase と同じ）。シークレットと Stripe のエラー文言は利用者に返さない。
 
 ## 設定が入っているかの確認

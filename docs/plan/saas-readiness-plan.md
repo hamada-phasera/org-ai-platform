@@ -390,5 +390,14 @@
 | チャンク 2 の 402 の受け方 | interceptor は組織 id 付きの印（メモリのみ）を付けて例外を投げ直すだけ。帯はその後に取り直した `GET /api/billing` を正とする（再読み込み・組織切替で消える）。`402` の判定はコードを見ず status だけ（gateway は 402 を閲覧のみにしか使わない） |
 | チャンク 2 の Checkout の文言 | 登録時トライアル中の Checkout は現状その日から課金されるので「ご契約の日から料金がかかります」と書く。D3（残り期間の引き継ぎ）をチャンク 3 で入れたら文言も直す |
 | チャンク 2 のスマホからの導線 | 帯はスマホにも出るが、`/settings` のスマホ解放はチャンク 5（D6）。それまでスマホで「プラン」を押すと「パソコンで開いてください」になる |
+| チャンク 3 の D3（残り期間の引き継ぎ） | Stripe 公式（Create a Checkout Session、2026-11 確認）で `trial_end` は「48 時間以上先」。余裕 1 時間を見て残り 49 時間未満なら付けない。`trial_period_days` とは同時に送らない。**一度でも契約した組織（`subscriptionStatus` が入っている）には付けない**（解約 → 再契約で同じ無料期間を使い直させない） |
+| チャンク 3 の「決済設定済み」 | オーケストレーター追記どおり `STRIPE_SECRET_KEY` と `STRIPE_PRICE_STARTER_MONTHLY` の両方で判定（`config.billingConfigured`）。既存テストのうちキーだけで 402 を期待していたもの（entitlement / auth-switch）は price も入れる形に書き換えた |
+| チャンク 3 の bootstrap | 価格は `lookup_key`、商品・税率は metadata で既存を探す。ポータルは既定の設定を更新（無ければ作り、既定化はダッシュボードで確認と警告）。webhook の署名鍵は作成時だけ出す。`node --test` はルートの `npm test` から `test:scripts` で回す |
 
 > オーケストレーター追記（チャンク 3 で対応）: 「決済設定済み」の判定は `STRIPE_SECRET_KEY` だけでなく、梅の月額価格 ID（`STRIPE_PRICE_STARTER_MONTHLY`）もあるときに限る。キーだけ入れて価格が無いと、期限切れ組織が閲覧のみになり契約もできない詰みになるため。
+
+> オーケストレーター追記（FLOW エージェントからの引き継ぎ）:
+> - チャンク 4: `/rank` に加えて `screen_agent` も AILog と月間上限に数える（PII マスク後の値だけ記録）。
+> - チャンク 8: Render を使わないローカル完結案の下書きが `/workspace/org-ai-platform-render-research/local-render-alt/`（REPORT.md、docker-compose.local.yml、Caddyfile、cloudflared/、init-postgres.sql、up.sh、verify.sh、env.local.example）にある。これを読み、pgvector compose・ヘルスチェック（runtime に curl が無い問題）・`VITE_WS_URL` の扱い・n8n タグ固定・usage-metrics-svc を取り込む。秘密は入れない。`AI_ENGINE_URL` 既定値の不一致もここで直す。
+> - チャンク 10: task-executor・rag・inbox を優先して tenantDb 化。所属確認の 30 秒キャッシュは維持。
+> - 削除保留は `docs/maintenance/cleanup-hold-list.md`、テナント設計は `docs/design/multi-tenancy.md` が正本。
