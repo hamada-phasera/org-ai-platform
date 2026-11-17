@@ -59,6 +59,8 @@ org-ai-platform/
 - 変更前後にルートで `npm run lint` / `npm run typecheck` / `npm test` / `npm run build`、
   Python は `npm run lint:ai` / `npm run typecheck:ai` / `npm run test:ai`（`apps/ai-engine/.venv` 前提）、
   Go は `npm run test:go`。CI（`.github/workflows/ci.yml`）も同じことを回す
+- DB・マイグレーション・raw SQL を触ったら `npm run test:int`（実 Postgres + pgvector。`TEST_DATABASE_URL` の DB 名は `flow_` 始まり。
+  無ければスキップ。CI の integration ジョブが pgvector/pgvector:pg16 で回す）
 - テストコードも型チェック対象（gateway / shared-types は `tsconfig.test.json`）。DB・外部 API はモックし、シークレット無しで通すこと
 - 構成とデータフローは `docs/ARCHITECTURE.md`、整理で見送った項目・既知の問題は `docs/maintenance/cleanup-hold-list.md`
 

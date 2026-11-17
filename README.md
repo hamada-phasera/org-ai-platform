@@ -157,14 +157,31 @@ npm run dev --workspace=apps/web
 | `npm run typecheck:ai` | ai-engine の mypy |
 | `npm run test:ai` | ai-engine の pytest |
 | `npm run test:go` | usage-metrics-svc の `go vet` と `go test` |
+| `npm run test:int` | gateway の実 Postgres 統合テスト（`TEST_DATABASE_URL` が無ければスキップ） |
 
-どのテストも DB・外部 API・シークレットなしで通る（DB と LLM はモック/スタブ）。
+`test:int` 以外のテストは DB・外部 API・シークレットなしで通る（DB と LLM はモック/スタブ）。
+
+### 実 Postgres の統合テスト
+
+`apps/api-gateway/tests/integration/`。空の DB への `prisma migrate deploy`（schema.prisma とのずれも検査）、
+DoD の通し（2 社の登録 → 分離 → 容量上限 → 竹の契約 → AI 上限 → トライアル切れで 402）、
+`routes/files.ts`・`services/rag.ts` の raw SQL の組織分離を確かめる。Stripe は偽物、埋め込みと ai-engine は呼ばない。
+
+```bash
+# pgvector 入りの Postgres 16（例: docker run -p 5432:5432 -e POSTGRES_PASSWORD=postgres pgvector/pgvector:pg16）
+TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/flow_test npm run test:int
+```
+
+- DB 名は `flow_` で始めること。テストはファイルごとに `<DB 名>_<乱数>` を作ってマイグレーションを当て、終わったら消す
+  （`TEST_DATABASE_URL` の DB 自体は無くてよい。同じサーバの `postgres` DB に繋いで作成・削除するので、その権限が要る）
+- `npm test` は `TEST_DATABASE_URL` があっても統合テストを回さない（`vitest.config.mts` で除外）
 
 ## CI
 
-`.github/workflows/ci.yml` が pull request と main への push で次の 4 ジョブを回す。
+`.github/workflows/ci.yml` が pull request と main への push で次の 5 ジョブを回す。
 
 - **node**（Node 22）: `npm ci` → `prisma:generate` → `lint` → `typecheck` → `test` → `build`
+- **integration**: `pgvector/pgvector:pg16` サービスに向けて `npm run test:int`（`REQUIRE_TEST_DATABASE=1` で全スキップを失敗にする）
 - **python**（Python 3.11）: requirements + requirements-dev → `ruff check` → `pytest`
 - **go**（go.mod のバージョン）: usage-metrics-svc の `go vet` / `go test`
 - **compose-smoke**: `.env` 無しで `docker compose up --build --wait` → `/health`・`/ready` → 登録 1 回

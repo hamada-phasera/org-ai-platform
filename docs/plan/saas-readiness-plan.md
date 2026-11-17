@@ -420,6 +420,10 @@
 | チャンク 8 の render.yaml の整理 | gateway から `ANTHROPIC_API_KEY`（gateway は読まない＝鍵を置く場所を減らす）と `N8N_WORKFLOW_ID`（どこも読まない）を外した。照合スクリプトは「宣言したキーは読み口にある」を gateway・ai-engine の両方で検査し、Render 基盤のキーは `PLATFORM_KEYS`（今は `NODE_VERSION` だけ） |
 | チャンク 8 の YAML の読み方 | ルートの devDependency に `yaml`（依存ゼロ）を足した。自前の簡易パーサは anchors 等で誤判定するため |
 | チャンク 8 の compose の確認 | 箱に Docker が無いので **ローカルでは未確認**。CI の `compose-smoke`（`.env` 無し → `--wait` → `/health`・`/ready` → web の nginx 経由で登録 201）で確かめる |
+| チャンク 9 の DB の作り直し | スキーマ単位ではなく**テストファイルごとにデータベース**（`<TEST_DATABASE_URL の DB 名>_<乱数>`）を作り、`migrate deploy` → 終了時に `DROP … WITH (FORCE)`。拡張 vector はデータベース単位で、スキーマを分けると型が見えない／消すと拡張ごと消えるため。DB 名は `flow_` で始まるものだけ受け付ける（共有の Postgres で他人の DB に触らない）。ファイル内のテスト間は `TRUNCATE` |
+| チャンク 9 の npm test との関係 | 統合テストは `npm run test:int`（gateway の `vitest.integration.config.mts`）だけで回す。`vitest.config.mts` で `tests/integration/**` を除外し、`TEST_DATABASE_URL` が手元にあっても `npm test` は DB に触らない。CI の integration ジョブは `REQUIRE_TEST_DATABASE=1` で「全部スキップで緑」を失敗にする。設定ファイルは CommonJS のパッケージなので `.mts` |
+| チャンク 9 の容量上限の再現 | 1GB を実際に送らず、1 件目は実アップロード（カウンタが行と同じトランザクションで増えることを確認）→ カウンタを上限の 1MB 手前に進めて 2MB を拒否 → 竹で同じ 2MB が入る。分離は B のファイルの GET / DELETE が 404 と一覧で確かめる。通しの app は `index.ts`（起動してしまう）ではなく必要なルートだけを本物で組む |
+| チャンク 9 で見つけたずれ | `UploadedFile_orgId_idx`（20260913 のマイグレーション）が schema.prisma に無く、`migrate dev` すると DROP が生成される状態だった。schema に `@@index([orgId])` を足した（DB は変わらない＝マイグレーション不要）。pgvector の HNSW 索引 2 つは Prisma で書けないので、ずれ検査で許す表に理由付きで置いた |
 
 > オーケストレーター追記（チャンク 3 で対応）: 「決済設定済み」の判定は `STRIPE_SECRET_KEY` だけでなく、梅の月額価格 ID（`STRIPE_PRICE_STARTER_MONTHLY`）もあるときに限る。キーだけ入れて価格が無いと、期限切れ組織が閲覧のみになり契約もできない詰みになるため。
 

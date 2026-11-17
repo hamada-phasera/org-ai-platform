@@ -8,7 +8,8 @@
     "lint": "eslint .",
     "start": "node dist/index.js",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage --coverage.include=src/**"
+    "test:coverage": "vitest run --coverage --coverage.include=src/**",
+    "test:int": "vitest run --config vitest.integration.config.mts"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.0",

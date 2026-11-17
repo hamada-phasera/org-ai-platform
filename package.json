@@ -17,6 +17,7 @@
     "lint": "eslint .",
     "test": "npm run test --workspaces --if-present && npm run test:scripts",
     "test:scripts": "node --test scripts/__tests__/*.test.mjs",
+    "test:int": "npm run test:int --workspace=apps/api-gateway",
     "test:coverage": "npm run test:coverage --workspaces --if-present",
     "prisma:generate": "npm run generate --workspace=packages/db-schema",
     "lint:ai": "cd apps/ai-engine && .venv/bin/ruff check .",

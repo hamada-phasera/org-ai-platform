@@ -1,7 +1,8 @@
 # PR と main への push で、TypeScript / Python / Go の lint・型チェック・テスト・ビルドを回す。
 #
-# ⚠️ DB・外部 API・シークレットには一切触れない。
-#   - gateway のテストは prisma をモックしているので DB 不要（prisma generate だけ要る）
+# ⚠️ 外部 API・シークレットには一切触れない。
+#   - gateway の単体テストは prisma をモックしているので DB 不要（prisma generate だけ要る）
+#   - 実 DB を使うのは integration ジョブだけ（使い捨ての pgvector/pgvector:pg16 サービス）
 #   - ai-engine のテストは LLM をスタブしているので API キー不要
 #   - どちらも環境変数を何も設定しない状態（env -i）で通ることをローカルで確認済み
 # ローカルで同じことをするなら: README.md「テスト・lint・型チェック」を参照。
@@ -52,6 +53,48 @@ jobs:
 
       - name: Build (shared-types → api-gateway, web)
         run: npm run build
+
+  # 実 Postgres（pgvector）の統合テスト（計画書チャンク 9）。
+  # 空の DB への migrate deploy、DoD の通し（登録 → 分離 → 上限 → 契約 → 402）、raw SQL の組織分離。
+  # Stripe と ai-engine は偽物。DB はこのジョブだけの使い捨てコンテナ（パスワードはテスト用の固定値）。
+  integration:
+    name: 統合テスト（実 Postgres + pgvector）
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: flow_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      # DB 名は flow_ で始めること（テストはファイルごとに flow_test_<乱数> を作って消す）
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/flow_test
+      REQUIRE_TEST_DATABASE: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Prisma generate
+        run: npm run prisma:generate
+
+      - name: Integration tests
+        run: npm run test:int
 
   python:
     name: Python (ai-engine)
