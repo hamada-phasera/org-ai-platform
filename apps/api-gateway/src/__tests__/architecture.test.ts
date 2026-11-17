@@ -24,7 +24,7 @@ const PRISMA_IMPORT = /from '(?:\.\.?\/)+utils\/prisma'/;
  */
 export const RAW_PRISMA_ALLOWLIST: Record<string, string> = {
   // ── 入口・テナントの仕組みそのもの ──
-  'index.ts': '/ready の SELECT 1',
+  'app.ts': '/ready の SELECT 1',
   'middleware/auth.ts': '所属の確認（テナントが決まる前）',
   'tenancy/tenant-db.ts': 'テナントクライアントの実体',
   'tenancy/membership-cache.ts': '所属の確認（テナントが決まる前）',
@@ -46,7 +46,7 @@ export const RAW_PRISMA_ALLOWLIST: Record<string, string> = {
 };
 
 /** raw SQL を書いてよいファイル。どれも "orgId" か "Organization" を条件に含むこと。 */
-const RAW_SQL_ALLOWLIST = ['index.ts', 'tenancy/tenant-db.ts', 'routes/files.ts', 'services/rag.ts'];
+const RAW_SQL_ALLOWLIST = ['app.ts', 'tenancy/tenant-db.ts', 'routes/files.ts', 'services/rag.ts'];
 
 describe('A1: 素の prisma を import するのは allowlist のファイルだけ', () => {
   const importers = files.filter((f) => PRISMA_IMPORT.test(f.src)).map((f) => f.rel).sort();

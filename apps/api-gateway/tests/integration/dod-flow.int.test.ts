@@ -78,6 +78,23 @@ describe.skipIf(!hasTestDatabase).each(['off', 'on'] as const)('DoD の通し（
     rmSync(filesDir, { recursive: true, force: true });
   });
 
+  it('本番と同じ配線（buildApp）: /ready が実 DB に届き、登録にレート制限が掛かり', async () => {
+    // saas-review #5c: 以前の統合用アプリはレート制限・起動チェック・health を通っていなかった
+    const ready = await app.inject({ method: 'GET', url: '/ready' });
+    expect(ready.statusCode).toBe(200);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: 'wiring-check@example.invalid', password: 'x' },
+    });
+    expect(res.statusCode).toBe(401);
+    // @fastify/rate-limit がログインの上限（AUTH_RATE_LIMIT = 10/分）で数えている
+    expect(res.headers['x-ratelimit-limit']).toBe('10');
+    // 定期実行（n8n の一覧）も登録されている（トークンが無ければ 401）
+    const jobs = await app.inject({ method: 'GET', url: '/api/webhooks/n8n/scheduled-jobs' });
+    expect(jobs.statusCode).toBe(401);
+  });
+
   it('2 社の登録 → 分離 → 容量上限 → 竹の契約 → AI 上限 → トライアル切れで閲覧のみ', async () => {
     const prisma = db!.prisma;
     const { clearMembershipCache } = await import('../../src/tenancy/membership-cache');

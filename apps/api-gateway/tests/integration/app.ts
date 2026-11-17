@@ -1,31 +1,18 @@
-// 統合テスト用の gateway（本物のルート・requireAuth・tenantDb・multipart）。
+// 統合テスト用の gateway。本番と同じ buildApp（src/app.ts: 起動チェック・レート制限・trustProxy・全ルート）を使う
+// （saas-review #5c: 以前はルートの一部だけを手で登録していて、本番の配線を通っていなかった）。
 // DB だけテストファイルが vi.mock('../../src/utils/prisma') で実 Postgres のクライアントに向ける。
 // ⚠️ モジュールは関数の中で import する（テストファイルの vi.mock が先に効くように）。
 
-import Fastify, { type FastifyInstance } from 'fastify';
-import jwt from '@fastify/jwt';
-import multipart from '@fastify/multipart';
+import type { FastifyInstance } from 'fastify';
 import { expect } from 'vitest';
 
 export const INT_JWT_SECRET = 'integration-test-secret-32-chars-long!!';
 
 export async function buildIntegrationApp(): Promise<FastifyInstance> {
-  const { registerTenantContext } = await import('../../src/tenancy/context');
-  const { authRoutes } = await import('../../src/routes/auth');
-  const { billingRoutes } = await import('../../src/routes/billing');
-  const { stripeWebhookRoutes } = await import('../../src/routes/billing-webhook');
-  const { organizationRoutes } = await import('../../src/routes/organizations');
-  const { fileRoutes } = await import('../../src/routes/files');
-
-  const app = Fastify();
-  await app.register(jwt, { secret: INT_JWT_SECRET });
-  await app.register(multipart, { limits: { fileSize: 100 * 1024 * 1024 } });
-  registerTenantContext(app);
-  await app.register(authRoutes, { prefix: '/api/auth' });
-  await app.register(billingRoutes, { prefix: '/api/billing' });
-  await app.register(stripeWebhookRoutes, { prefix: '/api/webhooks/stripe' });
-  await app.register(organizationRoutes, { prefix: '/api/organizations' });
-  await app.register(fileRoutes, { prefix: '/api/files' });
+  // 起動チェック（assertStartupConfig）は JWT_SECRET の長さを見る。テストの環境に無ければ入れる
+  process.env.JWT_SECRET ??= INT_JWT_SECRET;
+  const { buildApp } = await import('../../src/app');
+  const app = await buildApp({ logger: false });
   await app.ready();
   return app;
 }
