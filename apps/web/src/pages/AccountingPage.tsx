@@ -27,7 +27,7 @@ type View = 'ledger' | 'costs' | 'vendors';
 const TABS = [
   { value: 'ledger' as const, label: '工事台帳' },
   { value: 'costs' as const, label: '原価' },
-  { value: 'vendors' as const, label: '取引先・インボイス' },
+  { value: 'vendors' as const, label: '取引先' },
 ];
 
 /** 見出しの数字。「今どうなっているか」を4つだけ出す。 */
@@ -132,7 +132,7 @@ export default function AccountingPage() {
           {view === 'vendors' && (
             <>
               <div className="lg:hidden">
-                <DesktopOnly what="取引先・インボイス" />
+                <DesktopOnly what="取引先とインボイス" />
               </div>
               <div className="hidden lg:block">
                 <VendorInvoice />

@@ -30,6 +30,7 @@ docker compose up --build
 # http://localhost:3000 を開いて「新規登録」
 ```
 
+Docker Compose **v2.24 以上**が要る（`env_file` の `required: false` を使うため。`docker compose version` で確認）。
 `.env` は要らない（開発用の既定値が `docker-compose.yml` に入っている。⚠️ 本番では使わない値）。
 AI に答えさせるには `.env` に `ANTHROPIC_API_KEY`（か `GEMINI_API_KEY`）を書いて `docker compose up -d` し直す。
 n8n と usage-metrics-svc は任意: `docker compose --profile n8n --profile metrics up --build`。

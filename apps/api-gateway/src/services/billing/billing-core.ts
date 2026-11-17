@@ -47,7 +47,8 @@ export function billingConfigFromEnv(env: Env = readEnv()): BillingConfig | null
     prices,
     storageAddonPrice: pick('STRIPE_PRICE_STORAGE_ADDON'),
     taxRateId: pick('STRIPE_TAX_RATE_ID'),
-    trialDays: Number.isFinite(trial) && trial >= 0 ? Math.floor(trial) : ENV_DEFAULTS.BILLING_TRIAL_DAYS,
+    // 下限 1（config.billingTrialDays と同じ。0 で登録直後から閲覧のみになる事故を避ける。saas-review #12）
+    trialDays: Number.isFinite(trial) && trial >= 1 ? Math.floor(trial) : ENV_DEFAULTS.BILLING_TRIAL_DAYS,
     appBaseUrl: (env.APP_BASE_URL?.trim() || 'http://localhost:3000').replace(/\/+$/, ''),
   };
 }

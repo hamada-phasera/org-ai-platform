@@ -354,11 +354,14 @@ export const config = {
       !!env.STRIPE_WEBHOOK_SECRET?.trim()
     );
   },
-  /** トライアルの日数。数でない・負の値は既定に戻す。 */
+  /**
+   * 登録時トライアルの日数。数でない・1 未満は既定に戻す。
+   * ⚠️ 0 を許すと登録した瞬間から閲覧のみ（初回の指示も保存できない）になるので、下限は 1（saas-review #12）。
+   */
   get billingTrialDays(): number {
     const raw = readEnv().BILLING_TRIAL_DAYS;
     const n = Number(raw ?? ENV_DEFAULTS.BILLING_TRIAL_DAYS);
-    return raw !== undefined && raw.trim() !== '' && Number.isFinite(n) && n >= 0
+    return raw !== undefined && raw.trim() !== '' && Number.isFinite(n) && n >= 1
       ? Math.floor(n)
       : ENV_DEFAULTS.BILLING_TRIAL_DAYS;
   },

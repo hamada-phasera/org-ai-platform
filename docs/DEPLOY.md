@@ -40,12 +40,18 @@ Node は 22（`.node-version`・`engines`・Dockerfile・`NODE_VERSION`・CI）�
    - transaction pooler（6543）は Prisma のマイグレーションの advisory lock が保てない
 2. `vector` 拡張を Supabase の画面から有効にしない（マイグレーションが作る）。n8n は専用スキーマ `n8n`。詳細は `docs/supabase-migration.md`。
 3. Storage に非公開バケット `org-files` を作る。
-4. マイグレーションは gateway の起動時に `prisma migrate deploy` が流す（10/20/30/40 秒で最大 5 回リトライ、全滅なら起動しない）。手で流すなら:
+4. **既存の DB に流す前に**、大文字小文字だけ違うメールの重複が 0 行であることを確かめる（メールの小文字化のマイグレーションは衝突する行を触らず、その人はログインできなくなる。`docs/security.md`「メールの小文字化」）:
+   ```sql
+   SELECT lower(trim(email)) AS normalized, count(*) AS n, array_agg(id) AS user_ids
+   FROM "User" GROUP BY lower(trim(email)) HAVING count(*) > 1;
+   ```
+   0 行でなければ、どちらの行を残すかをオーナーが決めて整理してからデプロイする。
+5. マイグレーションは gateway の起動時に `prisma migrate deploy` が流す（10/20/30/40 秒で最大 5 回リトライ、全滅なら起動しない）。手で流すなら:
    ```bash
    DATABASE_URL="<Session pooler の URL>" npx prisma migrate deploy --schema=packages/db-schema/prisma/schema.prisma
    ```
-5. RLS は既定 off（`RLS_MODE=off`）。on にするのは `flow_app` ロールを作った後（O-5、`docs/design/multi-tenancy.md` §17）。
-6. 無料プランは 7 日アクセスが無いと一時停止する。`.github/workflows/db-keepalive.yml` が予防する（`DATABASE_URL` シークレットが要る）。
+6. RLS は既定 off（`RLS_MODE=off`）。on にするのは `flow_app` ロールを作った後（O-5、`docs/design/multi-tenancy.md` §17）。
+7. 無料プランは 7 日アクセスが無いと一時停止する。`.github/workflows/db-keepalive.yml` が予防する（`DATABASE_URL` シークレットが要る）。
 
 ## 3. Stripe
 

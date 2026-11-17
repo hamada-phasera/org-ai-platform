@@ -64,7 +64,9 @@ describe('billingConfigFromEnv', () => {
 
   it('トライアル日数が壊れていたら既定の30日', () => {
     expect(billingConfigFromEnv({ STRIPE_SECRET_KEY: SECRET_KEY, BILLING_TRIAL_DAYS: 'abc' })?.trialDays).toBe(30);
-    expect(billingConfigFromEnv({ STRIPE_SECRET_KEY: SECRET_KEY, BILLING_TRIAL_DAYS: '0' })?.trialDays).toBe(0);
+    // 0 は既定に戻す（下限 1。登録時トライアルと同じ値を使うので、0 だと登録直後から閲覧のみになる。saas-review #12）
+    expect(billingConfigFromEnv({ STRIPE_SECRET_KEY: SECRET_KEY, BILLING_TRIAL_DAYS: '0' })?.trialDays).toBe(30);
+    expect(billingConfigFromEnv({ STRIPE_SECRET_KEY: SECRET_KEY, BILLING_TRIAL_DAYS: '1' })?.trialDays).toBe(1);
   });
 });
 

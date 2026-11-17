@@ -145,4 +145,15 @@ describe('config: 値の読み方', () => {
     process.env.STRIPE_WEBHOOK_SECRET = 'whsec_x';
     expect(config.billingConfigured).toBe(true);
   });
+
+  it('billingTrialDays は下限 1（0・負・数でないは既定の 30。saas-review #12）', () => {
+    for (const v of ['0', '-3', 'abc', '']) {
+      process.env.BILLING_TRIAL_DAYS = v;
+      expect(config.billingTrialDays).toBe(30);
+    }
+    process.env.BILLING_TRIAL_DAYS = '1';
+    expect(config.billingTrialDays).toBe(1);
+    process.env.BILLING_TRIAL_DAYS = '14.7';
+    expect(config.billingTrialDays).toBe(14);
+  });
 });

@@ -55,6 +55,9 @@ export async function createOrganizationFor(
 ): Promise<{ id: string; name: string; plan: string }> {
   const org = await prisma.$transaction(async (tx) => {
     const now = new Date();
+    /* 作成者の行を先に更新して行ロックを取る（同時に 2 回押されても、2 本目は 1 本目のコミットを待ってから数える）。
+       これが無いと「数えてから作る」の間に割り込まれ、両方にトライアルが付きうる（saas-review #8）。 */
+    await tx.user.update({ where: { id: userId }, data: { updatedAt: now } });
     /* トライアルは作成者ごとに1回（D4）。すでに自分で組織を作っている人の2つ目以降は、
        作成時点で期限切れ（決済が設定済みなら契約するまで閲覧のみ）。招待で入った組織は数えない。 */
     const alreadyCreated = await tx.organization.count({ where: { createdBy: userId } });
