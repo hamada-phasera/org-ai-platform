@@ -2,7 +2,7 @@
 
 > **一行要約**: 組織ごとの「ページ定義（JSON）」を DB に持ち、n8n が登録トークンで upsert する。web は許可リストのブロックだけを描画し、データ取得・フォーム送信・ボタンは必ず gateway を通って、その組織専用の n8n Webhook（`pages/<orgId>/<hook>`）にだけ届く。
 
-- 状態: チャンク 1（shared-types）実装済み、2〜7 は未実装。2026-11-18。ブランチ `feat/custom-pages`
+- 状態: チャンク 1（shared-types）・2（DB）実装済み、3〜7 は未実装。2026-11-18。ブランチ `feat/custom-pages`
 - 前提にした既存の決まり: CLAUDE.md、DESIGN.md、`docs/ARCHITECTURE.md`、`docs/design/multi-tenancy.md`、`docs/n8n-integration-design.md`、`docs/plan/saas-readiness-plan.md` §2・§7
 - 既存の原則は変えない: **DB が真実の源 / n8n は加速レイヤー / ルートは `authOf(request).db` だけ / エラーは `{ success:false, error:{ code, message } }` / LLM は必ず ai-engine の LLMRouter 経由**
 
@@ -102,7 +102,7 @@ sequenceDiagram
 
 ## 3. データモデル
 
-マイグレーション 1 本: `packages/db-schema/prisma/migrations/2026112x000000_add_custom_pages`（手書き SQL の流儀。追加のみ・既存行に影響なし）。
+マイグレーション 1 本: `packages/db-schema/prisma/migrations/20261121000000_add_custom_pages`（手書き SQL の流儀。追加のみ・既存行に影響なし）。
 
 ### 3.1 `CustomPage`（ページ定義）
 
@@ -153,8 +153,8 @@ sequenceDiagram
 | `pageVersion` | Int | 押した時点の定義の版 |
 | `actorId` | String | 押した人 |
 | `requestId` | String | web が送信ごとに作る UUID。`@@unique([orgId, requestId])` で二重送信を止める |
-| `status` | String | `'OK' \| 'FAILED' \| 'TIMEOUT' \| 'INVALID_RESPONSE'` |
-| `durationMs` | Int | |
+| `status` | String | `'PENDING' \| 'OK' \| 'FAILED' \| 'TIMEOUT' \| 'INVALID_RESPONSE'`。既定 `PENDING`（K25） |
+| `durationMs` | Int? | 確定時に入る |
 | `inputKeys` | String[] | 送った項目名だけ。**値は保存しない**（個人情報を記録に溜めない） |
 | `createdAt` | DateTime | |
 
@@ -162,7 +162,7 @@ sequenceDiagram
 
 - **記録するのは `submit` だけ**。`query`（閲覧）は記録しない（既存も閲覧は監査対象外。開くたびに行が増える）。
 - 月間実行数 = 当月（JST の月初から）の `PageActionLog` の件数（AI の月間上限が AILog の件数で数えているのと同じ考え方）。
-- 定義の登録・更新・削除・公開・トークンの発行と失効は既存の `AuditEvent` に残す（`services/audit.ts` の `AUDIT_ACTIONS` に `page.upsert` `page.delete` `page.publish` `page.unpublish` `page_token.issue` `page_token.revoke` を足す）。n8n 経由は `actorId = null`、`meta.tokenId` に登録トークンの id（値ではない）。
+- 定義の登録・更新・削除・公開・トークンの発行と失効は既存の `AuditEvent` に残す（`services/audit.ts` の `AUDIT_ACTIONS` に `page.upsert` `page.delete` `page.publish` `page.unpublish` `page_token.issue` `page_token.revoke` を足す）。n8n 経由は `actorId = null`、`meta.registrarId` に登録トークンの id（値ではない。K26）。
 
 ### 3.4 テナント分離と RLS
 
@@ -323,7 +323,7 @@ n8n への呼び出し:
 | 更新 | `definitionHash` が同じで他の項目も同じなら何も書かず `{ changed: false, version }`。違えば `version + 1`。`status` `sortOrder` `minRole` は **body に書かれたときだけ**上書き（管理者が画面で変えた値を、再実行で黙って戻さない） |
 | 作成元の衝突 | 既存の行が `MANUAL` / `SEED` のとき、n8n からの更新・削除は 409 `PAGE_SOURCE_CONFLICT`（人が作ったページを上書きしない） |
 | 応答 | `{ success: true, data: { slug, version, status, changed, url: "<APP_BASE_URL>/p/<slug>" } }` |
-| 記録 | `AuditEvent`（`page.upsert` / `page.delete`、`actorId: null`、`meta: { slug, version, tokenId }`）、`PageToken.lastUsedAt` |
+| 記録 | `AuditEvent`（`page.upsert` / `page.delete`、`actorId: null`、`meta: { slug, version, registrarId }`（K26））、`PageToken.lastUsedAt` |
 | 検証エラー | 400 `VALIDATION_ERROR`。message は zod の最初の 3 件を「場所: 理由」で（構築者が n8n の実行結果で直せるように）。値そのものは載せない |
 
 ### 5.4 ページ登録トークン
@@ -594,6 +594,8 @@ n8n への呼び出し:
 | K22 | （実装時）text / email / tel の `maxLength` は 500 まで、textarea だけ 2000 まで。必須の checkbox は「チェックが要る」。任意項目の空は `''`（数値は `null`）を許す | 1 行の項目に長文を入れさせない。同意チェックを表せる。ブラウザのフォームは空を `''` で送る | 全項目 2000 まで |
 | K23 | （実装時）`projectQueryResult` は `{ action, blocks: [{ index, type, values \| rows+truncated \| error }] }`。行は `{ id: rowKey の値 \| null, cells }`、rowKey が無い行は id=null（行の操作を出さない）。KPI は値が null なら許し、key が無い・スカラーでない・非有限なら error | ブロック単位で error を返せ、web は index で引くだけ。行を落とすより見えるほうが現場で困らない | key ごとの平たい辞書（ブロック単位の error が表せない） |
 | K24 | （実装時）`toPublicPageDefinition`（hook を落とす）と `pageSubmitResponseSchema`（`{ ok, message≤140 }` 以外を捨てる）も shared-types に置く | T17・§5.2 の 10 を 1 か所で固定し、gateway のルートが個別に書かない | ルートごとに手で落とす |
+| K25 | （実装時）`PageActionLog.pageId` は FK にしない（組織の削除でだけ消える）。`status` に `PENDING` を足して既定にし、`durationMs` は null 可 | ページを消して作り直すだけで当月の件数が消える＝上限のすり抜けを防ぐ。§5.2 の 7 で「先に作って後で確定」するため | pageId を Cascade の FK に |
+| K26 | （実装時）監査の meta に登録トークンの id を入れるキーは `tokenId` ではなく `registrarId` | `sanitizeAuditMeta` が名前に `token` を含むキーの値を落とすため（`tokenId` だと `[REDACTED]` になる） | audit.ts の秘密判定に例外を足す（秘密を落とす規則を緩めたくない） |
 
 ## 15. 未確認・実装時に確かめること
 

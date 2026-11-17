@@ -32,6 +32,23 @@ const DEFAULTS: Record<string, Row> = {
     billingEmail: null, stripeCustomerId: null, stripeSubscriptionId: null, billingInterval: null,
     currentPeriodEnd: null, trialEndsAt: null, cancelAtPeriodEnd: false, createdBy: null,
   },
+  // 業務ページ（docs/design/custom-pages.md §3）
+  customPage: {
+    icon: 'file-text', sortOrder: 0, status: 'DRAFT', minRole: 'MEMBER', version: 1, schemaVersion: 1,
+    sampleData: null, createdBy: null, updatedBy: null,
+  },
+  pageToken: { lastUsedAt: null, revokedAt: null },
+  pageActionLog: { status: 'PENDING', durationMs: null, inputKeys: [] },
+};
+
+/**
+ * schema.prisma の一意制約のうち、偽 Prisma でも P2002 を投げるもの（二重送信・同名ページの判定をルートで確かめるため）。
+ * 既存のモデルは足していない（今までのテストの前提を変えないため）。足すなら schema.prisma の @@unique と同じ列で。
+ */
+const UNIQUES: Record<string, string[][]> = {
+  customPage: [['orgId', 'slug']],
+  pageToken: [['tokenHash']],
+  pageActionLog: [['orgId', 'requestId']],
 };
 
 const OPS = new Set(['equals', 'in', 'notIn', 'not', 'lt', 'lte', 'gt', 'gte', 'contains', 'startsWith', 'endsWith', 'mode', 'has', 'some', 'every', 'none', 'isEmpty']);
@@ -191,6 +208,19 @@ export class FakePrisma {
     return { ...row };
   }
 
+  /** 一意制約の違反なら Prisma と同じ形（code: 'P2002'）の例外を投げる */
+  private assertUnique(model: string, row: Row, except?: Row): void {
+    for (const cols of UNIQUES[model] ?? []) {
+      const clash = this.rows(model).some((r) => r !== row && r !== except && cols.every((c) => eq(r[c], row[c])));
+      if (clash) {
+        throw Object.assign(new Error(`Unique constraint failed on the fields: (${cols.join(',')})`), {
+          code: 'P2002',
+          meta: { target: cols },
+        });
+      }
+    }
+  }
+
   private notFound(): Error {
     return Object.assign(new Error('Record to update not found.'), { code: 'P2025' });
   }
@@ -246,17 +276,23 @@ export class FakePrisma {
           ...DEFAULTS[model],
           ...(args?.data as Row),
         };
+        this.assertUnique(model, row);
         this.rows(model).push(row);
         return this.shape(model, row, args);
       },
       createMany: async (args) => {
         const list = (Array.isArray(args?.data) ? args?.data : [args?.data]) as Row[];
-        for (const d of list) this.rows(model).push({ id: `new-${model}-${++this.seq}`, createdAt: new Date(), ...d });
+        for (const d of list) {
+          const row: Row = { id: `new-${model}-${++this.seq}`, createdAt: new Date(), ...DEFAULTS[model], ...d };
+          this.assertUnique(model, row);
+          this.rows(model).push(row);
+        }
         return { count: list.length };
       },
       update: async (args) => {
         const r = find(args)[0];
         if (!r) throw this.notFound();
+        this.assertUnique(model, { ...r, ...(args?.data as Row) }, r);
         this.applyData(r, args?.data as Row);
         return this.shape(model, r, args);
       },
@@ -282,7 +318,14 @@ export class FakePrisma {
           this.applyData(r, args?.update as Row);
           return r;
         }
-        const row: Row = { id: `new-${model}-${++this.seq}`, createdAt: new Date(), ...(args?.create as Row) };
+        const row: Row = {
+          id: `new-${model}-${++this.seq}`,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          ...DEFAULTS[model],
+          ...(args?.create as Row),
+        };
+        this.assertUnique(model, row);
         this.rows(model).push(row);
         return row;
       },
