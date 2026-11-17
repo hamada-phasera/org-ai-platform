@@ -48,3 +48,23 @@
 - **[中] #3** Render の実際の `X-Forwarded-For` で `TRUST_PROXY_HOPS=1` が正しいかをデプロイ直後に確認し、手順を `docs/DEPLOY.md` に足す（`index.ts:48`）。
 - **[中] #4** `incomplete` / `incomplete_expired` で登録時トライアルの残りを失わないようにする（`entitlement.ts:46`、`sync.ts:39`）。
 - **[中] #5** 実 Stripe テストモードでの Checkout → webhook → 反映を 1 回通して記録する。ai-engine の上限超過の降格と `index.ts` の配線もテストに入れる。
+
+## 4. 対応状況（2026-11-18）
+
+| # | 重大度 | 結果 | 内容 | コミット |
+|---|---|---|---|---|
+| 1 | 高 | **対応済み** | 認証の無い経路の入口で `orgEntitlement`（`services/org-entitlement.ts` → `entitlementDecision`）を見る。定期実行は claim の前に skip（`lastRunAt` を進めない）、n8n の `scheduled-jobs` 一覧からも外し、`enqueue-scheduled-task` は `skipped: read_only` の 200。LINE は受信メッセージの保存を続け、下書き生成と領収書の読み取りだけ止める（受信箱には理由の文言）。各経路にテスト | `9fc473b` |
+| 2 | 中 | **対応済み** | `billingConfigured` = キー・梅の月額 price・`STRIPE_WEBHOOK_SECRET` の 3 つ。署名鍵が無ければ `/checkout` は 503 `BILLING_NOT_CONFIGURED`（固定文言・キー名を返さない）。`check:deploy` が render.yaml の 3 キーの宣言を検査。env / entitlement / billing のテスト、billing.md・.env.example | `5153156` |
+| 3 | 中 | **対応済み（手順）** | `docs/DEPLOY.md` 6 章の 6 に、2 回線から叩いて `ip=` を比べる手順と、`X-Forwarded-For` 偽装で `ip=` が変わらないことの確認を追加。実際の確認はデプロイ時（結果は同項に追記） | `b8ddf8a` |
+| 4 | 中 | **対応済み** | `incomplete` / `incomplete_expired` は未契約と同じ扱い（文言はトライアル側、Checkout の残り期間引き継ぎも同じ）。解約後も `trialEndsAt` の残りがあれば閲覧のみにしない。判定を shared-types の `readOnlyReasonOf` 1 か所にし、gateway と web の帯が同じ関数を使う。状態ごとの表をテストに追加 | `a65f747` |
+| 5 | 中 | **対応済み（a〜c）／O-1 は未実施** | (a) `src/app.ts` の `buildApp` に組み立てを出し、統合テストも同じ配線（レート制限・起動チェック・trustProxy・全ルート）を通る。配線の確認を 1 件。(b) `@testing-library/react` + jsdom で帯と 402 の導線を描画するテスト（本物の axios の interceptor を通す）。(c) 既存は router 単体だけだったので、本物の `is_over_limit` で `/llm/chat` が軽いモデルで応答するテストを追加。実 Stripe テストモードの通しはオーナー作業 O-1 として `docs/billing.md` に手順を明記（未実施） | `00cb915` `3ebed09` `294089c` |
+| 6 | 低 | 対応済み（文書） | メール確認が入るまでの既知の制約として `docs/billing.md`「既知の制約」に記載 | `00a8a26` |
+| 7 | 低 | 対応済み（文書） | 仕様として `docs/billing.md`「既知の制約」に記載（上限の据え置きはしない） | `00a8a26` |
+| 8 | 低 | 対応済み | 作成者の行を先に更新して行ロックを取る。実 Postgres の同時作成テスト（ロックを外すと落ちることを確認済み） | `00a8a26` |
+| 9 | 低 | 対応済み（文書） | `docs/DEPLOY.md` 2 章にデプロイ前の重複確認 SQL | `00a8a26` |
+| 10 | 低 | **未対応** | (a) メール単位の失敗回数・(b) LINE の未署名だけ数える・(c) 上限の調整は、どれもレート制限の仕組みに手を入れる変更で、小さく安全とは言えないため見送り（(c) は運用で 429 のログを見る） | — |
+| 11 | 低 | 確認のみ | `docs/DEPLOY.md` 1 章の表に `N8N_WEBHOOK_AUTH_TOKEN` があることを確認（変更なし） | — |
+| 12 | 低 | 対応済み | `BILLING_TRIAL_DAYS` の下限を 1 に（0・負・数でない値は既定の 30）。登録時トライアルと Stripe のトライアルの両方。env / billing-core のテスト | `00a8a26` |
+| 13 | 低 | 一部対応 | タブ名を「取引先」に。スマホの一覧化は未対応（計画書 §7 の決定でスマホは `DesktopOnly` のままなので、表がスマホに出ることは無い） | `00a8a26` |
+| 14 | 低 | 対応済み | OWNER/ADMIN 以外には帯とチャットのアップロード失敗で「プラン」リンクを出さず、文言を「…（オーナーにご連絡ください）。」（1 文）に | `3ebed09` |
+| 15 | 低 | 対応済み（文書） | README「最短で動かす」に Compose v2.24 以上が要ることを 1 行 | `00a8a26` |
