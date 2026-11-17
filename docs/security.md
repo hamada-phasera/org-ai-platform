@@ -16,6 +16,7 @@
 |---|---|
 | `POST /api/auth/login`・`POST /api/auth/register` | 10 回 / 分 |
 | 招待のプレビュー・受諾（`/api/members/invitations/preview/:token`・`accept`・`accept-existing`） | 20 回 / 分 |
+| 業務ページの登録（n8n。`/api/webhooks/n8n/pages`。登録トークンの当てずっぽう対策） | 20 回 / 分 |
 | その他すべて | 300 回 / 分 |
 | `/api/webhooks/stripe`・`/api/webhooks/line`・`/health` | 制限なし（署名で守られている / 死活監視） |
 

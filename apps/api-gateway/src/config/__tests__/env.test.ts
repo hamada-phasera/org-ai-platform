@@ -77,6 +77,23 @@ describe('config: 値の読み方', () => {
     expect(config.n8nUrl).toBe('https://cloud.test');
   });
 
+  it('n8nConfigured は N8N_CLOUD_URL か N8N_URL が明示されたときだけ真（既定の localhost では偽。業務ページ K8）', () => {
+    expect(config.n8nConfigured).toBe(false);
+    process.env.N8N_URL = '  ';
+    expect(config.n8nConfigured).toBe(false);
+    process.env.N8N_URL = 'https://self.test';
+    expect(config.n8nConfigured).toBe(true);
+    delete process.env.N8N_URL;
+    process.env.N8N_CLOUD_URL = 'https://cloud.test';
+    expect(config.n8nConfigured).toBe(true);
+  });
+
+  it('appBaseUrl は既定 localhost:3000、末尾スラッシュを除く', () => {
+    expect(config.appBaseUrl).toBe(ENV_DEFAULTS.APP_BASE_URL);
+    process.env.APP_BASE_URL = 'https://app.test//';
+    expect(config.appBaseUrl).toBe('https://app.test');
+  });
+
   it('n8nChatCloudUrl は N8N_URL を見ない（従来どおり）', () => {
     process.env.N8N_URL = 'https://self.test';
     expect(config.n8nChatCloudUrl).toBe(ENV_DEFAULTS.N8N_CHAT_CLOUD_URL);

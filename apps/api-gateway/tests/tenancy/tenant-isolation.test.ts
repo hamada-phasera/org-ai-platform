@@ -56,7 +56,12 @@ const routes = {
   governance: (await import('../../src/routes/governance')).governanceRoutes,
   sns: (await import('../../src/routes/sns/posts')).snsPostsRoutes,
   organizations: (await import('../../src/routes/organizations')).organizationRoutes,
+  pages: (await import('../../src/routes/pages')).pageRoutes,
+  n8nPages: (await import('../../src/routes/n8n-pages')).n8nPageRoutes,
 };
+const { hashPageToken } = await import('../../src/services/pages/page-token');
+/** 業務ページの登録トークン（組織ごと）。生値はテストだけが知る */
+const pageTokenOf = (X: 'A' | 'B') => `flowpg_${X.repeat(43)}`;
 
 const SECRET = 'tenant-isolation-test-secret-32-chars!!';
 const now = new Date('2026-11-01T00:00:00Z');
@@ -118,6 +123,15 @@ function orgData(X: 'A' | 'B') {
       targetType: 'user', targetId: `u-${X.toLowerCase()}`, meta: { role: 'ADMIN', note: `audit-meta-${X}` }, createdAt: now }],
     uploadedFile: [{ id: `file-${X}`, orgId: org, uploadedBy: 'x', originalName: `f${X}.txt`, storagePath: `${org}/f`,
       storageDriver: 'local', mimeType: 'text/plain', sizeBytes: 10, createdAt: now }],
+    // 業務ページ（docs/design/custom-pages.md §11）。slug は組織ごとに一意なので、B だけが持つ slug で IDOR を見る
+    customPage: [{ id: `page-${X}`, orgId: org, slug: `page-${X.toLowerCase()}-only`, title: `ページ${X}`, icon: 'inbox',
+      sortOrder: 0, status: 'PUBLISHED', minRole: 'MEMBER', source: 'N8N', version: 1, schemaVersion: 1,
+      definition: { blocks: [{ type: 'heading', text: `見出し${X}` }], actions: { list: { kind: 'query', hook: `hook-${X.toLowerCase()}` } } },
+      definitionHash: `h-${X}`, sampleData: null, createdBy: null, updatedBy: null, createdAt: now, updatedAt: now }],
+    pageToken: [{ id: `ptok-${X}`, orgId: org, label: `n8n${X}`, tokenHash: hashPageToken(pageTokenOf(X)), prefix: `flowpg_${X}${X}${X}`,
+      lastUsedAt: null, revokedAt: null, createdBy: `u-${X.toLowerCase()}`, createdAt: now }],
+    pageActionLog: [{ id: `plog-${X}`, orgId: org, pageId: `page-${X}`, slug: `page-${X.toLowerCase()}-only`, actionId: 'create',
+      pageVersion: 1, actorId: `u-${X.toLowerCase()}`, requestId: `req-${X}`, status: 'OK', durationMs: 1, inputKeys: [], createdAt: now }],
   };
 }
 
@@ -160,6 +174,8 @@ async function build(): Promise<FastifyInstance> {
   await a.register(routes.governance, { prefix: '/api/governance' });
   await a.register(routes.sns, { prefix: '/api/sns/posts' });
   await a.register(routes.organizations, { prefix: '/api/organizations' });
+  await a.register(routes.pages, { prefix: '/api/pages' });
+  await a.register(routes.n8nPages, { prefix: '/api/webhooks/n8n/pages' });
   await a.ready();
   return a;
 }
@@ -237,6 +253,11 @@ const IDOR_CASES: Req[] = [
   ['POST', '/api/sns/posts/sns-B/approve', {}],
   ['POST', '/api/sns/posts/sns-B/reject', { reason: 'x' }],
   ['PATCH', '/api/sns/posts/sns-B/schedule', { scheduledAt: '2026-12-01T00:00:00.000Z' }],
+  // CustomPage（B だけが持つ slug）/ PageToken。PUT は「A に新しく作る」になるので I-4 で見る
+  ['GET', '/api/pages/page-b-only'],
+  ['PATCH', '/api/pages/page-b-only', { status: 'DRAFT' }],
+  ['DELETE', '/api/pages/page-b-only'],
+  ['DELETE', '/api/pages/tokens/ptok-B'],
 ];
 
 /** I-2: 一覧。応答のどこにも B の行（id・中身）が出てこない。 */
@@ -269,6 +290,9 @@ const LIST_CASES: string[] = [
   '/api/sns/posts/queue',
   '/api/sns/posts/calendar',
   '/api/organizations/me',
+  '/api/pages',
+  '/api/pages/admin/list',
+  '/api/pages/tokens',
 ];
 
 /** B のデータに固有の文字列（id・中身）。応答に1つでも出たら漏えい */
@@ -276,6 +300,7 @@ const B_MARKERS = [
   'org-B', 'task-B', 'sns-B', 'agent-B', 'project-B', 'vendor-B', 'cost-B', 'deal-B', 'cap-B', 'cap_B', 'gap-B', 'exec-B',
   'st-B', 'session-B', 'secret-B', 'conn-B', 'inbound-B', 'hello-B', 'pc-B', 'WSB', 'inv-B', 'invB@', 'risk-B',
   'prompt-B', 'file-B', 'audit-B', 'audit-meta-B', 'AgentB', '工事B', '業者B', '商談B', 'B社', 'u-b', 'b@example.com',
+  'page-B', 'page-b-only', 'ページB', '見出しB', 'hook-b', 'ptok-B', 'flowpg_BBB', 'n8nB', 'plog-B',
 ];
 
 describe('I-1: 他組織のリソースを id 指定しても 404（存在を漏らさない）、書き込みは0件', () => {
@@ -334,6 +359,65 @@ describe('I-4: body の orgId で作成先の組織を変えられない', () =>
     const created = fake.rows(table).filter((r) => String(r.id).startsWith('new-'));
     expect(created.length).toBe(1);
     expect(created[0].orgId).toBe('org-A');
+  });
+});
+
+describe('業務ページ（docs/design/custom-pages.md §11 テナント分離）', () => {
+  const bPages = () =>
+    JSON.stringify([...fake.rows('customPage'), ...fake.rows('pageToken'), ...fake.rows('pageActionLog')].filter((r) => r.orgId === 'org-B'));
+  const def = { blocks: [{ type: 'heading', text: '新規' }], actions: {} };
+
+  it('A のトークン（JWT）で B と同じ slug を PUT しても A に作られ、B は 1 バイトも変わらない', async () => {
+    fake.rows('organization').find((o) => o.id === 'org-A')!.plan = 'PRO';
+    const before = bPages();
+    const res = await app.inject({
+      method: 'PUT', url: '/api/pages/page-b-only', headers: as('u-a', 'org-A'), payload: { title: '同名', definition: def },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(fake.rows('customPage').filter((p) => p.slug === 'page-b-only').map((p) => p.orgId).sort()).toEqual(['org-A', 'org-B']);
+    expect(bPages()).toBe(before);
+  });
+
+  it('A の登録トークンで B と同じ slug を登録しても A に作られ、B は 1 バイトも変わらない', async () => {
+    fake.rows('organization').find((o) => o.id === 'org-A')!.plan = 'PRO';
+    const before = bPages();
+    const res = await app.inject({
+      method: 'PUT', url: '/api/webhooks/n8n/pages/page-b-only', headers: { 'x-page-token': pageTokenOf('A') },
+      payload: { title: '同名', definition: def },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.body).not.toContain('org-B');
+    expect(bPages()).toBe(before);
+  });
+
+  it('A の登録トークンで B のページは消せず、一覧にも出ない', async () => {
+    const before = bPages();
+    const del = await app.inject({
+      method: 'DELETE', url: '/api/webhooks/n8n/pages/page-b-only', headers: { 'x-page-token': pageTokenOf('A') },
+    });
+    expect(del.json().data).toEqual({ deleted: false });
+    const list = await app.inject({ method: 'GET', url: '/api/webhooks/n8n/pages', headers: { 'x-page-token': pageTokenOf('A') } });
+    expect(list.body).toContain('page-a-only');
+    expect(list.body).not.toContain('page-b-only');
+    expect(bPages()).toBe(before);
+  });
+
+  it('JWT（ユーザーのトークン）では登録経路を使えない', async () => {
+    const res = await app.inject({
+      method: 'PUT', url: '/api/webhooks/n8n/pages/x-page', headers: as('u-a', 'org-A'), payload: { title: 'x', definition: def },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('両方に所属する c でも、A のトークンでは B のページが 404、B のトークンでだけ見える', async () => {
+    expect((await app.inject({ method: 'GET', url: '/api/pages/page-b-only', headers: as('u-c', 'org-A') })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'GET', url: '/api/pages/page-b-only', headers: as('u-c', 'org-B') })).statusCode).toBe(200);
+  });
+
+  it('自分のページの定義を開いても hook は返らない（T17）', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/pages/page-a-only', headers: as('u-a', 'org-A') });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).not.toContain('hook-a');
   });
 });
 

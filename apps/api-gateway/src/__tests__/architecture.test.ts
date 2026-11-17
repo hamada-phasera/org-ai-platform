@@ -39,6 +39,8 @@ export const RAW_PRISMA_ALLOWLIST: Record<string, string> = {
   'services/billing/sync.ts': 'Stripe の写し込み（組織自体を更新する）',
   'services/lifecycle.ts': 'シャットダウン時の後始末（状態を FAILED にするだけ）',
   'services/schedule-dispatcher.ts': '定期実行の claim と候補スキャンだけ（claim 後と失敗の記録は runAsTenant + tenantDb）',
+  'services/pages/page-token.ts':
+    '業務ページの登録トークンのハッシュから組織を逆引きする resolvePageToken だけ（テナントが決まる前）。以降は runAsTenant + tenantDb',
   'services/step-runner.ts':
     '取り残された RUNNING の回収（組織をまたぐ）と、orgId 無しで呼ばれた再開の Task の逆引きだけ。以降は tenantDb',
   // チャンク 10 で tenantDb に移したもの（task-executor・capability-resolver/executor・adapters・google-auth・

@@ -91,3 +91,13 @@ export function pageActionState(plan: Plan | string, usedThisMonth: number): Pag
   const used = Math.max(0, usedThisMonth);
   return { used, limit, state: usageState(used, limit), blocked: used >= limit };
 }
+
+/**
+ * ページの slug に使えない名前。`/api/pages/admin/list` `/api/pages/tokens` と衝突するため
+ * （GET /api/pages/tokens がページではなくトークン一覧になる）。登録時に 400。
+ */
+export const PAGE_RESERVED_SLUGS = ['admin', 'tokens'] as const;
+
+export function isReservedPageSlug(slug: string): boolean {
+  return (PAGE_RESERVED_SLUGS as readonly string[]).includes(slug);
+}

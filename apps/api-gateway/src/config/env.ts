@@ -135,6 +135,8 @@ export const ENV_DEFAULTS = {
   SHUTDOWN_DRAIN_MS: 20_000,
   /** 登録時トライアル（カード不要）と Checkout のトライアルの日数 */
   BILLING_TRIAL_DAYS: 30,
+  /** 利用者が開く web の URL（業務ページの登録応答に載せる /p/<slug> の土台） */
+  APP_BASE_URL: 'http://localhost:3000',
 } as const;
 
 /** 'false' のときだけ無効。未設定・その他の値は有効（従来の `(X ?? 'true') === 'false'` と同じ）。 */
@@ -233,6 +235,14 @@ export const config = {
   /** chat.ts 用。N8N_URL は見ず、既定は n8n cloud。 */
   get n8nChatCloudUrl(): string {
     return readEnv().N8N_CLOUD_URL ?? ENV_DEFAULTS.N8N_CHAT_CLOUD_URL;
+  },
+  /**
+   * n8n の宛先が明示されているか（N8N_CLOUD_URL か N8N_URL）。既定の localhost に落ちているだけなら偽。
+   * 業務ページは ai-engine へフォールバックしないので、未設定なら「未接続」を出す（docs/design/custom-pages.md §5.2・K8）。
+   */
+  get n8nConfigured(): boolean {
+    const env = readEnv();
+    return !!(env.N8N_CLOUD_URL?.trim() || env.N8N_URL?.trim());
   },
   get n8nApiKey(): string {
     return readEnv().N8N_API_KEY ?? '';
@@ -358,6 +368,10 @@ export const config = {
    * 登録時トライアルの日数。数でない・1 未満は既定に戻す。
    * ⚠️ 0 を許すと登録した瞬間から閲覧のみ（初回の指示も保存できない）になるので、下限は 1（saas-review #12）。
    */
+  /** web の公開 URL（末尾の / を除く）。利用者の入力からは作らない */
+  get appBaseUrl(): string {
+    return (readEnv().APP_BASE_URL?.trim() || ENV_DEFAULTS.APP_BASE_URL).replace(/\/+$/, '');
+  },
   get billingTrialDays(): number {
     const raw = readEnv().BILLING_TRIAL_DAYS;
     const n = Number(raw ?? ENV_DEFAULTS.BILLING_TRIAL_DAYS);

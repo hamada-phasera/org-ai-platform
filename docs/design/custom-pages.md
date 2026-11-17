@@ -2,7 +2,7 @@
 
 > **一行要約**: 組織ごとの「ページ定義（JSON）」を DB に持ち、n8n が登録トークンで upsert する。web は許可リストのブロックだけを描画し、データ取得・フォーム送信・ボタンは必ず gateway を通って、その組織専用の n8n Webhook（`pages/<orgId>/<hook>`）にだけ届く。
 
-- 状態: チャンク 1（shared-types）・2（DB）実装済み、3〜7 は未実装。2026-11-18。ブランチ `feat/custom-pages`
+- 状態: チャンク 1（shared-types）・2（DB）・3（取得・管理 API と登録トークン）実装済み、4〜7 は未実装。2026-11-18。ブランチ `feat/custom-pages`
 - 前提にした既存の決まり: CLAUDE.md、DESIGN.md、`docs/ARCHITECTURE.md`、`docs/design/multi-tenancy.md`、`docs/n8n-integration-design.md`、`docs/plan/saas-readiness-plan.md` §2・§7
 - 既存の原則は変えない: **DB が真実の源 / n8n は加速レイヤー / ルートは `authOf(request).db` だけ / エラーは `{ success:false, error:{ code, message } }` / LLM は必ず ai-engine の LLMRouter 経由**
 
@@ -596,6 +596,12 @@ n8n への呼び出し:
 | K24 | （実装時）`toPublicPageDefinition`（hook を落とす）と `pageSubmitResponseSchema`（`{ ok, message≤140 }` 以外を捨てる）も shared-types に置く | T17・§5.2 の 10 を 1 か所で固定し、gateway のルートが個別に書かない | ルートごとに手で落とす |
 | K25 | （実装時）`PageActionLog.pageId` は FK にしない（組織の削除でだけ消える）。`status` に `PENDING` を足して既定にし、`durationMs` は null 可 | ページを消して作り直すだけで当月の件数が消える＝上限のすり抜けを防ぐ。§5.2 の 7 で「先に作って後で確定」するため | pageId を Cascade の FK に |
 | K26 | （実装時）監査の meta に登録トークンの id を入れるキーは `tokenId` ではなく `registrarId` | `sanitizeAuditMeta` が名前に `token` を含むキーの値を落とすため（`tokenId` だと `[REDACTED]` になる） | audit.ts の秘密判定に例外を足す（秘密を落とす規則を緩めたくない） |
+| K27 | （実装時）月間実行数の「今月」は **UTC の暦月**（`services/pages/access.ts` の `startOfMonthUTC`）。§3.3 の「JST の月初」より Q3 を優先 | AI の月間上限（`/me/usage`）が UTC の暦月で数えている。設定画面で 2 つの「今月」がずれない方を取った | JST にする（AI 側も同時に変えないと表示がずれる。変えるなら両方を 1 か所の関数に寄せて別チャンクで） |
+| K28 | （実装時）ADMIN は **minRole が自分より上（OWNER）のページを管理できない**（`admin/list` に出さず、PATCH / PUT / DELETE は 404）。自分より上の minRole も付けられない（403） | ADMIN がオーナー限定のページを見つけて minRole を下げれば中身を読めてしまう（T14 の抜け道）。付けた瞬間に自分が触れなくなる誤操作も防ぐ | 管理者には全ページを管理させる |
+| K29 | （実装時）管理者が `PUT /api/pages/:slug` で n8n 製のページを上書きすると、その行は `source = MANUAL` になる（以降 n8n からの更新・削除は 409） | 「人が作ったページを n8n が黙って上書きしない」（§5.3）を、人が手直ししたページにも効かせる | N8N のまま（次の再実行で人の手直しが消える） |
+| K30 | （実装時）slug `admin` `tokens` は予約（登録は 400。`PAGE_RESERVED_SLUGS`） | `GET /api/pages/tokens` `GET /api/pages/admin/list` と衝突し、そのページが開けなくなる | ルートのパスを変える（設計書 §5.1 の API を変えたくない） |
+| K31 | （実装時）登録・手動 upsert の本文は 64KB まで（Fastify の `bodyLimit`。超えたら 413）。定義の 32KB はスキーマが別に見る | 既定の 1MB まで JSON を読ませない（T9）。title などを足しても 32KB の定義が収まる幅 | 既定の 1MB のまま |
+| K32 | （実装時）`GET /api/pages/:slug` の `connection` はチャンク 3 では `ok`（`N8N_CLOUD_URL` か `N8N_URL` が明示）／`not_configured` の 2 値。`sample` はチャンク 4 でサンプルモードと一緒に足す。保存済みの定義がスキーマに合わなければ 500 `PAGE_INVALID_DEFINITION`（描画させない） | 環境変数（`PAGES_SAMPLE_MODE`）の追加と check:deploy をチャンク 4 にまとめる | — |
 
 ## 15. 未確認・実装時に確かめること
 
