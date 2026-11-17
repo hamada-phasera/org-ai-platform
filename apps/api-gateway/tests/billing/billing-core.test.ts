@@ -206,8 +206,17 @@ describe('登録時トライアルの残りを Checkout に引き継ぐ（D3: tr
   });
 
   it('一度でも契約した組織（解約後の再契約など）には付けない', () => {
-    for (const status of ['canceled', 'incomplete_expired', 'unpaid']) {
+    for (const status of ['canceled', 'unpaid', 'paused']) {
       expect(checkoutTrialEnd({ status, trialEndsAt: new Date(NOW + 10 * DAY), now: NOW })).toBeNull();
+    }
+  });
+
+  it('incomplete / incomplete_expired（契約が成立していない）は未契約と同じく引き継ぐ（saas-review #4）', () => {
+    // 3D セキュアの失敗などで初回の支払いが通らなかっただけ。やり直しで無料期間の残りを失わせない
+    for (const status of ['incomplete', 'incomplete_expired']) {
+      expect(checkoutTrialEnd({ status, trialEndsAt: new Date(NOW + 10 * DAY), now: NOW })).toBe(
+        Math.floor((NOW + 10 * DAY) / 1000),
+      );
     }
   });
 

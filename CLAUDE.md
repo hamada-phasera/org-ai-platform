@@ -175,6 +175,7 @@ STRIPE_PRICE_STORAGE_ADDON= / STRIPE_TAX_RATE_ID= / BILLING_TRIAL_DAYS=30 / APP_
 - **組織への写し込みは webhook が正本**。イベントは順不同で届くので、本文の状態を書かずに
   毎回サブスクリプションを取り直して写す（`services/billing/sync.ts`）。処理済みの印は**成功してから**書く。
 - 権利があるのは trialing / active / past_due。それ以外は梅の上限に戻す（データは消さない）。
+  incomplete 系は未契約と同じ、解約後も `trialEndsAt` の残りは使える。判定は shared-types の `readOnlyReasonOf` 1 か所（gateway と web で共有）。
 - **解約後は「閲覧のみ」**。書き込み（POST/PUT/PATCH/DELETE）を 402 で止め、閲覧と書き出しは通す
   （`services/entitlement.ts`）。決済と認証の経路は止めない＝再開できなくなるため。
   認証の無い経路（定期実行・n8n の enqueue と一覧・LINE の下書き/領収書）は入口で `orgEntitlement`（`services/org-entitlement.ts`）を見て

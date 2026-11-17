@@ -40,10 +40,29 @@ describe('planNoticeOf: 7 状態', () => {
     expect(planNoticeOf(billing({ trialEndsAt: at(NOW - DAY) }), usage(0), NOW).kind).toBe('expired');
   });
 
-  it('expired: 解約済み（canceled / unpaid / incomplete_expired）', () => {
-    for (const s of ['canceled', 'unpaid', 'incomplete_expired', 'incomplete', 'paused'] as const) {
+  it('expired: 解約済み（canceled / unpaid / paused）で無料期間の残りが無い', () => {
+    for (const s of ['canceled', 'unpaid', 'paused'] as const) {
       expect(planNoticeOf(billing({ subscriptionStatus: s }), usage(0), NOW).kind).toBe('expired');
     }
+  });
+
+  it('incomplete / incomplete_expired は未契約と同じ。解約後も無料期間の残りがあれば trial（saas-review #4）', () => {
+    for (const s of ['incomplete', 'incomplete_expired'] as const) {
+      // 期限の無い既存組織は止めない
+      expect(planNoticeOf(billing({ subscriptionStatus: s }), usage(0), NOW).kind).toBe('none');
+      expect(planNoticeOf(billing({ subscriptionStatus: s, trialEndsAt: at(NOW - DAY) }), usage(0), NOW).kind).toBe('expired');
+      expect(planNoticeOf(billing({ subscriptionStatus: s, trialEndsAt: at(NOW + 3 * DAY) }), usage(0), NOW)).toEqual({
+        kind: 'trial',
+        daysLeft: 3,
+      });
+    }
+    expect(planNoticeOf(billing({ subscriptionStatus: 'canceled', trialEndsAt: at(NOW + 3 * DAY) }), usage(0), NOW)).toEqual({
+      kind: 'trial',
+      daysLeft: 3,
+    });
+    expect(planNoticeOf(billing({ subscriptionStatus: 'canceled', trialEndsAt: at(NOW - DAY) }), usage(0), NOW).kind).toBe(
+      'expired',
+    );
   });
 
   it('expired: 402 を受けた（overview が取れていなくても）', () => {

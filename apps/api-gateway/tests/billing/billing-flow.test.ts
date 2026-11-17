@@ -147,9 +147,15 @@ describe('課金の通し（偽 Stripe）', () => {
     expect(org().subscriptionStatus).toBe('past_due');
     expect((await write('未払いの猶予中')).statusCode).toBe(200);
 
-    // ── 解約が確定 → 書き込みは 402、閲覧と決済の経路は通る。上限は梅に戻る ──
+    // ── 解約が確定。上限は梅に戻る ──
     expect((await sendWebhook(stripe.cancel(subId))).statusCode).toBe(200);
     expect(org()).toMatchObject({ plan: 'STARTER', subscriptionStatus: 'canceled' });
+    // 登録時トライアルの残りがある間は、解約しても閲覧のみにしない（saas-review #4: 試しに契約して即解約しても無料期間を失わない）
+    expect((await write('解約直後・無料期間の残りあり')).statusCode).toBe(200);
+
+    // ── 無料期間の終わりを過ぎる → 書き込みは 402、閲覧と決済の経路は通る ──
+    org().trialEndsAt = new Date(Date.now() - 60_000);
+    clearMembershipCache(); // 所属のキャッシュ（30 秒）に載った trialEndsAt の写しを捨てる
     const blocked = await write('解約後');
     expect(blocked.statusCode).toBe(402);
     expect(blocked.json().error.code).toBe('SUBSCRIPTION_REQUIRED');

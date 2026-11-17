@@ -56,10 +56,37 @@ describe('entitlementOf', () => {
     for (const s of ['trialing', 'active', 'past_due']) expect(decide(s, null)).toBe('full');
   });
 
-  it('解約・未払い・一時停止は閲覧のみ', () => {
-    for (const s of ['canceled', 'unpaid', 'incomplete', 'incomplete_expired', 'paused']) {
+  it('解約・未払い・一時停止は（無料期間の残りが無ければ）閲覧のみ', () => {
+    for (const s of ['canceled', 'unpaid', 'paused']) {
       expect(decide(s, null)).toBe('read_only');
     }
+  });
+
+  // saas-review #4: Stripe の状態ごとの表。incomplete 系は未契約（null）と同じ、解約後も trialEndsAt の残りは使える
+  it.each([
+    // [status, trialEndsAt, 決済設定, 期待, 理由]
+    ['incomplete', at(10), true, 'full', null],
+    ['incomplete', at(-1), true, 'read_only', 'trial_expired'],
+    ['incomplete', null, true, 'full', null],
+    ['incomplete', at(-1), false, 'full', null],
+    ['incomplete_expired', at(10), true, 'full', null],
+    ['incomplete_expired', at(-1), true, 'read_only', 'trial_expired'],
+    ['incomplete_expired', null, true, 'full', null],
+    ['canceled', at(10), true, 'full', null],
+    ['canceled', at(0), true, 'read_only', 'subscription_ended'],
+    ['canceled', at(-1), true, 'read_only', 'subscription_ended'],
+    ['canceled', null, true, 'read_only', 'subscription_ended'],
+    ['canceled', at(10), false, 'full', null],
+    ['unpaid', at(10), true, 'full', null],
+    ['unpaid', at(-1), true, 'read_only', 'subscription_ended'],
+    ['paused', at(-1), true, 'read_only', 'subscription_ended'],
+    ['trialing', at(-1), true, 'full', null],
+    ['active', null, true, 'full', null],
+    ['past_due', at(-1), true, 'full', null],
+  ] as const)('%s / trialEndsAt=%s / 決済設定=%s → %s (%s)', (status, trialEndsAt, configured, access, reason) => {
+    const d = entitlementDecision({ status, trialEndsAt, billingConfigured: configured, now: NOW });
+    expect(d.access).toBe(access);
+    expect(d.access === 'read_only' ? d.reason : null).toBe(reason);
   });
 
   // チャンク 1 の受け入れ条件（docs/plan/saas-readiness-plan.md）
@@ -113,6 +140,13 @@ describe('appTrialOf', () => {
   it('契約している（Stripe の状態がある）・期限が無いなら対象外', () => {
     expect(appTrialOf({ status: 'trialing', trialEndsAt: at(5), now: NOW })).toEqual({ active: false, endsAt: null, daysLeft: 0 });
     expect(appTrialOf({ status: null, trialEndsAt: null, now: NOW })).toEqual({ active: false, endsAt: null, daysLeft: 0 });
+  });
+
+  it('incomplete は未契約と同じ・解約後も残りがあれば数える（閲覧のみの判定と揃える。saas-review #4）', () => {
+    expect(appTrialOf({ status: 'incomplete', trialEndsAt: at(5), now: NOW })).toMatchObject({ active: true, daysLeft: 5 });
+    expect(appTrialOf({ status: 'canceled', trialEndsAt: at(5), now: NOW })).toMatchObject({ active: true, daysLeft: 5 });
+    expect(appTrialOf({ status: 'canceled', trialEndsAt: at(-1), now: NOW })).toMatchObject({ active: false, daysLeft: 0 });
+    expect(appTrialOf({ status: 'active', trialEndsAt: at(5), now: NOW })).toMatchObject({ active: false });
   });
 
   it('トライアルの終わり = 作成時刻 + 日数', () => {

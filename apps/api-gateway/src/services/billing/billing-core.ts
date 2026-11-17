@@ -7,7 +7,7 @@
 //   * SDK は入れない（LINE・Supabase と同じ方針）。使う API は数本だけ
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { ENTITLED_STATUSES, type BillingInterval, type Plan } from '@org-ai/shared-types';
+import { ENTITLED_STATUSES, effectiveSubscriptionStatus, type BillingInterval, type Plan } from '@org-ai/shared-types';
 import { ENV_DEFAULTS, readEnv, type Env } from '../../config/env';
 
 export const PLANS: readonly Plan[] = ['STARTER', 'PRO', 'MAX'];
@@ -193,7 +193,9 @@ export function checkoutTrialEnd(input: {
   trialEndsAt: Date | string | null | undefined;
   now: Date | number;
 }): number | null {
-  const { status, trialEndsAt, now } = input;
+  const { trialEndsAt, now } = input;
+  // incomplete（カード認証の失敗など）は契約が成立していないので、未契約と同じく残りを引き継ぐ（saas-review #4）
+  const status = effectiveSubscriptionStatus(input.status);
   if (status || !trialEndsAt) return null;
   const end = new Date(trialEndsAt).getTime();
   const at = typeof now === 'number' ? now : now.getTime();

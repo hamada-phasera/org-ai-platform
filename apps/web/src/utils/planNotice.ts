@@ -1,5 +1,11 @@
 import type { BillingOverview, OrganizationUsage } from '@org-ai/shared-types';
-import { ENTITLED_STATUSES, STORAGE_WARN_RATIO, usageState } from '@org-ai/shared-types';
+import {
+  ENTITLED_STATUSES,
+  STORAGE_WARN_RATIO,
+  effectiveSubscriptionStatus,
+  readOnlyReasonOf,
+  usageState,
+} from '@org-ai/shared-types';
 
 /**
  * 画面上部の 1 行の帯（契約状態・上限）の判定。純粋関数（DOM も時計も読まない）。
@@ -41,19 +47,26 @@ type UsageLike = Pick<OrganizationUsage, 'aiCallsThisMonth' | 'planLimit'> &
 
 const toMs = (v: Date | number): number => (typeof v === 'number' ? v : v.getTime());
 
-/** 書き込みが 402 になる状態か（gateway の entitlementDecision の写し）。 */
+/** 書き込みが 402 になる状態か（gateway と同じ shared-types の readOnlyReasonOf）。 */
 export function isReadOnly(billing: BillingLike, now: Date | number): boolean {
-  const { subscriptionStatus: status } = billing;
-  if (status) return !(ENTITLED_STATUSES as readonly string[]).includes(status);
-  if (!billing.configured || !billing.trialEndsAt) return false;
-  const end = new Date(billing.trialEndsAt).getTime();
-  if (!Number.isFinite(end)) return false;
-  return end <= toMs(now);
+  return (
+    readOnlyReasonOf({
+      status: billing.subscriptionStatus,
+      trialEndsAt: billing.trialEndsAt,
+      billingConfigured: billing.configured,
+      now,
+    }) !== null
+  );
 }
 
-/** 登録時トライアルの残り日数（切り上げ）。対象外・期限切れは 0。 */
+/**
+ * 登録時トライアルの残り日数（切り上げ）。対象外・期限切れは 0。
+ * 契約中は対象外。incomplete は未契約と同じ、解約後も残りがあれば数える（gateway の appTrialOf と同じ）。
+ */
 export function appTrialDaysLeft(billing: BillingLike, now: Date | number): number {
-  if (billing.subscriptionStatus || !billing.configured || !billing.trialEndsAt) return 0;
+  const status = effectiveSubscriptionStatus(billing.subscriptionStatus);
+  if (status && (ENTITLED_STATUSES as readonly string[]).includes(status)) return 0;
+  if (!billing.configured || !billing.trialEndsAt) return 0;
   const left = new Date(billing.trialEndsAt).getTime() - toMs(now);
   if (!Number.isFinite(left) || left <= 0) return 0;
   return Math.ceil(left / DAY_MS);

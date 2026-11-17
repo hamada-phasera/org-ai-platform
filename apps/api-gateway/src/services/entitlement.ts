@@ -4,9 +4,11 @@
 //    建設業は帳簿を残す意識が強く、台帳が見えなくなることへの抵抗が大きい。
 //    閲覧と書き出しの原価はほぼゼロなので、止める理由もない。
 //
-// ■ 判定（docs/plan/saas-readiness-plan.md D1・D2・D4）
+// ■ 判定（docs/plan/saas-readiness-plan.md D1・D2・D4、saas-review #4）
+//   本体は shared-types の readOnlyReasonOf（web の帯と同じ関数）。ここは形を整えるだけ。
 //   * trialing / active / past_due … 通す（trialEndsAt に関係なく）
-//   * それ以外の Stripe の状態（解約・未払い等） … 閲覧のみ
+//   * incomplete / incomplete_expired … 未契約（null）と同じ（カード認証の失敗で無料期間を失わない）
+//   * それ以外の Stripe の状態（解約・未払い等） … trialEndsAt の残りがあれば通す。無ければ閲覧のみ
 //   * subscriptionStatus が null（まだ決済を繋いでいない）
 //       - 決済が未設定の環境 … 通す（契約で再開する手段が無いので、誰も止めない）
 //       - trialEndsAt が null … 通す（登録時トライアルより前に作られた既存の組織。Stripe を設定した瞬間に
@@ -16,19 +18,19 @@
 //
 // ⚠️ 時刻は要求ごとに渡す（キャッシュした時刻で判定しない）。
 
-import { ENTITLED_STATUSES } from '@org-ai/shared-types';
+import { ENTITLED_STATUSES, effectiveSubscriptionStatus, readOnlyReasonOf, type ReadOnlyReason } from '@org-ai/shared-types';
 
 export type Entitlement = 'full' | 'read_only';
 
 /** 閲覧のみになった理由。文言を分けるためだけに使う（402 のコードはどちらも SUBSCRIPTION_REQUIRED）。 */
-export type ReadOnlyReason = 'subscription_ended' | 'trial_expired';
+export type { ReadOnlyReason };
 
 export interface EntitlementInput {
   /** Organization.subscriptionStatus（Stripe の写し）。null は一度も決済を繋いでいない */
   status: string | null | undefined;
   /** Organization.trialEndsAt。登録時トライアルの終わり（Stripe のトライアル中はその終わり） */
   trialEndsAt: Date | string | null | undefined;
-  /** 決済が設定済みか（config.billingConfigured: STRIPE_SECRET_KEY と梅の月額 price の両方） */
+  /** 決済が設定済みか（config.billingConfigured: キー・梅の月額 price・webhook の署名鍵の 3 つ） */
   billingConfigured: boolean;
   now: Date | number;
 }
@@ -42,17 +44,8 @@ const toMs = (v: Date | string | number): number =>
 
 /** 判定と理由。純粋関数（DB も環境変数も読まない）。 */
 export function entitlementDecision(input: EntitlementInput): EntitlementDecision {
-  const { status, trialEndsAt, billingConfigured, now } = input;
-  if (status) {
-    return (ENTITLED_STATUSES as readonly string[]).includes(status)
-      ? { access: 'full' }
-      : { access: 'read_only', reason: 'subscription_ended' };
-  }
-  if (!billingConfigured || !trialEndsAt) return { access: 'full' };
-  const end = toMs(trialEndsAt);
-  // 壊れた日付で止めない（fail-open。止める側に倒すと業務が止まる）
-  if (!Number.isFinite(end)) return { access: 'full' };
-  return end > toMs(now) ? { access: 'full' } : { access: 'read_only', reason: 'trial_expired' };
+  const reason = readOnlyReasonOf(input);
+  return reason ? { access: 'read_only', reason } : { access: 'full' };
 }
 
 export function entitlementOf(input: EntitlementInput): Entitlement {
@@ -93,7 +86,11 @@ export function appTrialOf(input: {
   trialEndsAt: Date | string | null | undefined;
   now: Date | number;
 }): AppTrial {
-  if (input.status || !input.trialEndsAt) return { active: false, endsAt: null, daysLeft: 0 };
+  // 契約中は対象外。incomplete は未契約と同じ、解約後も trialEndsAt の残りは使える（readOnlyReasonOf と同じ）
+  const status = effectiveSubscriptionStatus(input.status);
+  if ((status && (ENTITLED_STATUSES as readonly string[]).includes(status)) || !input.trialEndsAt) {
+    return { active: false, endsAt: null, daysLeft: 0 };
+  }
   const end = toMs(input.trialEndsAt);
   if (!Number.isFinite(end)) return { active: false, endsAt: null, daysLeft: 0 };
   const left = end - toMs(input.now);

@@ -42,6 +42,8 @@ function errorMessage(e: unknown, fallback: string): string {
 }
 
 function statusOf(b: BillingOverview, now: number): { tone: Tone; text: string } {
+  // 未完了の支払い・解約後でも、登録時トライアルの残りは使える（saas-review #4）。残りを添える
+  const left = b.appTrial?.active ? `（無料期間は残り${b.appTrial.daysLeft}日）` : '';
   switch (b.subscriptionStatus) {
     case null:
       // 登録時トライアル（カード不要）。期限が過ぎて決済が設定済みなら閲覧のみ
@@ -59,11 +61,12 @@ function statusOf(b: BillingOverview, now: number): { tone: Tone; text: string }
     case 'past_due':
       return { tone: 'danger', text: 'お支払いが確認できていません。お支払い情報をご確認ください' };
     case 'incomplete':
-      return { tone: 'warning', text: 'お支払いの手続きが完了していません' };
+    case 'incomplete_expired':
+      return { tone: 'warning', text: `お支払いの手続きが完了していません${left}` };
     case 'paused':
-      return { tone: 'warning', text: '契約は一時停止中です' };
+      return { tone: 'warning', text: `契約は一時停止中です${left}` };
     default:
-      return { tone: 'warning', text: '契約は終了しています' };
+      return { tone: 'warning', text: `契約は終了しています${left}` };
   }
 }
 

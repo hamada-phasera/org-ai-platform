@@ -13,6 +13,11 @@
   毎回サブスクリプションを取り直して `Organization` に写す。処理済みの印（`BillingEvent`）は成功してから書く。
 - 権利があるのは `trialing` / `active` / `past_due`（past_due は Stripe が再請求している猶予期間）。
   それ以外になったら梅の上限と追加容量 0 に戻す。**データは消さない**。
+- `incomplete` / `incomplete_expired`（初回の支払い・3D セキュアの失敗）は**未契約と同じ扱い**。登録時トライアルの残りは
+  そのまま使え、期限が過ぎたら文言も「無料期間が終了」側。Checkout のやり直しでも残り期間を引き継ぐ。
+- 試しに契約して**すぐ解約しても、登録時トライアル（`trialEndsAt`）の残りがある間は閲覧のみにしない**（上限は梅）。
+  期限を過ぎたら「ご契約が終了」の閲覧のみ。再契約は即日課金（一度契約した組織には残り期間を引き継がない）。
+  判定は shared-types の `readOnlyReasonOf` 1 か所（gateway の `entitlementDecision` と web の帯が同じ関数を使う）。
 - **登録と同時にカード不要のトライアルが始まる**（`trialEndsAt = 作成時刻 + BILLING_TRIAL_DAYS`、既定 30 日）。
   上限は梅。期限を過ぎて未契約（`subscriptionStatus = null`）なら、決済が設定済みの環境では「閲覧のみ」。
   402 のコードは解約と同じ `SUBSCRIPTION_REQUIRED`、文言だけ「無料期間が終了」に変わる。

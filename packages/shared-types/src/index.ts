@@ -364,6 +364,53 @@ export type SubscriptionStatus =
  */
 export const ENTITLED_STATUSES: readonly SubscriptionStatus[] = ['trialing', 'active', 'past_due'];
 
+/**
+ * 契約が成立していない Stripe の状態（初回の支払い・カード認証の失敗）。「まだ契約していない」（null）と同じに扱う。
+ * これを解約と同じに扱うと、3D セキュアの失敗だけで登録時トライアルの残りを失い「ご契約が終了」と出る（saas-review #4）。
+ */
+export const NOT_STARTED_STATUSES: readonly SubscriptionStatus[] = ['incomplete', 'incomplete_expired'];
+
+/** 契約の判定に使う状態。NOT_STARTED_STATUSES と空は null（未契約）に寄せる。 */
+export function effectiveSubscriptionStatus(status: string | null | undefined): string | null {
+  if (!status) return null;
+  return (NOT_STARTED_STATUSES as readonly string[]).includes(status) ? null : status;
+}
+
+/** 閲覧のみになった理由。trial_expired は「無料期間が終了」、subscription_ended は「ご契約が終了」の文言 */
+export type ReadOnlyReason = 'subscription_ended' | 'trial_expired';
+
+/**
+ * 閲覧のみ（書き込みと AI の実行を止める）かどうかと理由。null なら使える。純粋関数（時刻は引数）。
+ * gateway の entitlementDecision と web の帯（planNotice）が同じこの関数を使う（画面とサーバで食い違わせない）。
+ *
+ *   * trialing / active / past_due … 使える（trialEndsAt に関係なく）
+ *   * incomplete / incomplete_expired … 未契約（null）と同じ
+ *   * それ以外（解約・未払い・一時停止）… 登録時トライアル（trialEndsAt）の残りがあれば使える。無ければ subscription_ended
+ *     （試しに契約してすぐ解約しても、無料期間の残りは失わない。saas-review #4）
+ *   * 未契約 … 決済が未設定の環境・trialEndsAt が null の既存組織・壊れた日付は止めない。期限が過ぎたら trial_expired
+ *
+ * ⚠️ 期限ちょうど（trialEndsAt == now）は閲覧のみ側（計画書 §7）。
+ */
+export function readOnlyReasonOf(input: {
+  status: string | null | undefined;
+  trialEndsAt: Date | string | null | undefined;
+  billingConfigured: boolean;
+  now: Date | number;
+}): ReadOnlyReason | null {
+  const status = effectiveSubscriptionStatus(input.status);
+  const nowMs = typeof input.now === 'number' ? input.now : input.now.getTime();
+  const end = input.trialEndsAt ? new Date(input.trialEndsAt).getTime() : NaN;
+  const trialLeft = Number.isFinite(end) && end > nowMs;
+  if (status) {
+    if ((ENTITLED_STATUSES as readonly string[]).includes(status)) return null;
+    return trialLeft ? null : 'subscription_ended';
+  }
+  if (!input.billingConfigured || !input.trialEndsAt) return null;
+  // 壊れた日付で止めない（fail-open。止める側に倒すと業務が止まる）
+  if (!Number.isFinite(end)) return null;
+  return trialLeft ? null : 'trial_expired';
+}
+
 export interface BillingPrice {
   plan: Plan;
   interval: BillingInterval;
