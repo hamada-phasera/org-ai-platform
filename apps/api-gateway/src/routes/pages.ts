@@ -21,13 +21,17 @@ import { recordAudit } from '../services/audit';
 import { canManagePage, canViewPage, pageUsageOf, planOf } from '../services/pages/access';
 import { PageServiceError, deletePage, describeIssues, upsertPage } from '../services/pages/upsert';
 import { issuePageToken, listPageTokens, revokePageToken } from '../services/pages/page-token';
+import { PAGE_SUBMIT_BODY_LIMIT, runPageQuery, runPageSubmit, type ActionOutcome } from '../services/pages/action-runner';
+import { isSamplePage } from '../services/pages/sample';
+import { PAGE_ACTION_RATE_LIMIT } from '../middleware/rate-limit';
 
 /**
  * 業務ページ（利用者向け・JWT）。prefix: `/api/pages`。docs/design/custom-pages.md §5.1
  *
  * - 見えないページ（他組織・下書き・役割不足）は**すべて 404 `NOT_FOUND`**（存在を漏らさない。T1・T14）。
  * - 定義を返すときは `toPublicPageDefinition` を通し、**`hook` は返さない**（T17）。
- * - データ取得（`GET /:slug/data/:actionId`）と送信（`POST /:slug/actions/:actionId`）はチャンク 4（action-runner）。
+ * - データ取得（`GET /:slug/data/:actionId`）と送信（`POST /:slug/actions/:actionId`）は services/pages/action-runner.ts
+ *   （§5.2 の 11 段階）。GET なので取得は「閲覧のみ」の組織でも通り、送信（POST）は 402。
  * - 書き込み（PATCH / PUT / DELETE / POST）は requireAuth が「閲覧のみ」の組織を 402 で止める（既存の仕組み）。
  */
 
@@ -66,6 +70,16 @@ const issueTokenSchema = z
 function slugOf(params: unknown): string | null {
   const slug = (params as { slug?: unknown }).slug;
   return typeof slug === 'string' && PAGE_SLUG_PATTERN.test(slug) ? slug : null;
+}
+
+function sendOutcome<T>(reply: FastifyReply, outcome: ActionOutcome<T>): FastifyReply {
+  if (!outcome.ok) return sendError(reply, outcome.status, outcome.code, outcome.message);
+  return reply.send({ success: true, data: outcome.data });
+}
+
+function connectionOf(page: { sampleData?: unknown }): 'ok' | 'not_configured' | 'sample' {
+  if (isSamplePage(page)) return 'sample';
+  return config.n8nConfigured ? 'ok' : 'not_configured';
 }
 
 function sendServiceError(reply: FastifyReply, e: unknown): FastifyReply {
@@ -179,7 +193,9 @@ export async function pageRoutes(app: FastifyInstance): Promise<void> {
     if (!slug) return sendError(reply, 404, 'NOT_FOUND', NOT_FOUND_MESSAGE);
     const page = await db.customPage.findUnique({
       where: { orgId_slug: { orgId: db.orgId, slug } },
-      select: { slug: true, title: true, icon: true, status: true, minRole: true, version: true, definition: true, updatedAt: true },
+      select: {
+        slug: true, title: true, icon: true, status: true, minRole: true, version: true, definition: true, sampleData: true, updatedAt: true,
+      },
     });
     if (!page || !canViewPage(page, role)) return sendError(reply, 404, 'NOT_FOUND', NOT_FOUND_MESSAGE);
 
@@ -201,11 +217,35 @@ export async function pageRoutes(app: FastifyInstance): Promise<void> {
         version: page.version,
         updatedAt: page.updatedAt,
         definition: toPublicPageDefinition(def.data),
-        connection: config.n8nConfigured ? 'ok' : 'not_configured',
+        connection: connectionOf(page),
         usage,
       },
     });
   });
+
+  // ── アクション（§5.2）。IP ごと 60 回/分、組織ごとの窓は action-runner の中 ──
+
+  /** query を実行し、定義に照らして切り詰めた結果だけを返す（K12） */
+  app.get(
+    '/:slug/data/:actionId',
+    { preHandler: requireAuth, config: { rateLimit: PAGE_ACTION_RATE_LIMIT } },
+    async (request, reply) => {
+      const { db, role, sub } = authOf(request);
+      const { slug, actionId } = request.params as { slug: string; actionId: string };
+      return sendOutcome(reply, await runPageQuery({ db, role, userId: sub, slug, actionId }));
+    },
+  );
+
+  /** submit を実行。body `{ input, requestId, origin: { blockIndex, itemIndex? } }`（16KB まで。超えたら 413） */
+  app.post(
+    '/:slug/actions/:actionId',
+    { preHandler: requireAuth, bodyLimit: PAGE_SUBMIT_BODY_LIMIT, config: { rateLimit: PAGE_ACTION_RATE_LIMIT } },
+    async (request, reply) => {
+      const { db, role, sub } = authOf(request);
+      const { slug, actionId } = request.params as { slug: string; actionId: string };
+      return sendOutcome(reply, await runPageSubmit({ db, role, userId: sub, slug, actionId, body: request.body }));
+    },
+  );
 
   /** 公開・並び・役割・タイトル・アイコンだけ変える（定義は変えない） */
   app.patch('/:slug', { preHandler: requireAdmin }, async (request, reply) => {

@@ -1,7 +1,8 @@
 // レート制限（@fastify/rate-limit、メモリ保持。計画書 D8）。
 //
 // ■ 上限（IP ごと・1 分）
-//   全体 300 回 / 登録とログイン 10 回 / 招待のプレビューと受諾 20 回 / 業務ページの登録（n8n）20 回。
+//   全体 300 回 / 登録とログイン 10 回 / 招待のプレビューと受諾 20 回 / 業務ページの登録（n8n）20 回 /
+//   業務ページのデータ取得・送信 60 回。
 //   ルートごとの上限は、各ルートの `config.rateLimit` に下の定数を書く（全体の上限の代わりにそれが効く）。
 // ■ 除外
 //   Stripe / LINE の webhook（署名で守られていて、送り元は少数の IP にまとまる）と /health（死活監視）。
@@ -26,6 +27,11 @@ export const AUTH_RATE_LIMIT = { max: 10, timeWindow: MINUTE_MS } as const;
 export const INVITE_RATE_LIMIT = { max: 20, timeWindow: MINUTE_MS } as const;
 /** n8n からの業務ページの登録（/api/webhooks/n8n/pages。登録トークンの当てずっぽう対策。docs/design/custom-pages.md T6） */
 export const PAGE_REGISTER_RATE_LIMIT = { max: 20, timeWindow: MINUTE_MS } as const;
+/**
+ * 業務ページのデータ取得・送信（/api/pages/:slug/data|actions/*）。IP ごと。組織ごとの窓（query 120・submit 30 回/分）は
+ * services/pages/org-throttle.ts が別に見る（docs/design/custom-pages.md §5.2 の 4）
+ */
+export const PAGE_ACTION_RATE_LIMIT = { max: 60, timeWindow: MINUTE_MS } as const;
 
 /** 制限しないパス（前方一致。クエリは除いて比べる）。 */
 const EXEMPT_PREFIXES = ['/api/webhooks/stripe', '/api/webhooks/line'];

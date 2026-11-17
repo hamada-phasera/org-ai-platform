@@ -258,6 +258,9 @@ const IDOR_CASES: Req[] = [
   ['PATCH', '/api/pages/page-b-only', { status: 'DRAFT' }],
   ['DELETE', '/api/pages/page-b-only'],
   ['DELETE', '/api/pages/tokens/ptok-B'],
+  // 業務ページのアクション（docs/design/custom-pages.md §11）。n8n には届かない（下の describe で fetch を見る）
+  ['GET', '/api/pages/page-b-only/data/list'],
+  ['POST', '/api/pages/page-b-only/actions/list', { input: {}, requestId: '00000000-0000-4000-8000-000000000001', origin: { blockIndex: 0 } }],
 ];
 
 /** I-2: 一覧。応答のどこにも B の行（id・中身）が出てこない。 */
@@ -412,6 +415,31 @@ describe('業務ページ（docs/design/custom-pages.md §11 テナント分離�
   it('両方に所属する c でも、A のトークンでは B のページが 404、B のトークンでだけ見える', async () => {
     expect((await app.inject({ method: 'GET', url: '/api/pages/page-b-only', headers: as('u-c', 'org-A') })).statusCode).toBe(404);
     expect((await app.inject({ method: 'GET', url: '/api/pages/page-b-only', headers: as('u-c', 'org-B') })).statusCode).toBe(200);
+  });
+
+  it('A のアクションが叩く URL は pages/org-A/<hook> だけ。B の orgId も B の hook も入らない（D4・T2）', async () => {
+    const saved = process.env.N8N_URL;
+    process.env.N8N_URL = 'https://n8n.test';
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }));
+    const prevFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      // 両方に所属する c が A のトークンで A のページを叩く
+      const ok = await app.inject({ method: 'GET', url: '/api/pages/page-a-only/data/list', headers: as('u-c', 'org-A') });
+      expect(ok.statusCode).toBe(200);
+      // A のトークンで B のページを叩いても n8n に届かない
+      const ng = await app.inject({ method: 'GET', url: '/api/pages/page-b-only/data/list', headers: as('u-c', 'org-A') });
+      expect(ng.statusCode).toBe(404);
+      const urls = fetchMock.mock.calls.map((c) => String((c as unknown[])[0]));
+      expect(urls).toEqual(['https://n8n.test/webhook/pages/org-A/hook-a']);
+      const body = JSON.parse(((fetchMock.mock.calls[0] as unknown[])[1] as RequestInit).body as string) as { orgId: string };
+      expect(body.orgId).toBe('org-A');
+      expect(JSON.stringify(fetchMock.mock.calls)).not.toContain('org-B');
+    } finally {
+      vi.stubGlobal('fetch', prevFetch); // ファイル先頭の偽 fetch に戻す（他のテストが使う）
+      if (saved === undefined) delete process.env.N8N_URL;
+      else process.env.N8N_URL = saved;
+    }
   });
 
   it('自分のページの定義を開いても hook は返らない（T17）', async () => {

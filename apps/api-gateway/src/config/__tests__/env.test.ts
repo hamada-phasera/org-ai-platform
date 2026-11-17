@@ -88,6 +88,27 @@ describe('config: 値の読み方', () => {
     expect(config.n8nConfigured).toBe(true);
   });
 
+  it('pagesSampleMode は PAGES_SAMPLE_MODE=true かつ本番でないときだけ真（T16）', () => {
+    expect(config.pagesSampleMode).toBe(false);
+    process.env.PAGES_SAMPLE_MODE = 'true';
+    expect(config.pagesSampleMode).toBe(true);
+    process.env.NODE_ENV = 'production';
+    expect(config.pagesSampleMode).toBe(false);
+    process.env.NODE_ENV = 'development';
+    process.env.PAGES_SAMPLE_MODE = '1';
+    expect(config.pagesSampleMode).toBe(false);
+  });
+
+  it('pageActionTimeoutMs は既定 10 秒。不正値・0 以下は既定に戻す', () => {
+    expect(config.pageActionTimeoutMs).toBe(10_000);
+    process.env.PAGE_ACTION_TIMEOUT_MS = '2500';
+    expect(config.pageActionTimeoutMs).toBe(2500);
+    process.env.PAGE_ACTION_TIMEOUT_MS = 'abc';
+    expect(config.pageActionTimeoutMs).toBe(10_000);
+    process.env.PAGE_ACTION_TIMEOUT_MS = '0';
+    expect(config.pageActionTimeoutMs).toBe(10_000);
+  });
+
   it('appBaseUrl は既定 localhost:3000、末尾スラッシュを除く', () => {
     expect(config.appBaseUrl).toBe(ENV_DEFAULTS.APP_BASE_URL);
     process.env.APP_BASE_URL = 'https://app.test//';

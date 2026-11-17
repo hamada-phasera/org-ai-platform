@@ -17,6 +17,7 @@
 | `POST /api/auth/login`・`POST /api/auth/register` | 10 回 / 分 |
 | 招待のプレビュー・受諾（`/api/members/invitations/preview/:token`・`accept`・`accept-existing`） | 20 回 / 分 |
 | 業務ページの登録（n8n。`/api/webhooks/n8n/pages`。登録トークンの当てずっぽう対策） | 20 回 / 分 |
+| 業務ページのデータ取得・送信（`/api/pages/:slug/data/*`・`/api/pages/:slug/actions/*`）。別に**組織ごと**に取得 120・送信 30 回 / 分（`services/pages/org-throttle.ts`） | 60 回 / 分 |
 | その他すべて | 300 回 / 分 |
 | `/api/webhooks/stripe`・`/api/webhooks/line`・`/health` | 制限なし（署名で守られている / 死活監視） |
 
@@ -24,6 +25,7 @@
 - IP は `X-Forwarded-For` から取る。`TRUST_PROXY_HOPS`（既定 1 = Render のロードバランサ）段だけを信じる。
   ⚠️ 実際より多くすると、利用者がヘッダを書いて制限をすり抜けられる。直接公開するなら 0。
 - 保持はプロセスのメモリ。再起動で数え直し。gateway を複数台にするときは Redis 等の store に替える（D8）。
+  業務ページの組織ごとの窓（`org-throttle.ts`）も同じくメモリなので、複数台にするときは一緒に替える（custom-pages T18）。
 - 全員が 429 になる場合は、プロキシの段数がずれて全員が同じ IP に見えている可能性が高い。ログの `[rate-limit]` の `ip=` を確認する。
   デプロイ直後の確認手順（2 回線から叩いて `ip=` を比べる）は `docs/DEPLOY.md` 6 章の 6。
 

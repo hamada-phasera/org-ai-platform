@@ -10,7 +10,7 @@ import { sampleUpsert } from '../pages/fixtures';
 //   オーナーがトークン発行 → n8n が同じ定義を同時に 2 回登録しても 1 行 → 2 回目は changed: false
 //   → 管理者が公開 → 一覧・定義に出る（hook は返らない）→ 梅のページ数上限で 403
 //   → B のトークンで同じ slug を登録しても A は変わらない → 失効したトークンは 401
-// アクション実行（data / actions）の通しはチャンク 4。外部への通信は無い（fetch は 503 を返す偽物）。
+// アクション実行（data / actions）の通しは custom-pages-actions.int.test.ts。外部への通信は無い（fetch は 503 を返す偽物）。
 
 let db: TestDatabase | undefined;
 vi.mock('../../src/utils/prisma', () => ({

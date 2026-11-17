@@ -2,7 +2,7 @@
 
 > **一行要約**: 組織ごとの「ページ定義（JSON）」を DB に持ち、n8n が登録トークンで upsert する。web は許可リストのブロックだけを描画し、データ取得・フォーム送信・ボタンは必ず gateway を通って、その組織専用の n8n Webhook（`pages/<orgId>/<hook>`）にだけ届く。
 
-- 状態: チャンク 1（shared-types）・2（DB）・3（取得・管理 API と登録トークン）実装済み、4〜7 は未実装。2026-11-18。ブランチ `feat/custom-pages`
+- 状態: チャンク 1（shared-types）・2（DB）・3（取得・管理 API と登録トークン）・4（アクション実行）実装済み、5〜7 は未実装。2026-11-18。ブランチ `feat/custom-pages`
 - 前提にした既存の決まり: CLAUDE.md、DESIGN.md、`docs/ARCHITECTURE.md`、`docs/design/multi-tenancy.md`、`docs/n8n-integration-design.md`、`docs/plan/saas-readiness-plan.md` §2・§7
 - 既存の原則は変えない: **DB が真実の源 / n8n は加速レイヤー / ルートは `authOf(request).db` だけ / エラーは `{ success:false, error:{ code, message } }` / LLM は必ず ai-engine の LLMRouter 経由**
 
@@ -602,6 +602,11 @@ n8n への呼び出し:
 | K30 | （実装時）slug `admin` `tokens` は予約（登録は 400。`PAGE_RESERVED_SLUGS`） | `GET /api/pages/tokens` `GET /api/pages/admin/list` と衝突し、そのページが開けなくなる | ルートのパスを変える（設計書 §5.1 の API を変えたくない） |
 | K31 | （実装時）登録・手動 upsert の本文は 64KB まで（Fastify の `bodyLimit`。超えたら 413）。定義の 32KB はスキーマが別に見る | 既定の 1MB まで JSON を読ませない（T9）。title などを足しても 32KB の定義が収まる幅 | 既定の 1MB のまま |
 | K32 | （実装時）`GET /api/pages/:slug` の `connection` はチャンク 3 では `ok`（`N8N_CLOUD_URL` か `N8N_URL` が明示）／`not_configured` の 2 値。`sample` はチャンク 4 でサンプルモードと一緒に足す。保存済みの定義がスキーマに合わなければ 500 `PAGE_INVALID_DEFINITION`（描画させない） | 環境変数（`PAGES_SAMPLE_MODE`）の追加と check:deploy をチャンク 4 にまとめる | — |
+| K33 | （実装時）サンプルモードの submit は §5.2 の 7（PageActionLog の作成）より前に返す。5（上限）と 6（入力検証）は通す | 「記録も数えもしない」（§8）を守りつつ、デモでも入力エラーが本番と同じに出る | 記録を作ってから消す |
+| K34 | （実装時）n8n 未設定の 503 では、7 で作った PENDING の記録を消す（数えない・同じ requestId で送り直せる） | n8n に届いていない送信で月間の枠を減らさない | 記録を残して数える |
+| K35 | （実装時）n8n が `{ ok: false }` を返したら 200 `{ ok: false, message }` で文言を返し、記録は `FAILED`。非 2xx・接続エラーは 502、タイムアウトは 504、非 JSON・256KB 超は query でも 502 `PAGE_INVALID_RESPONSE`（JSON の形違いだけ query はブロック単位の error）。数えるのは n8n まで届いた送信（OK / FAILED / TIMEOUT / INVALID_RESPONSE）すべて | 業務上の失敗（重複など）を利用者に伝えられる。届いた送信には n8n の原価が掛かっているので数える | 失敗は数えない（失敗させ続けて枠を回避できる） |
+| K36 | （実装時）submit の body 16KB 超は Fastify の `bodyLimit` で 413（§5.2 の 6 の「400」ではなく K31 と同じ扱い）。上限の判定（5）は件数を数えてから作る（7）ので、並行で上限をわずかに超えうる | 読む前に止める方が安い。超過は高々並行数ぶんで、枠の目的（原価の抑止）には足りる | 件数と作成を 1 トランザクションで直列化（行ロックが要り、送信のたびに組織単位で詰まる） |
+| K37 | （実装時）query の応答の切り詰めでブロックが error になったときは `createLogger('pages')` に warn を 1 行（本文は出さない）。組織ごとの窓は固定窓（境界で最大 2 倍） | 構築者が応答の形違いに気づける。窓の目的は暴走の抑止で、精密さは要らない | スライディング窓 |
 
 ## 15. 未確認・実装時に確かめること
 
