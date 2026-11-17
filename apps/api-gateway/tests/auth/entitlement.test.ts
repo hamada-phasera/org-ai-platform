@@ -194,18 +194,23 @@ describe('requireAuth の契約チェック', () => {
 
 describe('requireAuth の登録時トライアル', () => {
   const ORIGINAL_KEY = process.env.STRIPE_SECRET_KEY;
+  const ORIGINAL_PRICE = process.env.STRIPE_PRICE_STARTER_MONTHLY;
   const REGISTERED = new Date('2026-11-17T00:00:00Z');
   const TRIAL_END = new Date(REGISTERED.getTime() + 30 * DAY);
   const after = (days: number) => new Date(REGISTERED.getTime() + days * DAY);
 
   beforeEach(() => {
     process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+    // 決済設定済み = キーと梅の月額 price の両方（計画書 §7 追記）
+    process.env.STRIPE_PRICE_STARTER_MONTHLY = 'price_s_m';
     vi.useFakeTimers({ toFake: ['Date'] });
   });
   afterEach(() => {
     vi.useRealTimers();
     if (ORIGINAL_KEY === undefined) delete process.env.STRIPE_SECRET_KEY;
     else process.env.STRIPE_SECRET_KEY = ORIGINAL_KEY;
+    if (ORIGINAL_PRICE === undefined) delete process.env.STRIPE_PRICE_STARTER_MONTHLY;
+    else process.env.STRIPE_PRICE_STARTER_MONTHLY = ORIGINAL_PRICE;
   });
 
   const call = async (app: FastifyInstance, method: 'GET' | 'POST', url: string) =>
@@ -248,6 +253,15 @@ describe('requireAuth の登録時トライアル', () => {
 
   it('(3) STRIPE_SECRET_KEY 未設定なら 31 日後も 402 にならない', async () => {
     delete process.env.STRIPE_SECRET_KEY;
+    vi.setSystemTime(after(31));
+    withStatus(null, TRIAL_END);
+    const app = await build();
+    expect((await call(app, 'POST', '/api/tasks')).statusCode).toBe(200);
+    await app.close();
+  });
+
+  it('キーだけ入って梅の月額 price が無いなら 31 日後も止めない（閉じ込めない：契約もできないため）', async () => {
+    delete process.env.STRIPE_PRICE_STARTER_MONTHLY;
     vi.setSystemTime(after(31));
     withStatus(null, TRIAL_END);
     const app = await build();

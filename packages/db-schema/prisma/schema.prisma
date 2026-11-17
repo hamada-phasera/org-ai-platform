@@ -95,7 +95,7 @@ model Organization {
   /// UploadedFile の SUM は復旧時の再計算にだけ使う
   /// （毎回 SUM すると一覧のたびに全表走査になる）
   storageUsedBytes    BigInt               @default(0)
-  /// 追加購入したストレージの単位数（1単位 = 1GB）。課金開始後に増やせる
+  /// 追加購入したストレージの単位数（1単位 = 10GB）。課金開始後に増やせる
   /// ⚠️ 直接書き換えない。Stripe のサブスクリプションの数量から写す
   storageAddonUnits   Int                  @default(0)
   /// Stripe のサブスクリプションID。解約後も最後のものを残す（遅れて届く古いイベントの判定に使う）

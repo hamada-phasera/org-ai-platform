@@ -316,9 +316,14 @@ export const config = {
   },
 
   // ── 決済 ──
-  /** 決済が設定されているか（STRIPE_SECRET_KEY の有無）。未設定の環境ではトライアル切れでも止めない。 */
+  /**
+   * 決済が設定されているか。STRIPE_SECRET_KEY と梅の月額 price（STRIPE_PRICE_STARTER_MONTHLY）の両方があるときだけ。
+   * 未設定の環境ではトライアル切れでも止めない。⚠️ キーだけで price が無いと、期限切れの組織が閲覧のみになるのに
+   * 契約もできない詰みになるため、price も見る（計画書 §7 オーケストレーター追記）。
+   */
   get billingConfigured(): boolean {
-    return !!readEnv().STRIPE_SECRET_KEY?.trim();
+    const env = readEnv();
+    return !!env.STRIPE_SECRET_KEY?.trim() && !!env.STRIPE_PRICE_STARTER_MONTHLY?.trim();
   },
   /** トライアルの日数。数でない・負の値は既定に戻す。 */
   get billingTrialDays(): number {

@@ -28,7 +28,7 @@ export interface EntitlementInput {
   status: string | null | undefined;
   /** Organization.trialEndsAt。登録時トライアルの終わり（Stripe のトライアル中はその終わり） */
   trialEndsAt: Date | string | null | undefined;
-  /** STRIPE_SECRET_KEY が入っているか（config.billingConfigured） */
+  /** 決済が設定済みか（config.billingConfigured: STRIPE_SECRET_KEY と梅の月額 price の両方） */
   billingConfigured: boolean;
   now: Date | number;
 }

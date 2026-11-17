@@ -131,4 +131,14 @@ describe('config: 値の読み方', () => {
     expect(config.isProduction).toBe(true);
     expect(config.nodeEnv).toBe('production');
   });
+
+  it('billingConfigured はキーと梅の月額 price の両方があるときだけ true', () => {
+    expect(config.billingConfigured).toBe(false);
+    process.env.STRIPE_SECRET_KEY = 'sk_test_x';
+    expect(config.billingConfigured).toBe(false);
+    process.env.STRIPE_PRICE_STARTER_MONTHLY = '  ';
+    expect(config.billingConfigured).toBe(false);
+    process.env.STRIPE_PRICE_STARTER_MONTHLY = 'price_s_m';
+    expect(config.billingConfigured).toBe(true);
+  });
 });

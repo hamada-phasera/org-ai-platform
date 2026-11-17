@@ -28,6 +28,7 @@ import {
   billingConfigFromEnv,
   buildAddonItems,
   buildCheckoutParams,
+  checkoutTrialEnd,
   findBaseItem,
   isEntitled,
 } from '../services/billing/billing-core';
@@ -38,7 +39,7 @@ import { createLogger, errorMessage } from '../utils/logger';
 
 const billingLog = createLogger('billing');
 
-/** 追加容量の上限（1口 = 1GB）。桁の打ち間違いで高額な請求を作らないための柵 */
+/** 追加容量の上限（1口 = 10GB）。桁の打ち間違いで高額な請求を作らないための柵 */
 const MAX_ADDON_UNITS = 50;
 const PRICE_CACHE_MS = 10 * 60 * 1000;
 
@@ -117,6 +118,7 @@ async function buildOverview(db: TenantDb, orgId: string): Promise<BillingOvervi
     trialAvailable: !org.trialEndsAt && !org.stripeSubscriptionId && !(await creatorTrialUsed(org)),
     trialDays: config?.trialDays ?? appConfig.billingTrialDays,
     appTrial: appTrialOf({ status: org.subscriptionStatus, trialEndsAt: org.trialEndsAt, now: Date.now() }),
+    checkoutTrialEndsAt: checkoutTrialEndIso(org.subscriptionStatus, org.trialEndsAt),
     hasCustomer: !!org.stripeCustomerId,
     prices,
     storageAddon: {
@@ -127,6 +129,12 @@ async function buildOverview(db: TenantDb, orgId: string): Promise<BillingOvervi
       unitAmount: config && stripe ? await priceAmount(stripe, config.storageAddonPrice) : null,
     },
   };
+}
+
+/** Checkout に引き継ぐ無料期間の終わり（画面の文言用。/checkout と同じ関数で決める）。 */
+function checkoutTrialEndIso(status: string | null, trialEndsAt: Date | null): string | null {
+  const sec = checkoutTrialEnd({ status, trialEndsAt, now: Date.now() });
+  return sec === null ? null : new Date(sec * 1000).toISOString();
 }
 
 const notConfigured = (reply: FastifyReply) =>
@@ -205,9 +213,10 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
           orgId: org.id,
           customerId,
           priceId,
-          // トライアルは組織ごとに1回だけ
-          // トライアルは作成者ごとに1回（設計書 Q3）
+          // Stripe のトライアルは作成者ごとに1回（設計書 Q3）。登録時トライアルがある組織には付かない
           withTrial: !org.trialEndsAt && !org.stripeSubscriptionId && !(await creatorTrialUsed(org)),
+          // 登録時トライアルの残り（48 時間以上）を引き継ぐ。終わりの日は延びない（D3）
+          trialEnd: checkoutTrialEnd({ status: org.subscriptionStatus, trialEndsAt: org.trialEndsAt, now: Date.now() }),
         }),
       );
       if (!session.url) return upstreamFailed(reply, new Error('Checkout の URL が返りませんでした'));
@@ -298,7 +307,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: await buildOverview(db, org.id) });
   });
 
-  // 追加容量の口数を変える（1口 = 1GB / 月額）
+  // 追加容量の口数を変える（1口 = 10GB / 月額）
   app.post('/storage-addon', { preHandler: requireOwner }, async (request, reply) => {
     const { orgId, db } = authOf(request);
     const config = billingConfigFromEnv();

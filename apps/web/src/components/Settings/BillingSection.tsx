@@ -321,10 +321,12 @@ export function BillingSection() {
               無料期間中はいつでも解約でき、料金は発生しません。無料期間が終わると選んだプランの料金がかかります。
             </p>
           )}
-          {/* ⚠️ 残り期間の Checkout への引き継ぎ（D3）はチャンク 3。それまでは契約日から課金されるので、そう書く */}
+          {/* 残り 48 時間以上なら無料期間を Checkout に引き継ぐ（D3）。サーバの checkoutTrialEndsAt が正 */}
           {!billing.trialAvailable && !entitled && billing.appTrial?.active && (
             <p className="mt-3 text-xs text-muted">
-              無料期間は残り{billing.appTrial.daysLeft}日です。ご契約の日から料金がかかります。
+              {billing.checkoutTrialEndsAt
+                ? `無料期間は残り${billing.appTrial.daysLeft}日です。今ご契約いただいても、料金は${dateLabel(billing.checkoutTrialEndsAt)}からかかります。`
+                : `無料期間は残り${billing.appTrial.daysLeft}日です。ご契約の日から料金がかかります。`}
             </p>
           )}
         </Card>

@@ -393,6 +393,11 @@ export interface BillingOverview {
     daysLeft: number;
   };
   trialDays: number;
+  /**
+   * いま Checkout すると引き継がれる無料期間の終わり（登録時トライアルの残りが 48 時間以上あるとき）。
+   * null ならその日から課金（または Stripe のトライアル trialDays が付く＝trialAvailable）。
+   */
+  checkoutTrialEndsAt: string | null;
   /** お支払い画面（Stripe のカスタマーポータル）を開けるか */
   hasCustomer: boolean;
   prices: BillingPrice[];

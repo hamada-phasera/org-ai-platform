@@ -124,3 +124,19 @@ describe('A4: ルートは JWT の role / orgId を直接読まない', () => {
     expect(bad.map((f) => f.rel)).toEqual([]);
   });
 });
+
+describe('A5: process.env を読むのは config/env.ts だけ（CLAUDE.md「環境変数の読み口は1か所」）', () => {
+  it('src/ のほかのファイルは process.env に触れない', () => {
+    const offenders = files
+      .filter((f) => f.rel !== 'config/env.ts')
+      // コメント中の言及は数えない（行頭の // と * の行を落とす）
+      .filter((f) =>
+        f.src
+          .split('\n')
+          .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+          .some((line) => /\bprocess\.env\b/.test(line)),
+      )
+      .map((f) => f.rel);
+    expect(offenders).toEqual([]);
+  });
+});
