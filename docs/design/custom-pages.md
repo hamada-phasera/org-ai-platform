@@ -2,7 +2,7 @@
 
 > **一行要約**: 組織ごとの「ページ定義（JSON）」を DB に持ち、n8n が登録トークンで upsert する。web は許可リストのブロックだけを描画し、データ取得・フォーム送信・ボタンは必ず gateway を通って、その組織専用の n8n Webhook（`pages/<orgId>/<hook>`）にだけ届く。
 
-- 状態: 設計（未実装）。2026-11-18。ブランチ `feat/custom-pages`
+- 状態: チャンク 1（shared-types）実装済み、2〜7 は未実装。2026-11-18。ブランチ `feat/custom-pages`
 - 前提にした既存の決まり: CLAUDE.md、DESIGN.md、`docs/ARCHITECTURE.md`、`docs/design/multi-tenancy.md`、`docs/n8n-integration-design.md`、`docs/plan/saas-readiness-plan.md` §2・§7
 - 既存の原則は変えない: **DB が真実の源 / n8n は加速レイヤー / ルートは `authOf(request).db` だけ / エラーは `{ success:false, error:{ code, message } }` / LLM は必ず ai-engine の LLMRouter 経由**
 
@@ -590,6 +590,10 @@ n8n への呼び出し:
 | K18 | 画面での定義の編集は作らない（手動 upsert は API だけ） | 構築の場所を n8n の 1 か所に保つ。エディタは大きく、v1 の価値に効かない | JSON エディタ・ビジュアルエディタ |
 | K19 | 登録トークンに期限を付けない。2 本まで持てて、`lastUsedAt` を見せる | 期限切れで顧客のページ更新が黙って止まる方が害が大きい。無停止で替えられるようにしておく | 90 日で失効 |
 | K20 | zod を shared-types に入れ、web は `/p/*` の遅延チャンクでだけ読む | スキーマを 1 か所に（gateway と web で入力検証がずれない）。初回ロードは増やさない | web 用に手書きの検証を別に持つ |
+| K21 | （実装時）zod 非依存の定数・上限は `pages-plan.ts`、スキーマは `pages.ts` に分け、shared-types に `"sideEffects": false` | web のサイドバー（初回ロード）が `PAGE_ICONS` を読んでも zod が載らない（vite build で確認済み） | 1 ファイルにまとめる（使った瞬間に zod が初回チャンクへ入る） |
+| K22 | （実装時）text / email / tel の `maxLength` は 500 まで、textarea だけ 2000 まで。必須の checkbox は「チェックが要る」。任意項目の空は `''`（数値は `null`）を許す | 1 行の項目に長文を入れさせない。同意チェックを表せる。ブラウザのフォームは空を `''` で送る | 全項目 2000 まで |
+| K23 | （実装時）`projectQueryResult` は `{ action, blocks: [{ index, type, values \| rows+truncated \| error }] }`。行は `{ id: rowKey の値 \| null, cells }`、rowKey が無い行は id=null（行の操作を出さない）。KPI は値が null なら許し、key が無い・スカラーでない・非有限なら error | ブロック単位で error を返せ、web は index で引くだけ。行を落とすより見えるほうが現場で困らない | key ごとの平たい辞書（ブロック単位の error が表せない） |
+| K24 | （実装時）`toPublicPageDefinition`（hook を落とす）と `pageSubmitResponseSchema`（`{ ok, message≤140 }` 以外を捨てる）も shared-types に置く | T17・§5.2 の 10 を 1 か所で固定し、gateway のルートが個別に書かない | ルートごとに手で落とす |
 
 ## 15. 未確認・実装時に確かめること
 

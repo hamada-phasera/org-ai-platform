@@ -582,3 +582,9 @@ export interface JWTPayload {
   iat: number;
   exp: number;
 }
+
+// ── 業務ページ（docs/design/custom-pages.md）──
+// pages-plan は zod 非依存（web の初回ロードで読んでよい）。pages は zod のスキーマ（web は /p/* の遅延チャンクからだけ使う）。
+// package.json の "sideEffects": false により、使わない側のモジュールは web のバンドルから落ちる。
+export * from './pages-plan';
+export * from './pages';
