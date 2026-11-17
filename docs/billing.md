@@ -99,8 +99,19 @@ STRIPE_SECRET_KEY=sk_test_... npm run stripe:bootstrap -- --apply \
 
 ## 環境変数（api-gateway）
 
-`.env.example` の「決済 (Stripe)」を参照。`STRIPE_SECRET_KEY` が無ければ決済は未設定として扱い、
-設定 > プラン は「準備中」を表示するだけで、他の機能には影響しない。
+`.env.example` の「決済 (Stripe)」を参照。`STRIPE_SECRET_KEY` か `STRIPE_PRICE_STARTER_MONTHLY` が無ければ決済は未設定として扱い、
+設定 > プラン は「準備中」を表示するだけで、他の機能には影響しない（トライアル切れでも止めない）。
+Render への入れ方は `docs/DEPLOY.md` の 3・4 章。
+
+## 公開の前に（法務の頁）
+
+Stripe の本番の審査と有償の販売には、利用規約・プライバシーポリシー・特定商取引法に基づく表記が要る。
+
+- 頁は `/legal/terms` `/legal/privacy` `/legal/tokushoho`（認証の外。登録・ログイン・設定 > プラン の下からリンク）。
+- 見出しと項目だけを置いてあり、内容は `apps/web/src/pages/legal/content.ts` の `value: null`＝画面に「未記入」と出る。
+  文面・事業者名・所在地・連絡先・登録番号はオーナーが入れる（計画書 O-7）。このリポジトリでは文面を作らない。
+- 特商法の「販売価格」は Stripe の価格と同じ金額を書くか「設定 > プラン に表示」とする（金額はコードに持たない）。
+- Stripe ダッシュボードの公開情報（ビジネスのウェブサイト・利用規約・プライバシーポリシーの URL を入れる欄）に上の URL を入れる。
 
 ### 既存の組織をトライアルに乗せる（任意・手作業）
 

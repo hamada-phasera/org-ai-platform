@@ -6,7 +6,7 @@
 | 作成日 | 2026-11-16 |
 | 調査したブランチ | `refactor/cleanup-2026-11`（HEAD `cbfe046`） |
 | 対象 | `apps/api-gateway`, `apps/ai-engine`, `apps/web`, `packages/db-schema`, `packages/shared-types` |
-| 前提ドキュメント | `CLAUDE.md`, `docs/supabase-migration.md`, `DEPLOYMENT_RUNBOOK.md`, `docs/billing.md` |
+| 前提ドキュメント | `CLAUDE.md`, `docs/supabase-migration.md`, `docs/DEPLOY.md`, `docs/billing.md` |
 
 > この設計書は現状コードを読んで確かめた事実をもとに書いている。ファイル名と行番号は調査した時点（HEAD `cbfe046`）のもの。
 > 推測や未検証のものには **（要確認）** と付けた。
@@ -173,7 +173,7 @@ E8 は組織の作成時に既定のノードを入れるようにした。E11 �
 
 ### 2.7 DB 接続（Supabase）
 
-- `docs/supabase-migration.md` と `DEPLOYMENT_RUNBOOK.md`: gateway・ai-engine・n8n はどれも **Session pooler（Supavisor, :5432）**、ユーザー `postgres.<project-ref>` で接続する。
+- `docs/supabase-migration.md` と `docs/DEPLOY.md`: gateway・ai-engine・n8n はどれも **Session pooler（Supavisor, :5432）**、ユーザー `postgres.<project-ref>` で接続する。
   transaction pooler（:6543）は Prisma の migrate で advisory lock を保てないので使わない。
 - 同じ文書 §6: `public` の全テーブルで **RLS を有効にしてあり、ポリシーは置いていない**（Data API を塞ぐための蓋）。
   「所有者ロールは RLS をバイパスするのでアプリは壊れない」と検証済み。「独自 JWT なので RLS ポリシーは書かないこと」とも明記されている。
@@ -887,6 +887,13 @@ services 経由の組織分離は `tests/tenancy/tenant-isolation.test.ts` の S
 ## 14. オーナーに確認したい判断点
 
 > **実装では推奨案を「仮採用（オーナー確認待ち）」として入れてある。** 決定が変わった場合の差し替え箇所を「仮採用の実装」列に書いた。
+
+> **2026-11 の状況**（`docs/plan/saas-readiness-plan.md` §2・§7）:
+> - **Q3 は決定・より厳しく変更**（D4）: トライアルは作成者ごとに 1 回のまま、作成者の 2 つ目以降の組織は作成時点で
+>   `trialEndsAt = 作成時刻`＝**契約するまで閲覧のみ**（下表の「課金を始めるまで梅の上限」ではない）。数え方は `createdBy`。
+> - **Q10 は決定**: 1 ユーザー 10 組織のまま。
+> - **Q5 は見送りのまま**（gateway は DB の plan を送るので、実害は n8n 経由だけ）。Q7 は Phase 2b（§17.2）。
+> - **残りの確認待ちは Q1・Q2・Q6**（計画書 O-13）。Q4 は `User.orgId` が null の既存ユーザーがいるときだけ要る。
 
 | # | 質問 | 推奨 | 決めないと止まるもの | 仮採用の実装 |
 |---|---|---|---|---|

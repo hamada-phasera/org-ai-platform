@@ -12,16 +12,16 @@
 
 | # | 問題 | 場所 | メモ |
 |---|---|---|---|
-| 1 | `/orchestrate` が AILog に**マスク前**の入力を記録している | `apps/ai-engine/app/orchestrator/orchestrator.py` | `/orchestrate/stream` と `/llm/chat` はマスク後。CLAUDE.md「PII 検知を通過してから」と食い違う。`screen(user_message).text` を記録するのが正しいはず |
-| 2 | `/rank` と `screen_agent`（`/plan/agent` の事前判定）が AILog に記録されない | `apps/ai-engine/app/main.py`, `app/planner/planner.py` | 「すべての AI 入出力を AILog に記録」に反する。月間上限の回数にも入らない |
-| 3 | `/orchestrate/stream` がエラー時に `str(e)` をそのまま返す | `apps/ai-engine/app/main.py` | SDK の例外文言に内部情報が入りうる。gateway は固定文言に差し替えるので画面には出ないが、ai-engine を直接叩かれると漏れる（`INTERNAL_API_TOKEN` 未設定時） |
+| 1 | ~~`/orchestrate` が AILog に**マスク前**の入力を記録している~~ **解消（2026-11 チャンク 4）** | `apps/ai-engine/app/orchestrator/orchestrator.py` | `screen(user_message).text`（マスク後）を記録する |
+| 2 | ~~`/rank` と `screen_agent`（`/plan/agent` の事前判定）が AILog に記録されない~~ **解消（2026-11 チャンク 4）** | `apps/ai-engine/app/main.py`, `app/planner/planner.py` | マスク後の値で AILog に記録し、月間上限の回数にも入る（`note_call` は LLMRouter の 1 か所のまま＝二重に数えない） |
+| 3 | ~~`/orchestrate/stream` がエラー時に `str(e)` をそのまま返す~~ **解消（2026-11 チャンク 4）** | `apps/ai-engine/app/main.py` | `/orchestrate` は 503 / 502、`/orchestrate/stream` は SSE の error。どちらも固定文言（`ERROR_AI_NOT_CONFIGURED` / `ERROR_AI_FAILED`）で、詳細は `logger.exception` だけ |
 | 4 | ~~`AI_ENGINE_URL` 未設定時の既定値が呼び出し元で違う~~ **解消（2026-11 チャンク 8）** | `apps/api-gateway/src/config/env.ts` | 既定は `http://localhost:8000` の 1 つに揃えた。compose は `AI_ENGINE_URL=http://ai-engine:8000` を渡す |
 | 5 | ~~docker-compose の Postgres に pgvector が無い~~ **解消（2026-11 チャンク 8）** | `docker-compose.yml` | `pgvector/pgvector:pg16` に差し替え。`scripts/check-deploy-config.mjs` が検査する |
 | 6 | ~~`scripts/start-dev.sh` に SQLite 時代の DB 初期化が残っている~~ **解消（2026-11 チャンク 8）** | `scripts/start-dev.sh` | Postgres に `migrate deploy` するだけにした（DB は `docker compose up -d postgres`） |
-| 7 | ai-engine の `DATABASE_URL` 既定値が `file:./data/app.db`（SQLite） | `apps/ai-engine/app/config.py` | 未設定だと AILog の書き込み先が SQLite になりテーブルが無くて失敗する（記録失敗は握りつぶされ本処理は続くので、ログが黙って欠ける）。既定値を消すか、未設定を起動時に警告する方がよい |
-| 8 | gateway の `/ready` が DB 接続失敗時に例外メッセージを返す | `apps/api-gateway/src/index.ts` | 認証不要のエンドポイント。接続先などの内部情報が漏れうる |
-| 9 | AILog の model が実際のモデルと違うことがある（`/plan` は降格前のモデル名を記録） | `apps/ai-engine/app/main.py` | 3 章「3. 見つけたが直していない問題」の 3 を参照 |
-| 10 | web の ESLint 警告 8 件（`react-hooks/set-state-in-effect`） | `apps/web/src/**` | effect 内で setState。直すと描画タイミングが変わるので、各箇所にコメントを付けて残した |
+| 7 | ~~ai-engine の `DATABASE_URL` 既定値が `file:./data/app.db`（SQLite）~~ **解消（2026-11 チャンク 4）** | `apps/ai-engine/app/config.py`, `app/main.py` | 既定値は残し（テストが固定）、未設定なら起動時に警告する（`settings.database_url_configured`）。render.yaml・compose は ai-engine に `DATABASE_URL` を渡す（`check:deploy` が検査） |
+| 8 | ~~gateway の `/ready` が DB 接続失敗時に例外メッセージを返す~~ **解消（2026-11 チャンク 7）** | `apps/api-gateway/src/routes/health.ts` | 503 は固定文言。例外はログにだけ出す |
+| 9 | ~~AILog の model が実際のモデルと違うことがある（`/plan` は降格前のモデル名を記録）~~ **解消（2026-11 チャンク 4）** | `apps/ai-engine/app/main.py` | 応答の実モデル名を記録する。応答が無いときだけ事前に決めたモデル名 |
+| 10 | web の ESLint 警告 9 件（`react-hooks/set-state-in-effect`。2026-11 時点） | `apps/web/src/**` | effect 内で setState。直すと描画タイミングが変わるので、各箇所にコメントを付けて残した |
 | 11 | 古いドキュメントに SQLite 前提の手順が残っている | `docs/MASTERY_GUIDE.md`, `docs/work-log.md`, `docs/変更メモ.md`, `tasks/00-setup.md` ほか | docs/ と tasks/ の既存文書は今回の対象外。README と docs/ARCHITECTURE.md を正とする |
 
 ## 2. TypeScript 側 — 未使用判定だが削除を保留したもの
@@ -88,6 +88,8 @@ knip（`npx -y knip@5`、ルートの `knip.json` で `ignoreExportsUsedInFile: 
   フェンス文字を本文に含む正しい JSON で結果が変わるので共通化していない。
 
 ### 3. 見つけたが直していない問題（挙動が変わるもの）
+
+> 1〜4 は 2026-11 のチャンク 4 で解消した（1 章の表の 1・2・3・9）。経緯として残す。残っているのは 5 だけ。
 
 優先度の高い順です。
 

@@ -433,6 +433,12 @@
 | チャンク 11 の DoD を on で | `dod-flow.int.test.ts` と `raw-sql.int.test.ts` を `describe.each(['off','on'])` にし、on の回は gateway の接続だけ `flow_app` に替える（準備・確認は所有者）。ロール `flow_app` はクラスタ全体のものなので作って残す（消さない。DB を消せば権限は消える） |
 | チャンク 11 の計測 | 文の数で固定（off 1 / on 4）し、時間は手元の値を設計書 §17.1 に書いた（RTT ≒ 0 で +0.15〜0.2 ms）。本番は +3 往復 / 操作の見積もりで、Render 上の実測は有効化の前に取る |
 | チャンク 11 の ai-engine | `set_tenant` は RLS_MODE=on かつ接続先が PostgreSQL のときだけ（SQLite には set_config が無い）。`audit_logger` と `usage.monthly_calls` の同じセッションの最初の文で呼ぶ |
+| チャンク 12 の法務の頁の形 | 項目の表は `pages/legal/content.ts` の 1 か所（`value: null` は画面に「未記入」）。頁は `LegalPage` 1 つを 3 つの薄いページが使う。文面は作らない（「やらないこと」）。項目名は特商法の通常の項目と、規約・プライバシーの見出しだけ。ログイン中に開いても同じ頁（戻り先がホームになるだけ） |
+| チャンク 12 のリンクのラベル | 一語（規約・プライバシー・特商法）。登録・ログインはカードの外の下、契約は税抜の注記の横。スマホでは 44px |
+| チャンク 12 の「未ログインで開ける」の確かめ方 | web にブラウザのテスト基盤が無いので、`App` を `MemoryRouter` で静的描画して確かめる（zustand v5 の静的描画は初期状態＝未ログインを読む）。比較としてシェル配下の `/settings` が空（Navigate）になることも見る。ログイン中の描画は静的描画では再現できないのでテストしていない |
+| チャンク 12 の手順書の 1 本化の固定 | `check-deploy-config.mjs` に足した: render.yaml の gateway・ai-engine の `sync: false` のキーが全部 `docs/DEPLOY.md` にある／DEPLOY.md に移行済みの DB 名が無い／`DEPLOYMENT_RUNBOOK.md` は DEPLOY.md への案内を持ちコードブロックを持たない。n8n の `sync: false` は O-12 なので対象外 |
+| チャンク 12 の hold-list | 1・2・3・7・8 に加え 9（`/plan` の model、チャンク 4 で解消）も解消済みにした。3 章の「直していない問題」1〜4 は経緯として残し、冒頭に解消の注記。ESLint 警告の件数は実数（9）に直した（自分の変更由来ではない） |
+| チャンク 12 の multi-tenancy §14 | 表は書き換えず、冒頭に 2026-11 の状況（Q3 は D4 でより厳しく決定、Q10 決定、Q5 見送り、残りは Q1・Q2・Q6）を追記 |
 
 > オーケストレーター追記（チャンク 3 で対応）: 「決済設定済み」の判定は `STRIPE_SECRET_KEY` だけでなく、梅の月額価格 ID（`STRIPE_PRICE_STARTER_MONTHLY`）もあるときに限る。キーだけ入れて価格が無いと、期限切れ組織が閲覧のみになり契約もできない詰みになるため。
 

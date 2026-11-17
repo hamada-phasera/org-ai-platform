@@ -183,7 +183,7 @@ STRIPE_PRICE_STORAGE_ADDON= / STRIPE_TAX_RATE_ID= / BILLING_TRIAL_DAYS=30 / APP_
   現場で「今日から使えません」は業務が止まり、そのまま解約になる。
 - **登録と同時にカード不要のトライアル**（`trialEndsAt = 作成時刻 + BILLING_TRIAL_DAYS`、上限は梅）。
   期限後も未契約なら「閲覧のみ」（402 `SUBSCRIPTION_REQUIRED`）。判定は `entitlementOf`（`services/entitlement.ts`）1か所。
-  ⚠️ `trialEndsAt` が null の既存組織と、決済未設定（`STRIPE_SECRET_KEY` なし）の環境は止めない。
+  ⚠️ `trialEndsAt` が null の既存組織と、決済未設定（キーか梅の月額 price が無い）の環境は止めない。
 - トライアルは作成者ごとに1回。自分で作った2つ目以降の組織は作成時点で期限切れ（契約するまで閲覧のみ）。
 - 登録時トライアル中の Checkout は残り期間を `trial_end` で引き継ぐ（48 時間未満ならその日から課金。一度契約した組織には付けない）。
   「決済設定済み」はキーと梅の月額 price の両方（`config.billingConfigured`）。テストモードの用意は `npm run stripe:bootstrap`（docs/billing.md）。
@@ -196,6 +196,19 @@ STRIPE_PRICE_STORAGE_ADDON= / STRIPE_TAX_RATE_ID= / BILLING_TRIAL_DAYS=30 / APP_
   （値が間違っていても「入ってはいる」ので、有無だけでは確認にならない）。
 - ⚠️ 秘密の値は返さない。状態と直し方だけ。メンバーには見せない（未設定という情報自体が攻撃の手がかり）。
 - ai-engine の確認は空の本文を投げるだけで LLM は呼ばない（本文の検証で弾かれる）。
+
+## スマホ・公開ページ・入口の守り（2026-11 SaaS 化。docs/plan/saas-readiness-plan.md §2）
+
+- **スマホで開ける画面は `shell/navConfig.ts` の表 1 つ**（各行の `mobile`）。開けるのは TOP・チャット・受信・成果物・
+  エージェント一覧と実行・経理・設定（契約までスマホで完結）。エージェント詳細・ガバナンス・タスク・営業・分析・SNS は
+  パソコン（`DesktopOnly`）。ルートを足したら `navConfig.test.ts` の表にも足す（D6）。
+- **PWA は manifest とアイコンだけ。service worker は入れない**（古い画面とトークンが残る事故を避ける。D7）。
+- **レート制限は `@fastify/rate-limit` のメモリ保持**（gateway 1 台の前提。複数台にするなら保持先を替える。D8）。
+  IP は `TRUST_PROXY_HOPS` 段だけ信じる。除外は `isRateLimitExempt` の 1 か所（docs/security.md）。
+- **法務の 3 頁（`/legal/terms` `/legal/privacy` `/legal/tokushoho`）は認証の外**。見出しと項目だけで、
+  文面と事業者情報は `pages/legal/content.ts` の `value: null`（画面に「未記入」）をオーナーが埋める。ここで文面を作らない。
+- **デプロイ手順は `docs/DEPLOY.md` の 1 本**（`DEPLOYMENT_RUNBOOK.md` は案内だけ）。render.yaml に `sync: false` の
+  キーを足したら DEPLOY.md にも書く（`npm run check:deploy` が検査）。
 
 ## エージェント機能 (業務効率化エージェント)
 
