@@ -127,6 +127,25 @@ vercel deploy --prebuilt --prod --yes
 3. 通し: 登録 → チャットで 1 回指示 → ファイルを 1 つ保存 → 設定 > プラン → Checkout（テストカード `4242 4242 4242 4242`）→ 戻って「ご契約中」→ ポータルで解約 → 期間終了後に書き込みが 402。
 4. 未ログインで `/legal/terms` `/legal/privacy` `/legal/tokushoho` が開く。
 5. スマホ実機で 登録 → チャット → 設定 > プラン（O-10）。
+6. **`TRUST_PROXY_HOPS` の段数**（レート制限の IP。デプロイ直後に 1 回、Render の前段が変わったらもう 1 回）。
+   段数がずれると、全員が同じ IP に見える（ログイン 10 回/分を全員で共有＝ログインできない）か、
+   `X-Forwarded-For` を書いた人が制限をすり抜ける。`ip=` は制限を超えたときだけログに出るので、わざと超えさせて見る。
+   1. 回線 A（事務所の回線など）で、存在しないメールのログインを 11 回送る。最後が `429` になる。
+      ```bash
+      for i in $(seq 1 11); do
+        curl -s -o /dev/null -w '%{http_code}\n' -X POST https://<gateway>/api/auth/login \
+          -H 'content-type: application/json' -d '{"email":"ratelimit-check@example.invalid","password":"x"}'
+      done
+      ```
+   2. すぐに回線 B（スマホのテザリングなど、別の回線）で同じものを 1 回だけ送る → **`401`**（`429` なら全員が同じ IP に見えている）。
+      続けて 11 回まで送り、`429` にする。
+   3. Render の gateway のログで `[rate-limit] 制限を超えました POST /api/auth/login ip=…` が 2 行あり、
+      **`ip=` が回線ごとに違い、それぞれの回線のグローバル IP と一致する**ことを確かめる。
+   4. 回線 B で `-H 'X-Forwarded-For: 203.0.113.9'` を付けて 11 回送り、ログの `ip=` が `203.0.113.9` に**ならない**ことを確かめる。
+   - 2 で `429`・3 で同じ IP（Render の内部の IP）なら段数が足りない → `TRUST_PROXY_HOPS` を 1 つ増やして再デプロイし、1 からやり直す。
+   - 4 で `203.0.113.9` になったら段数が多すぎる → 1 つ減らす。
+   - 確かめるまでは、ログインの上限（`AUTH_RATE_LIMIT`、`middleware/rate-limit.ts`）が全員で共有になりうる。
+     利用者を入れる前に必ず済ませる。結果（段数と確認日）はこの項に追記する。
 
 ## 7. 公開の前に
 
@@ -146,7 +165,7 @@ vercel deploy --prebuilt --prod --yes
 | gateway が起動しない（ログに起動拒否） | `JWT_SECRET` が 32 文字未満か見本の値、`N8N_WEBHOOK_AUTH_TOKEN` が未設定か既定値（`docs/security.md`） |
 | `P1001: Can't reach database server` | ① direct ではなく Session pooler か ② Supabase が一時停止していないか（ダッシュボードで再開） ③ `?sslmode=require` ④ `DATABASE_URL` が現行のホストか。切り分けは `npx prisma migrate status --schema=packages/db-schema/prisma/schema.prisma` |
 | ブラウザで CORS エラー | gateway の `FRONTEND_URL` / `ALLOWED_ORIGIN_HOSTS` に公開 URL が無い |
-| 全員が 429 | `TRUST_PROXY_HOPS` の段数のずれ（`docs/security.md`） |
+| 全員が 429 | `TRUST_PROXY_HOPS` の段数のずれ（6 章の 6、`docs/security.md`） |
 | AI の応答が 401 / 届かない | `INTERNAL_API_TOKEN` が gateway と ai-engine で違う。`AI_ENGINE_URL` |
 | 契約が反映されない | Stripe の webhook の宛先と `STRIPE_WEBHOOK_SECRET`。Stripe ダッシュボードの webhook の配信記録 |
 | 再デプロイでファイルが消えた | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` が未設定でローカル保存になっている |
