@@ -9,9 +9,12 @@
 # 使い方:
 #   ./scripts/start-dev.sh            # 全サービス起動
 #   ./scripts/start-dev.sh --no-ai    # ai-engine を起動しない
-#   ./scripts/start-dev.sh --reset-db # DB を削除して再作成
+#
+# DB は Postgres（pgvector 入り）。先に `docker compose up -d postgres` で起動しておく。
+# 起動前に .env をシェルに読み込み、`prisma migrate deploy` を流す（何度流しても同じ）。
 #
 # Ctrl+C で全プロセスを停止します。
+# ⚠️ Docker だけで一式を動かすなら `docker compose up --build`（README「最短で動かす」）。
 
 set -euo pipefail
 
@@ -20,14 +23,12 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR"
 
 START_AI=1
-RESET_DB=0
 
 for arg in "$@"; do
   case "$arg" in
     --no-ai) START_AI=0 ;;
-    --reset-db) RESET_DB=1 ;;
     -h|--help)
-      sed -n '2,17p' "$0"
+      sed -n '2,19p' "$0"
       exit 0
       ;;
     *)
@@ -70,29 +71,33 @@ if [ ! -f "$ROOT_DIR/.env" ]; then
   fi
 fi
 
-# ---- DB ----
-if [ "$RESET_DB" = "1" ]; then
-  log "$(c_red 'DB をリセットします')"
-  rm -f "$ROOT_DIR/packages/db-schema/prisma/dev.db" \
-        "$ROOT_DIR/packages/db-schema/prisma/dev.db-journal" \
-        "$ROOT_DIR/data/app.db" 2>/dev/null || true
+# api-gateway と prisma は .env を自分で読まないので、ここでシェルに読み込む
+if [ -f "$ROOT_DIR/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$ROOT_DIR/.env"
+  set +a
 fi
-
-if [ ! -f "$ROOT_DIR/packages/db-schema/prisma/dev.db" ]; then
-  log "Prisma DB を初期化しています…"
-  (cd "$ROOT_DIR/packages/db-schema" && npx prisma migrate deploy) || {
-    err "Prisma migration に失敗しました"
-    exit 1
-  }
-fi
-
-mkdir -p "$ROOT_DIR/data/files"
 
 # ---- node deps ----
 if [ ! -d "$ROOT_DIR/node_modules" ]; then
   log "npm install を実行します…"
   npm install
 fi
+
+# ---- DB (Postgres) ----
+if [ -z "${DATABASE_URL:-}" ]; then
+  err "DATABASE_URL が未設定です（.env を確認）"
+  exit 1
+fi
+log "Prisma のマイグレーションを適用します…"
+npm run prisma:generate >/dev/null
+npm run migrate:deploy --workspace=packages/db-schema || {
+  err "マイグレーションに失敗しました。Postgres は起動していますか？ → docker compose up -d postgres"
+  exit 1
+}
+
+mkdir -p "$ROOT_DIR/data/files"
 
 # ---- python deps ----
 if [ "$START_AI" = "1" ]; then

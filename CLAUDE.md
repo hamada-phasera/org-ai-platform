@@ -52,7 +52,7 @@ org-ai-platform/
 - 環境変数は .env ファイルで管理する
 - 環境変数の読み口は1か所: gateway は `src/config/env.ts`（`envSchema` に追加し既定値は `ENV_DEFAULTS` だけに書く。
   読むときは `config.*`）、ai-engine は `app/config.py`（`settings.*`）。`process.env` / `os.environ` を直接読まない。
-  変数を足したら `.env.example` にも載せる
+  変数を足したら `.env.example` にも載せる（`render.yaml`・compose・Node の版との突き合わせは `npm run check:deploy`、`npm test` に含む）
 - gateway のエラー応答は `utils/http-error.ts` の `sendError(reply, status, code, message)` で返す
 - gateway のログは `utils/logger.ts` の `createLogger('scope')`（`console.*` 直書き禁止）。ai-engine は
   `logging.getLogger(__name__)`（`print` 禁止）。秘密の値はログにもレスポンスにも出さない

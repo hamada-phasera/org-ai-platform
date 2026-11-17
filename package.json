@@ -2,6 +2,9 @@
   "name": "org-ai-platform",
   "private": true,
   "packageManager": "npm@10.9.2",
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "workspaces": [
     "apps/web",
     "apps/api-gateway",
@@ -33,7 +36,8 @@
     "supabase:setup": "node scripts/supabase-setup.mjs --apply",
     "stripe:bootstrap": "node scripts/stripe-bootstrap.mjs",
     "ontology:check": "node scripts/ontology-drift.mjs ontology/org.json ontology/observed.json --out ontology/out",
-    "ontology:ttl": "mkdir -p ontology/out && node scripts/ontology-export-ttl.mjs ontology/org.json > ontology/out/org.ttl"
+    "ontology:ttl": "mkdir -p ontology/out && node scripts/ontology-export-ttl.mjs ontology/org.json > ontology/out/org.ttl",
+    "check:deploy": "node scripts/check-deploy-config.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -42,6 +46,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.14.0",
     "turbo": "^2.0.0",
-    "typescript-eslint": "^8.72.2"
+    "typescript-eslint": "^8.72.2",
+    "yaml": "^2.9.1"
   }
 }

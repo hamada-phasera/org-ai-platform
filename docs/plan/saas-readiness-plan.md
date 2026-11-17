@@ -413,6 +413,13 @@
 | チャンク 7 の監査の書き方 | 組織の作成と招待の受諾は同じトランザクションで書く。それ以外は操作の後に書き、失敗しても操作は成功させる（記録の不調で契約・招待を止めない）。meta は秘密らしいキー名の値を落とす |
 | チャンク 7 の監査の範囲 | 計画の項目に加え、招待の取り消し・招待の受諾（`member.join`）・LINE の接続と切断も記録する。プラン変更は Stripe を実際に更新したときだけ（同じ price なら記録しない） |
 | チャンク 7 のセットアップ状況 | `INTERNAL_API_TOKEN` 未設定は ai-engine に届かなくても「要対応」（以前は「確認できず」で隠れていた。既存テストを意図の変更として書き換えた）。`GEMINI_PAID_TIER` は gateway にも同じ値を入れる前提で「要対応」を出す（render.yaml は既に両方にある） |
+| チャンク 8 の compose の NODE_ENV | 既定は `development`（`.env` で上書き可）。production にすると n8n の独自トークンが必須になり「鍵なしで一発起動」と両立しないため。compose は開発・確認用で、本番は render.yaml |
+| チャンク 8 の公開された JWT_SECRET | compose の開発用既定値と `.env.example` の見本値を `PUBLIC_JWT_SECRETS`（`startup-checks.ts`）に載せ、**本番ではこの値だと起動拒否**（新規）。照合スクリプトが compose・`.env.example` と表を突き合わせる |
+| チャンク 8 の usage-metrics-svc | 「やらないこと」と追記（取り込む）が食い違うので、`--profile metrics` の任意起動にした（既定の起動・スモークには入れない）。n8n も `--profile n8n`、タグは `2.15.0` 固定（SQLite の volume のまま。render.yaml の n8n は O-12 なので触らない） |
+| チャンク 8 の公開ポート | 外に出すのは web（3000）だけ。postgres・gateway・ai-engine・n8n・metrics は `127.0.0.1` に限定（ai-engine を LAN に出さない）。Postgres の volume は `pgdata16`（旧 alpine の `pgdata` と混ぜない） |
+| チャンク 8 の render.yaml の整理 | gateway から `ANTHROPIC_API_KEY`（gateway は読まない＝鍵を置く場所を減らす）と `N8N_WORKFLOW_ID`（どこも読まない）を外した。照合スクリプトは「宣言したキーは読み口にある」を gateway・ai-engine の両方で検査し、Render 基盤のキーは `PLATFORM_KEYS`（今は `NODE_VERSION` だけ） |
+| チャンク 8 の YAML の読み方 | ルートの devDependency に `yaml`（依存ゼロ）を足した。自前の簡易パーサは anchors 等で誤判定するため |
+| チャンク 8 の compose の確認 | 箱に Docker が無いので **ローカルでは未確認**。CI の `compose-smoke`（`.env` 無し → `--wait` → `/health`・`/ready` → web の nginx 経由で登録 201）で確かめる |
 
 > オーケストレーター追記（チャンク 3 で対応）: 「決済設定済み」の判定は `STRIPE_SECRET_KEY` だけでなく、梅の月額価格 ID（`STRIPE_PRICE_STARTER_MONTHLY`）もあるときに限る。キーだけ入れて価格が無いと、期限切れ組織が閲覧のみになり契約もできない詰みになるため。
 

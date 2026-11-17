@@ -15,9 +15,9 @@
 | 1 | `/orchestrate` が AILog に**マスク前**の入力を記録している | `apps/ai-engine/app/orchestrator/orchestrator.py` | `/orchestrate/stream` と `/llm/chat` はマスク後。CLAUDE.md「PII 検知を通過してから」と食い違う。`screen(user_message).text` を記録するのが正しいはず |
 | 2 | `/rank` と `screen_agent`（`/plan/agent` の事前判定）が AILog に記録されない | `apps/ai-engine/app/main.py`, `app/planner/planner.py` | 「すべての AI 入出力を AILog に記録」に反する。月間上限の回数にも入らない |
 | 3 | `/orchestrate/stream` がエラー時に `str(e)` をそのまま返す | `apps/ai-engine/app/main.py` | SDK の例外文言に内部情報が入りうる。gateway は固定文言に差し替えるので画面には出ないが、ai-engine を直接叩かれると漏れる（`INTERNAL_API_TOKEN` 未設定時） |
-| 4 | `AI_ENGINE_URL` 未設定時の既定値が呼び出し元で違う | `apps/api-gateway/src/config/env.ts`（`AI_ENGINE_URL` / `AI_ENGINE_URL_COMPOSE`） | 大半は `http://localhost:8000`、chat / deliverables だけ `http://ai-engine:8000`。ローカル直起動で未設定だとチャットと成果物の重要度づけだけ繋がらない。どちらかに揃えるべき |
-| 5 | docker-compose の `postgres:16-alpine` に pgvector が無く、マイグレーション（`CREATE EXTENSION vector`）が失敗する | `docker-compose.yml` | `pgvector/pgvector:pg16` 等への差し替えが必要。README には回避策を書いた |
-| 6 | `scripts/start-dev.sh` に SQLite 時代の DB 初期化（`dev.db` の有無で `migrate deploy`、`--reset-db` で `.db` 削除）が残っている | `scripts/start-dev.sh` | 現状の Postgres 構成と合わない。README からは案内していない |
+| 4 | ~~`AI_ENGINE_URL` 未設定時の既定値が呼び出し元で違う~~ **解消（2026-11 チャンク 8）** | `apps/api-gateway/src/config/env.ts` | 既定は `http://localhost:8000` の 1 つに揃えた。compose は `AI_ENGINE_URL=http://ai-engine:8000` を渡す |
+| 5 | ~~docker-compose の Postgres に pgvector が無い~~ **解消（2026-11 チャンク 8）** | `docker-compose.yml` | `pgvector/pgvector:pg16` に差し替え。`scripts/check-deploy-config.mjs` が検査する |
+| 6 | ~~`scripts/start-dev.sh` に SQLite 時代の DB 初期化が残っている~~ **解消（2026-11 チャンク 8）** | `scripts/start-dev.sh` | Postgres に `migrate deploy` するだけにした（DB は `docker compose up -d postgres`） |
 | 7 | ai-engine の `DATABASE_URL` 既定値が `file:./data/app.db`（SQLite） | `apps/ai-engine/app/config.py` | 未設定だと AILog の書き込み先が SQLite になりテーブルが無くて失敗する（記録失敗は握りつぶされ本処理は続くので、ログが黙って欠ける）。既定値を消すか、未設定を起動時に警告する方がよい |
 | 8 | gateway の `/ready` が DB 接続失敗時に例外メッセージを返す | `apps/api-gateway/src/index.ts` | 認証不要のエンドポイント。接続先などの内部情報が漏れうる |
 | 9 | AILog の model が実際のモデルと違うことがある（`/plan` は降格前のモデル名を記録） | `apps/ai-engine/app/main.py` | 3 章「3. 見つけたが直していない問題」の 3 を参照 |
@@ -126,7 +126,8 @@ knip（`npx -y knip@5`、ルートの `knip.json` で `ignoreExportsUsedInFile: 
   `MessageParam` / `TextBlockParam` で組み立て直せば外せる。
 - 開発用 venv は Python 3.13、本番 Dockerfile は 3.11。ruff/mypy の target は 3.11 に合わせてある。
 
-## 追記: Node バージョンの不一致（要確認）
-- `apps/api-gateway` の依存 `undici@^8` は `engines.node >=22.19.0`。`apps/api-gateway/Dockerfile` / `apps/web/Dockerfile` は `node:20-alpine`。
-  Node 20 では `services/http-node/client.ts` の import 時に `webidl.util.markAsUncloneable is not a function` で落ちる（CI の Node 20 で再現）。
-  Render（`runtime: node`）は既定 Node のバージョン次第。Docker 経由で動かす場合は `node:22-alpine` への更新が必要。CI は Node 22 にした。
+## 追記: Node バージョンの不一致（解消: 2026-11 チャンク 8）
+- `apps/api-gateway` の依存 `undici@^8` は `engines.node >=22.19.0`。Node 22 未満では `services/http-node/client.ts` の
+  import 時に `webidl.util.markAsUncloneable is not a function` で落ちる。
+- Dockerfile（`node:22-alpine`）・`.node-version`・`package.json` の `engines`・`render.yaml` の `NODE_VERSION`・CI を 22 に揃え、
+  `scripts/check-deploy-config.mjs`（`npm test`）が 22 未満を検出する。

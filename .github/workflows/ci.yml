@@ -31,7 +31,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           # undici 8（api-gateway の依存）は Node >=22.19 を要求する。20 だと http-node/client.ts を読むテストが落ちる。
-          # ⚠️ apps/*/Dockerfile は node:20-alpine のまま（要確認: docs/maintenance/cleanup-hold-list.md）
+          # Dockerfile・.node-version・render.yaml も 22（scripts/check-deploy-config.mjs が突き合わせる）
           node-version: '22'
           cache: npm
 
@@ -100,3 +100,44 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+  # docker compose が .env も鍵も無しで一発で起動し、登録まで通ることを確かめる（計画書チャンク 8）。
+  # ⚠️ ここだけ Docker を使う。外部 API・シークレットは使わない（LLM の鍵が無くても登録は通る）。
+  compose-smoke:
+    name: docker compose（.env 無しで起動 → 登録）
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: .env が無いこと
+        run: test ! -e .env
+
+      - name: 設定が .env 無しで解決できる
+        run: docker compose config --quiet
+
+      - name: 起動（healthcheck が通るまで待つ）
+        run: docker compose up --build --detach --wait --wait-timeout 900
+
+      - name: /health と /ready
+        run: |
+          curl -fsS http://127.0.0.1:4000/health
+          curl -fsS http://127.0.0.1:4000/ready
+          curl -fsS http://127.0.0.1:3000/ -o /dev/null
+
+      - name: 登録 1 回（web の nginx 経由）
+        run: |
+          code=$(curl -sS -o register.json -w '%{http_code}' -X POST http://127.0.0.1:3000/api/auth/register \
+            -H 'content-type: application/json' \
+            -d '{"name":"Smoke","email":"smoke@example.com","password":"smoke-pass-1234","orgName":"Smoke Co"}')
+          echo "status=$code"
+          test "$code" = "201"
+          node -e 'const b=require("./register.json"); if(!b.success||!b.data.token||!b.data.user.orgId) process.exit(1)'
+
+      - name: 失敗したらログ
+        if: failure()
+        run: docker compose logs --no-color --tail=300
+
+      - name: 片付け
+        if: always()
+        run: docker compose down -v

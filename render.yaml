@@ -39,6 +39,9 @@ services:
     #    SHUTDOWN_DRAIN_MS を上げるときは、必ずこちらも上げること。
     maxShutdownDelaySeconds: 90
     envVars:
+      # Node のメジャー。.node-version・package.json の engines（>=22.19 = undici 8）・Dockerfile と揃える
+      - key: NODE_VERSION
+        value: "22"
       - key: NODE_ENV
         value: production
       # 前に立つプロキシの段数（Render のロードバランサ 1 段）。レート制限の IP を X-Forwarded-For から取る
@@ -51,10 +54,12 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
-      - key: ANTHROPIC_API_KEY
-        sync: false
+      # ANTHROPIC_API_KEY は gateway では読まない（LLM は ai-engine だけが呼ぶ）。ここには置かない
       - key: FRONTEND_URL
         sync: false
+      # CORS: FRONTEND_URL の完全一致に加えて許可するホスト名（カンマ区切り）。独自ドメインを足したらここにも
+      - key: ALLOWED_ORIGIN_HOSTS
+        value: org-ai-platform.vercel.app
       - key: AI_ENGINE_URL
         sync: false
       # ai-engine を呼ぶときの共有シークレット。ai-engine と **同じ値** を入れること。
@@ -116,12 +121,13 @@ services:
         sync: false
       - key: N8N_API_KEY
         sync: false
-      - key: N8N_WORKFLOW_ID
-        sync: false
       # ⚠️ 必須。未設定・既定値のままだと gateway は起動しない（NODE_ENV=production。config/startup-checks.ts）。
       #    n8n 側の Header Auth と同じ値にする
       - key: N8N_WEBHOOK_AUTH_TOKEN
         sync: false
+      # n8n コールバックの body に orgId を必須にするか。ワークフローを作り直して警告ログが 0 件になったら true
+      - key: N8N_CALLBACK_ORG_REQUIRED
+        value: "false"
       # LINE 受信箱: チャネル資格情報 (channel secret / access token) の暗号化鍵。
       # 32 バイトを 64 桁 hex または base64 で指定。未設定時は JWT_SECRET から導出
       # （JWT_SECRET をローテすると既存の接続が復号不能になるため独立設定を推奨）。
@@ -167,6 +173,9 @@ services:
       #    api-gateway と **同じ値** を入れること（片方だけでは 401 になる）。
       - key: INTERNAL_API_TOKEN
         sync: false
+      # X-Org-Id と body の org_id の照合（off | warn | enforce）。warn のログが 0 件になったら enforce
+      - key: ORG_HEADER_MODE
+        value: warn
 
   - type: web
     # ⚠️ 実際に稼働しているサービス名は org-ai-n8n-web。ここが `org-ai-n8n` のままだと

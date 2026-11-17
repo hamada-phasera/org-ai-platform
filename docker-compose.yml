@@ -1,86 +1,104 @@
-version: '3.8'
+# FLOW ローカル一式（開発・動作確認用）。
+#
+#   docker compose up --build        → http://localhost:3000 を開いて「登録」
+#
+# ■ .env は無くても起動する（env_file は任意）。置いた場合は .env の値が優先される。
+#   LLM の鍵（ANTHROPIC_API_KEY / GEMINI_API_KEY）が無いと、画面と登録は動くが AI の応答は失敗する。
+# ■ ⚠️ ここにある既定値（JWT_SECRET・INTERNAL_API_TOKEN・DB のパスワード）は **開発専用で公開されている値**。
+#   本番の api-gateway は、この JWT_SECRET を NODE_ENV=production で渡されると起動を拒否する
+#   （apps/api-gateway/src/config/startup-checks.ts の PUBLIC_JWT_SECRETS）。本番は render.yaml。
+# ■ 任意のサービスはプロファイルで足す:
+#     docker compose --profile n8n up       … n8n（.env に N8N_URL=http://n8n:5678 を書くと gateway が使う）
+#     docker compose --profile metrics up   … usage-metrics-svc（分析画面の部署別集計）
+# ■ 外に出すのは web（3000）だけ。DB・gateway・ai-engine はこのマシンの中（127.0.0.1）からだけ見える。
+# ■ 設定の食い違いは scripts/check-deploy-config.mjs（npm test）で検査する。CI の compose-smoke が実際に起動する。
+
+x-dev-secrets:
+  # 開発専用の既定値。.env かシェルの環境変数で上書きできる
+  jwt: &jwt-secret ${JWT_SECRET:-compose-dev-only-jwt-secret-not-for-production-0000}
+  internal: &internal-token ${INTERNAL_API_TOKEN:-compose-dev-only-internal-token}
+  db: &database-url postgresql://orgai:${POSTGRES_PASSWORD:-orgai-dev-password}@postgres:5432/orgai
 
 services:
   postgres:
-    image: postgres:16-alpine
-    ports:
-      - "5432:5432"
+    # RAG のマイグレーションが CREATE EXTENSION vector をするので pgvector 入りのイメージが要る。
+    # ⚠️ 旧 postgres:16-alpine の volume（pgdata）とは混ぜない（OS が違い照合順序がずれうる）。移すなら dump/restore
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
     environment:
-      - POSTGRES_USER=orgai
-      - POSTGRES_PASSWORD=orgai-dev-password
-      - POSTGRES_DB=orgai
+      POSTGRES_USER: orgai
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orgai-dev-password}
+      POSTGRES_DB: orgai
+    ports:
+      - "127.0.0.1:5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata16:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U orgai"]
+      test: ["CMD-SHELL", "pg_isready -U orgai -d orgai"]
       interval: 5s
       timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  n8n:
-    image: n8nio/n8n
-    ports:
-      - "5678:5678"
-    env_file: .env
-    environment:
-      - N8N_BASIC_AUTH_ACTIVE=false
-      - WEBHOOK_URL=http://localhost:5678
-      - GENERIC_TIMEZONE=Asia/Tokyo
-      - N8N_PUBLIC_API_DISABLED=false
-    volumes:
-      - n8n_data:/home/node/.n8n
-    restart: unless-stopped
+      retries: 10
 
   ai-engine:
     build:
       context: .
       dockerfile: apps/ai-engine/Dockerfile
-    ports:
-      - "8000:8000"
-    env_file: .env
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
     environment:
-      - DATABASE_URL=postgresql://orgai:orgai-dev-password@postgres:5432/orgai
-    volumes:
-      - ./data:/app/data
+      DATABASE_URL: *database-url
+      INTERNAL_API_TOKEN: *internal-token
+      API_GATEWAY_URL: ${API_GATEWAY_URL:-http://localhost:4000}
+    ports:
+      - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
   api-gateway:
     build:
       context: .
       dockerfile: apps/api-gateway/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # 開発の挙動（本番の起動拒否は n8n の独自トークンを要求するため）。本番は render.yaml
+      NODE_ENV: ${NODE_ENV:-development}
+      DATABASE_URL: *database-url
+      JWT_SECRET: *jwt-secret
+      INTERNAL_API_TOKEN: *internal-token
+      AI_ENGINE_URL: http://ai-engine:8000
+      METRICS_URL: http://usage-metrics:8080
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      API_GATEWAY_URL: ${API_GATEWAY_URL:-http://localhost:4000}
+      FILES_DIR: /app/data/files
     ports:
-      - "4000:4000"
+      - "127.0.0.1:4000:4000"
+    volumes:
+      - files:/app/data
     depends_on:
-      ai-engine:
-        condition: service_healthy
       postgres:
         condition: service_healthy
-      n8n:
+      ai-engine:
         condition: service_started
-    env_file: .env
-    environment:
-      - DATABASE_URL=postgresql://orgai:orgai-dev-password@postgres:5432/orgai
-      - AI_ENGINE_URL=http://ai-engine:8000
-      - N8N_URL=http://n8n:5678
-      - N8N_WORKFLOW_ID=${N8N_WORKFLOW_ID}
-      - N8N_API_KEY=${N8N_API_KEY}
-      # ローカルn8nを使用（クラウドは手動更新後に有効化）
-      # - N8N_CLOUD_URL=https://hamahiro.app.n8n.cloud
-    volumes:
-      - ./data:/app/data
+    # ランタイムのイメージに curl は無いので Node の fetch で見る。起動時に migrate を流すので猶予を長めに
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
 
   web:
     build:
@@ -88,12 +106,67 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         VITE_API_URL: /api
-        VITE_WS_URL: ws://localhost:4000
+        # 空 = 開いているページと同じホストに WebSocket を張る（nginx が /api/tasks/ を gateway へ中継）
+        VITE_WS_URL: ""
+    restart: unless-stopped
     ports:
       - "3000:3000"
     depends_on:
-      - api-gateway
+      api-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── 任意: n8n（--profile n8n）。無くても ai-engine のフォールバックで全部動く ──
+  n8n:
+    profiles: [n8n]
+    # ⚠️ :latest は不意のメジャー更新で壊れた実績がある（render.yaml の注記）。上げるときは N8N_VERSION で
+    image: n8nio/n8n:${N8N_VERSION:-2.15.0}
+    restart: unless-stopped
+    environment:
+      N8N_BASIC_AUTH_ACTIVE: "false"
+      WEBHOOK_URL: http://localhost:5678
+      GENERIC_TIMEZONE: Asia/Tokyo
+      N8N_PUBLIC_API_DISABLED: "false"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+    ports:
+      - "127.0.0.1:5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+  # ── 任意: usage-metrics-svc（--profile metrics）。無ければ分析画面は「未接続」表示で動く ──
+  metrics-init:
+    profiles: [metrics]
+    # schema.sql は "AILog" に索引を張るので、gateway の migrate が済んでから流す
+    image: pgvector/pgvector:pg16
+    restart: "no"
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-orgai-dev-password}
+    volumes:
+      - ./usage-metrics-svc/schema.sql:/schema.sql:ro
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    command: ["psql", "-h", "postgres", "-U", "orgai", "-d", "orgai", "-v", "ON_ERROR_STOP=1", "-f", "/schema.sql"]
+
+  usage-metrics:
+    profiles: [metrics]
+    build:
+      context: ./usage-metrics-svc
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: *database-url
+      PORT: "8080"
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      metrics-init:
+        condition: service_completed_successfully
 
 volumes:
+  pgdata16:
+  files:
   n8n_data:
-  pgdata:

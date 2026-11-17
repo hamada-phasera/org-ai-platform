@@ -46,3 +46,8 @@ marketing
 tasks
 DEPLOYMENT_RUNBOOK.md
 DESIGN.md
+
+# 別のビルド context・ビルドに要らないもの
+usage-metrics-svc
+design-canvas
+ontology
