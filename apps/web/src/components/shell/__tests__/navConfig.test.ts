@@ -31,7 +31,8 @@ const EXPECTED: Record<string, boolean> = {
 };
 
 /** シェルの外（ログイン前の画面と catch-all） */
-const OUTSIDE_SHELL = new Set(['/login', '/register', '/invite/:token', '/no-org', '*']);
+const LEGAL_ROUTES = ['/legal/terms', '/legal/privacy', '/legal/tokushoho'];
+const OUTSIDE_SHELL = new Set(['/login', '/register', '/invite/:token', '/no-org', ...LEGAL_ROUTES, '*']);
 
 function shellRoutes(): string[] {
   const src = read('../../../App.tsx');
@@ -74,6 +75,26 @@ describe('isMobileRoute', () => {
 
   it('知らないパスはパソコン向け', () => {
     expect(isMobileRoute('/unknown')).toBe(false);
+  });
+});
+
+describe('法務の頁（チャンク 12）', () => {
+  const src = read('../../../App.tsx');
+
+  it.each(LEGAL_ROUTES)('%s が App.tsx にある', (path) => {
+    expect(src).toContain(`path="${path}"`);
+  });
+
+  it('認証の外（RequireAuth / RequireToken より前の、要素を包まない Route）にある', () => {
+    for (const path of LEGAL_ROUTES) {
+      const line = src.split('\n').find((l) => l.includes(`path="${path}"`)) ?? '';
+      expect(line).toMatch(/element=\{<\w+Page \/>\}/);
+      expect(src.indexOf(`path="${path}"`)).toBeLessThan(src.indexOf('<RequireToken>'));
+    }
+  });
+
+  it('シェルの外なのでナビの表には載せない（スマホでも DesktopOnly にならない）', () => {
+    for (const path of LEGAL_ROUTES) expect(NAV_ROUTES.some((e) => e.to === path)).toBe(false);
   });
 });
 

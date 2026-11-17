@@ -5,6 +5,7 @@ import { Sparkles, ArrowRight, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import type { MembershipSummary, User } from '@org-ai/shared-types';
+import { LegalLinks } from './legal/LegalLinks';
 import { AmbientBackground, Card, Input, Button } from '../components/ui';
 
 /* autoComplete と inputMode はスマホのキーボードと自動入力のため（メールは小文字・自動修正なし） */
@@ -126,6 +127,7 @@ export default function RegisterPage() {
             </p>
           </div>
         </Card>
+        <LegalLinks className="mt-5" />
       </motion.div>
     </div>
   );

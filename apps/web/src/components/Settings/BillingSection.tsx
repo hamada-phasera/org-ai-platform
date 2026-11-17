@@ -9,6 +9,7 @@ import { Badge, Button, Card, SkeletonList } from '../ui';
 import { LiquidTabs } from '../motion/LiquidTabs';
 import { isReadOnly } from '../../utils/planNotice';
 import { useNow } from '../../hooks/useNow';
+import { LegalLinks } from '../../pages/legal/LegalLinks';
 
 /**
  * プランとお支払い。
@@ -393,9 +394,12 @@ export function BillingSection() {
         </Card>
       )}
 
-      <p className="text-xs text-muted">
-        価格はすべて税抜です。お支払いは Stripe の画面で行われ、カード情報はこのサービスに保存されません。
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-muted">
+          価格はすべて税抜です。お支払いは Stripe の画面で行われ、カード情報はこのサービスに保存されません。
+        </p>
+        <LegalLinks />
+      </div>
     </div>
   );
 }

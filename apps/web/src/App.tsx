@@ -21,6 +21,9 @@ import AnalyticsPage from './pages/AnalyticsPage';
 import SnsPage from './pages/SnsPage';
 import AccountingPage from './pages/AccountingPage';
 import TopPage from './pages/TopPage';
+import TermsPage from './pages/legal/TermsPage';
+import PrivacyPage from './pages/legal/PrivacyPage';
+import TokushohoPage from './pages/legal/TokushohoPage';
 import { AppShell } from './components/shell/AppShell';
 import { Spinner } from './components/ui';
 
@@ -45,6 +48,10 @@ export default function App() {
       <Route path="/register" element={<RegisterPage />} />
       {/* 招待の受諾。ログイン前に踏むので RequireAuth の外に置く */}
       <Route path="/invite/:token" element={<InvitePage />} />
+      {/* 法務の 3 頁。Stripe の審査と未登録の人が読むので認証の外（ログイン中でも同じ頁） */}
+      <Route path="/legal/terms" element={<TermsPage />} />
+      <Route path="/legal/privacy" element={<PrivacyPage />} />
+      <Route path="/legal/tokushoho" element={<TokushohoPage />} />
       <Route
         path="/no-org"
         element={
