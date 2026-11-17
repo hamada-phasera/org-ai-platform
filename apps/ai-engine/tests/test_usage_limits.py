@@ -86,6 +86,35 @@ class TestOverLimit:
         # キャッシュが生きている間も上限を跨げること
         assert asyncio.run(usage.is_over_limit("org-1", "STARTER")) is True
 
+    def test_router_chat_notes_exactly_once(self, monkeypatch):
+        # /rank・screen_agent を含め、LLMRouter.chat を通る呼び出しは1回につき1だけ進む
+        _stub_anthropic_sdk()
+        import app.llm.router as r  # noqa: PLC0415
+        from app.models.llm import ChatMessage, LLMResponse  # noqa: PLC0415
+
+        class _P:
+            async def chat(self, messages, model="", json_mode=False):
+                return LLMResponse(content="{}", model=model, tokens_used=1, latency_ms=1, pii_detected=False)
+
+        async def _ok(_org, _plan):
+            return False
+
+        monkeypatch.setattr(r, "_get_anthropic", lambda: _P())
+        monkeypatch.setattr(r, "_get_gemini", lambda: _P())
+        monkeypatch.setattr(r, "is_over_limit", _ok)
+        usage._cache["org-1"] = (usage.time.time(), 5)
+        for task in (None, r.TaskKind.SCREEN):
+            asyncio.run(
+                r.llm_router.chat(
+                    messages=[ChatMessage(role="user", content="x")],
+                    department="GENERAL",
+                    org_id="org-1",
+                    json_mode=True,
+                    task=task,
+                )
+            )
+        assert usage._cache["org-1"][1] == 7
+
     def test_note_call_is_noop_without_cache(self):
         usage.note_call("never-counted")
         assert "never-counted" not in usage._cache

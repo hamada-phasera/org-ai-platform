@@ -8,6 +8,7 @@ from app.agents.marketing import MarketingAgent
 from app.agents.sales import SalesAgent
 from app.departments import DEFAULT_DEPARTMENT
 from app.governance.audit_logger import schedule_llm_log
+from app.governance.pii_screener import screen
 from app.llm.router import provider_of_model
 from app.models.llm import ChatMessage, OrchestrateResponse
 from app.orchestrator.intent_classifier import classify_intent
@@ -62,7 +63,8 @@ class Orchestrator:
             department=resolved_dept,
             provider=provider_of_model(response.model),
             model=response.model,
-            input_text=user_message,
+            # ⚠️ マスク後だけを記録する。LLM に送っていない生の個人情報・資格情報を AILog に残さない
+            input_text=screen(user_message).text,
             output_text=response.content,
             tokens=response.tokens_used,
             latency_ms=response.latency_ms,

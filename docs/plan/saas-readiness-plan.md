@@ -393,6 +393,11 @@
 | チャンク 3 の D3（残り期間の引き継ぎ） | Stripe 公式（Create a Checkout Session、2026-11 確認）で `trial_end` は「48 時間以上先」。余裕 1 時間を見て残り 49 時間未満なら付けない。`trial_period_days` とは同時に送らない。**一度でも契約した組織（`subscriptionStatus` が入っている）には付けない**（解約 → 再契約で同じ無料期間を使い直させない） |
 | チャンク 3 の「決済設定済み」 | オーケストレーター追記どおり `STRIPE_SECRET_KEY` と `STRIPE_PRICE_STARTER_MONTHLY` の両方で判定（`config.billingConfigured`）。既存テストのうちキーだけで 402 を期待していたもの（entitlement / auth-switch）は price も入れる形に書き換えた |
 | チャンク 3 の bootstrap | 価格は `lookup_key`、商品・税率は metadata で既存を探す。ポータルは既定の設定を更新（無ければ作り、既定化はダッシュボードで確認と警告）。webhook の署名鍵は作成時だけ出す。`node --test` はルートの `npm test` から `test:scripts` で回す |
+| チャンク 4 の note_call | `note_call` は既に `LLMRouter.chat` / `chat_stream` の1か所で呼ばれているので、`/rank` と `screen_agent` には**足さない**（足すと二重に数える）。足したのは AILog の記録だけ。「1 回で 1 だけ進む」をテストで固定 |
+| チャンク 4 の記録の時点 | `/rank` は応答の解析より先に記録する（壊れた応答でも呼び出しは発生しているため）。LLM 呼び出し自体が失敗したときは `/rank`・`screen_agent` とも記録しない（`note_call` も進まないのと揃える） |
+| チャンク 4 の `/plan` の model | `plan_capability_with_model` で応答の実モデル名を受け取って記録。応答が無い（ケイパビリティ 0 件・呼び出し失敗）ときだけ事前に決めたモデル名で埋める（従来どおり 1 行記録） |
+| チャンク 4 のエラー応答 | `/orchestrate` は鍵未設定 503・それ以外 502、`/orchestrate/stream` は SSE の error。いずれも固定文言（`ERROR_AI_NOT_CONFIGURED` / `ERROR_AI_FAILED`）で、詳細は `logger.exception` のみ。以前の「RuntimeError 以外は投げ直し（500）」のテストは意図が変わったので 502 の固定文言に書き換えた。gateway は status と本文を見ずに扱うので影響なし |
+| チャンク 4 の DATABASE_URL | 既定値（SQLite）は変えず、`settings.database_url_configured` が偽なら起動時に警告するだけ（`test_config.py` の既定値の固定はそのまま） |
 
 > オーケストレーター追記（チャンク 3 で対応）: 「決済設定済み」の判定は `STRIPE_SECRET_KEY` だけでなく、梅の月額価格 ID（`STRIPE_PRICE_STARTER_MONTHLY`）もあるときに限る。キーだけ入れて価格が無いと、期限切れ組織が閲覧のみになり契約もできない詰みになるため。
 

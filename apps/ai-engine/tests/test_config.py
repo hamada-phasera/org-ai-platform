@@ -47,6 +47,15 @@ def test_defaults_match_previous_inline_defaults(clean_env: pytest.MonkeyPatch) 
     assert s.database_url == "file:./data/app.db"
 
 
+def test_database_url_configured(clean_env: pytest.MonkeyPatch) -> None:
+    # 未設定なら起動時に警告する（既定の SQLite では利用量を数えられない）
+    assert settings.database_url_configured is False
+    clean_env.setenv("DATABASE_URL", "  ")
+    assert settings.database_url_configured is False
+    clean_env.setenv("DATABASE_URL", "postgresql://u@h/db")
+    assert settings.database_url_configured is True
+
+
 def test_values_are_read_lazily(clean_env: pytest.MonkeyPatch) -> None:
     """モジュールの import 後に setenv しても反映される（テストの monkeypatch を壊さない）。"""
     assert settings.gemini_api_key == ""

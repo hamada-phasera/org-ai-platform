@@ -91,5 +91,10 @@ class Settings:
     def database_url(self) -> str:
         return _env("DATABASE_URL", DEFAULT_DATABASE_URL)
 
+    @property
+    def database_url_configured(self) -> bool:
+        """DATABASE_URL が明示されているか（空白だけは未設定扱い）。起動時の警告に使う。"""
+        return bool(_env("DATABASE_URL").strip())
+
 
 settings = Settings()
