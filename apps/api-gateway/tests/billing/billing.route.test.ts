@@ -111,6 +111,40 @@ describe('GET /api/billing', () => {
     await app.close();
   });
 
+  it('登録時トライアル中は appTrial に残り日数を返す（Checkout では二重に無料期間を付けない）', async () => {
+    configure();
+    const endsAt = new Date(Date.now() + 9.5 * 86_400_000);
+    prismaMock.organization.findUnique.mockResolvedValue(org({ trialEndsAt: endsAt }));
+    const app = await build();
+    const data = (await app.inject({ method: 'GET', url: '/api/billing' })).json().data;
+    expect(data.appTrial).toEqual({ active: true, endsAt: endsAt.toISOString(), daysLeft: 10 });
+    expect(data.trialAvailable).toBe(false);
+    await app.close();
+  });
+
+  it('登録時トライアルが切れていれば appTrial.active=false・残り 0', async () => {
+    configure();
+    const endsAt = new Date(Date.now() - 86_400_000);
+    prismaMock.organization.findUnique.mockResolvedValue(org({ trialEndsAt: endsAt }));
+    const app = await build();
+    const data = (await app.inject({ method: 'GET', url: '/api/billing' })).json().data;
+    expect(data.appTrial).toEqual({ active: false, endsAt: endsAt.toISOString(), daysLeft: 0 });
+    await app.close();
+  });
+
+  it('契約中・トライアルの無い既存組織は appTrial の対象外', async () => {
+    configure();
+    const app = await build();
+    expect((await app.inject({ method: 'GET', url: '/api/billing' })).json().data.appTrial).toEqual({
+      active: false, endsAt: null, daysLeft: 0,
+    });
+    prismaMock.organization.findUnique.mockResolvedValue(
+      org({ subscriptionStatus: 'trialing', stripeSubscriptionId: 'sub_1', trialEndsAt: new Date(Date.now() + 86_400_000) }),
+    );
+    expect((await app.inject({ method: 'GET', url: '/api/billing' })).json().data.appTrial.active).toBe(false);
+    await app.close();
+  });
+
   it('追加容量は課金中（active）だけ買える', async () => {
     configure();
     prismaMock.organization.findUnique.mockResolvedValue(org({ subscriptionStatus: 'trialing', stripeSubscriptionId: 'sub_1' }));

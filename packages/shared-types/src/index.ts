@@ -380,8 +380,18 @@ export interface BillingOverview {
   currentPeriodEnd: string | null;
   trialEndsAt: string | null;
   cancelAtPeriodEnd: boolean;
-  /** まだ無料トライアルを使っていない */
+  /** まだ無料トライアルを使っていない（Checkout で Stripe のトライアルを付けられる） */
   trialAvailable: boolean;
+  /**
+   * 登録時トライアル（カード不要・未契約のときだけ）。期限を過ぎて未契約なら、決済設定済みの環境では閲覧のみ。
+   * Stripe のトライアル中（subscriptionStatus = trialing）は active=false。
+   */
+  appTrial: {
+    active: boolean;
+    endsAt: string | null;
+    /** 残り日数（切り上げ）。期限切れ・対象外は 0 */
+    daysLeft: number;
+  };
   trialDays: number;
   /** お支払い画面（Stripe のカスタマーポータル）を開けるか */
   hasCustomer: boolean;

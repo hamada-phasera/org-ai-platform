@@ -172,11 +172,14 @@ STRIPE_PRICE_STORAGE_ADDON= / STRIPE_TAX_RATE_ID= / BILLING_TRIAL_DAYS=30 / APP_
 - 権利があるのは trialing / active / past_due。それ以外は梅の上限に戻す（データは消さない）。
 - **解約後は「閲覧のみ」**。書き込み（POST/PUT/PATCH/DELETE）を 402 で止め、閲覧と書き出しは通す
   （`services/entitlement.ts`）。決済と認証の経路は止めない＝再開できなくなるため。
-  ⚠️ `subscriptionStatus` が null は「まだ決済を繋いでいない」＝課金開始前の利用者なので止めない。
+  ⚠️ `subscriptionStatus` が null は「まだ決済を繋いでいない」。トライアル期限が無い（既存組織）なら止めない。
 - **AI の月間上限は超えても止めない**。8割で警告し、超えたら軽いモデルへ落として続ける
   （ai-engine `governance/usage.py`。判定は LLMRouter 1か所なので n8n 経由にも効く）。
   現場で「今日から使えません」は業務が止まり、そのまま解約になる。
-- トライアルは組織ごとに1回（`trialEndsAt` が一度でも入ったら使用済み）。
+- **登録と同時にカード不要のトライアル**（`trialEndsAt = 作成時刻 + BILLING_TRIAL_DAYS`、上限は梅）。
+  期限後も未契約なら「閲覧のみ」（402 `SUBSCRIPTION_REQUIRED`）。判定は `entitlementOf`（`services/entitlement.ts`）1か所。
+  ⚠️ `trialEndsAt` が null の既存組織と、決済未設定（`STRIPE_SECRET_KEY` なし）の環境は止めない。
+- トライアルは作成者ごとに1回。自分で作った2つ目以降の組織は作成時点で期限切れ（契約するまで閲覧のみ）。
 - SDK は入れない（LINE・Supabase と同じ）。シークレットと Stripe のエラー文言は利用者に返さない。
 
 ## 設定が入っているかの確認

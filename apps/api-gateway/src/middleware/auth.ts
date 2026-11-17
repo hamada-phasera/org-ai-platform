@@ -1,10 +1,11 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { hasRoleAtLeast, isUserRole, type UserRole } from '@org-ai/shared-types';
 import { prisma } from '../utils/prisma';
-import { READ_ONLY_MESSAGE, entitlementOf, needsEntitlementCheck } from '../services/entitlement';
+import { entitlementDecision, needsEntitlementCheck, readOnlyMessageOf } from '../services/entitlement';
 import { sendError } from '../utils/http-error';
 import { getMembership } from '../tenancy/membership-cache';
 import { enterTenant, makeTenantContext } from '../tenancy/context';
+import { config } from '../config/env';
 
 /**
  * 認証と、テナント（組織）の解決。docs/design/multi-tenancy.md §7.1.3
@@ -14,7 +15,7 @@ import { enterTenant, makeTenantContext } from '../tenancy/context';
  *   requireAuth  … JWT の orgId を「このトークンが操作してよい唯一の組織」として、
  *                  **毎リクエスト** Membership(sub, orgId) が ACTIVE かを確かめる（30 秒キャッシュ）。
  *                  通ったら request.tenant = { orgId, userId, role(Membership), db: tenantDb(orgId) }。
- *                  書き込みでは契約も見て、解約済みの組織を「閲覧のみ」にする。
+ *                  書き込みでは契約も見て、解約済み・トライアル切れの組織を「閲覧のみ」にする。
  *   requireRole  … requireAuth に加えて、**キャッシュを通さず** DB の Membership.role を見る。
  *                  降格と無効化が即座に効く（効かせるべきはこちら）。
  *
@@ -26,7 +27,7 @@ import { enterTenant, makeTenantContext } from '../tenancy/context';
  *   401 AUTH_REQUIRED          … トークンが無い/壊れている、アカウントが無い/無効（フロントはログアウトへ）
  *   403 TENANT_REQUIRED        … 所属している組織が無い（組織を作るか招待を受ける）
  *   403 TENANT_ACCESS_REVOKED  … トークンの組織から外された/無効化された（ログアウトさせず、組織一覧へ）
- *   402 SUBSCRIPTION_REQUIRED  … 解約済みの組織への書き込み
+ *   402 SUBSCRIPTION_REQUIRED  … 解約済み・登録時トライアル切れ（決済設定済みのとき）の組織への書き込み
  *   403 FORBIDDEN              … 役割が足りない
  */
 
@@ -102,9 +103,17 @@ async function authenticate(
 
   /* 契約が切れた組織は書き込みだけ止める（閲覧と書き出しは通す）。
      ⚠️ 決済と認証の経路は必ず通す。ここを止めると再開する手段が無くなる。 */
-  if (needsEntitlementCheck(request.method, request.url) && entitlementOf(snap.subscriptionStatus) === 'read_only') {
-    sendError(reply, 402, 'SUBSCRIPTION_REQUIRED', READ_ONLY_MESSAGE);
-    return;
+  if (needsEntitlementCheck(request.method, request.url)) {
+    const decision = entitlementDecision({
+      status: snap.subscriptionStatus,
+      trialEndsAt: snap.trialEndsAt,
+      billingConfigured: config.billingConfigured,
+      now: Date.now(),
+    });
+    if (decision.access === 'read_only') {
+      sendError(reply, 402, 'SUBSCRIPTION_REQUIRED', readOnlyMessageOf(decision.reason));
+      return;
+    }
   }
 
   /* 未知の role は MEMBER より下（何も満たさない）。fail-closed */

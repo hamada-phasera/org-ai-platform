@@ -205,6 +205,42 @@ describe('POST /api/organizations（組織の作成）', () => {
     expect(res.json().error.code).toBe('ORG_LIMIT_REACHED');
   });
 
+  it('D4: すでに組織を作った人の2つ目は作成時点で期限切れ。決済設定済みなら書き込みは 402、閲覧は通る', async () => {
+    const before = Date.now();
+    const res = await app.inject({ method: 'POST', url: '/api/organizations', headers: bearer('org-A'), payload: { name: '2つ目' } });
+    expect(res.statusCode).toBe(201);
+    const orgId = res.json().data.organization.id as string;
+    const created = fake.rows('organization').find((o) => o.id === orgId)!;
+    const ends = (created.trialEndsAt as Date).getTime();
+    expect(ends).toBeGreaterThanOrEqual(before);
+    expect(ends).toBeLessThanOrEqual(Date.now());
+
+    const original = process.env.STRIPE_SECRET_KEY;
+    process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+    try {
+      const h = { authorization: `Bearer ${res.json().data.token}` };
+      const w = await app.inject({ method: 'POST', url: '/api/tasks', headers: h, payload: { title: 'x' } });
+      expect(w.statusCode).toBe(402);
+      expect(w.json().error.code).toBe('SUBSCRIPTION_REQUIRED');
+      const r = await app.inject({ method: 'GET', url: '/api/tasks', headers: h });
+      expect(r.statusCode).toBe(200);
+    } finally {
+      if (original === undefined) delete process.env.STRIPE_SECRET_KEY;
+      else process.env.STRIPE_SECRET_KEY = original;
+    }
+  });
+
+  it('D1: まだ組織を作っていない人（招待で入っただけ）の最初の組織には 30 日のトライアルが付く', async () => {
+    // org-A の作成者を別人にして、u-t は「自分で作った組織が無い」状態にする
+    fake.rows('organization').find((o) => o.id === 'org-A')!.createdBy = 'u-x';
+    const res = await app.inject({ method: 'POST', url: '/api/organizations', headers: bearer('org-A'), payload: { name: '最初' } });
+    expect(res.statusCode).toBe(201);
+    const created = fake.rows('organization').find((o) => o.id === res.json().data.organization.id)!;
+    const days = ((created.trialEndsAt as Date).getTime() - Date.now()) / 86_400_000;
+    expect(days).toBeGreaterThan(29.99);
+    expect(days).toBeLessThanOrEqual(30);
+  });
+
   it('組織名が空なら 400', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/organizations', headers: bearer('org-A'), payload: { name: '  ' } });
     expect(res.statusCode).toBe(400);

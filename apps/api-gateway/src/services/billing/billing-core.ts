@@ -8,6 +8,7 @@
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { ENTITLED_STATUSES, type BillingInterval, type Plan } from '@org-ai/shared-types';
+import { ENV_DEFAULTS } from '../../config/env';
 
 export const PLANS: readonly Plan[] = ['STARTER', 'PRO', 'MAX'];
 export const INTERVALS: readonly BillingInterval[] = ['month', 'year'];
@@ -35,14 +36,14 @@ export function billingConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Bill
   for (const plan of PLANS) {
     prices[plan] = { month: pick(`STRIPE_PRICE_${plan}_MONTHLY`), year: pick(`STRIPE_PRICE_${plan}_YEARLY`) };
   }
-  const trial = Number(env.BILLING_TRIAL_DAYS ?? 30);
+  const trial = Number(env.BILLING_TRIAL_DAYS ?? ENV_DEFAULTS.BILLING_TRIAL_DAYS);
   return {
     secretKey,
     webhookSecret: pick('STRIPE_WEBHOOK_SECRET'),
     prices,
     storageAddonPrice: pick('STRIPE_PRICE_STORAGE_ADDON'),
     taxRateId: pick('STRIPE_TAX_RATE_ID'),
-    trialDays: Number.isFinite(trial) && trial >= 0 ? Math.floor(trial) : 30,
+    trialDays: Number.isFinite(trial) && trial >= 0 ? Math.floor(trial) : ENV_DEFAULTS.BILLING_TRIAL_DAYS,
     appBaseUrl: (env.APP_BASE_URL?.trim() || 'http://localhost:3000').replace(/\/+$/, ''),
   };
 }

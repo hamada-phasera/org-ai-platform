@@ -6,6 +6,8 @@ export interface MembershipRowOptions {
   role?: string;
   status?: string;
   subscriptionStatus?: string | null;
+  /** 組織のトライアルの終わり（未指定は null = 登録時トライアルより前の既存組織） */
+  trialEndsAt?: Date | null;
   /** false なら Membership が無い（その組織に所属していない） */
   member?: boolean;
 }
@@ -20,7 +22,10 @@ export function userWithMembership(o: MembershipRowOptions = {}) {
             {
               role: o.role ?? 'OWNER',
               status: o.status ?? 'ACTIVE',
-              org: { subscriptionStatus: o.subscriptionStatus === undefined ? null : o.subscriptionStatus },
+              org: {
+                subscriptionStatus: o.subscriptionStatus === undefined ? null : o.subscriptionStatus,
+                trialEndsAt: o.trialEndsAt ?? null,
+              },
             },
           ],
   };

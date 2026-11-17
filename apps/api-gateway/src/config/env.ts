@@ -128,6 +128,8 @@ export const ENV_DEFAULTS = {
   EMBEDDING_DIM: 1024,
   METRICS_URL: 'http://localhost:8080',
   SHUTDOWN_DRAIN_MS: 20_000,
+  /** 登録時トライアル（カード不要）と Checkout のトライアルの日数 */
+  BILLING_TRIAL_DAYS: 30,
 } as const;
 
 /** 'false' のときだけ無効。未設定・その他の値は有効（従来の `(X ?? 'true') === 'false'` と同じ）。 */
@@ -311,5 +313,19 @@ export const config = {
   },
   get internalSchedulerEnabled(): boolean {
     return enabledUnlessFalse(readEnv().INTERNAL_SCHEDULER_ENABLED);
+  },
+
+  // ── 決済 ──
+  /** 決済が設定されているか（STRIPE_SECRET_KEY の有無）。未設定の環境ではトライアル切れでも止めない。 */
+  get billingConfigured(): boolean {
+    return !!readEnv().STRIPE_SECRET_KEY?.trim();
+  },
+  /** トライアルの日数。数でない・負の値は既定に戻す。 */
+  get billingTrialDays(): number {
+    const raw = readEnv().BILLING_TRIAL_DAYS;
+    const n = Number(raw ?? ENV_DEFAULTS.BILLING_TRIAL_DAYS);
+    return raw !== undefined && raw.trim() !== '' && Number.isFinite(n) && n >= 0
+      ? Math.floor(n)
+      : ENV_DEFAULTS.BILLING_TRIAL_DAYS;
   },
 };

@@ -13,7 +13,16 @@
   毎回サブスクリプションを取り直して `Organization` に写す。処理済みの印（`BillingEvent`）は成功してから書く。
 - 権利があるのは `trialing` / `active` / `past_due`（past_due は Stripe が再請求している猶予期間）。
   それ以外になったら梅の上限と追加容量 0 に戻す。**データは消さない**。
-- トライアルは組織ごとに1回。
+- **登録と同時にカード不要のトライアルが始まる**（`trialEndsAt = 作成時刻 + BILLING_TRIAL_DAYS`、既定 30 日）。
+  上限は梅。期限を過ぎて未契約（`subscriptionStatus = null`）なら、決済が設定済みの環境では「閲覧のみ」。
+  402 のコードは解約と同じ `SUBSCRIPTION_REQUIRED`、文言だけ「無料期間が終了」に変わる。
+  判定は `services/entitlement.ts` の `entitlementOf`（純粋関数、要求時刻で判定）。
+- トライアルは**作成者ごとに1回**。すでに自分で組織を作った人の 2 つ目以降は、作成時点で期限切れ
+  （契約するまで閲覧のみ）。招待で入った組織は数えない。
+- 登録時トライアル中に Checkout しても、Stripe 側で無料期間を重ねて付けない（`trialEndsAt` が入っているため即課金）。
+  残り期間の引き継ぎ（`subscription_data.trial_end`）は計画書チャンク 3 で足す。
+- ⚠️ 止めないもの: `trialEndsAt = null` の既存組織（登録時トライアルより前に作られた組織）と、
+  決済が未設定（`STRIPE_SECRET_KEY` なし）の環境の全組織。再開の手段が無い状態で止めないため。
 - **解約・未払いのあとは「閲覧のみ」**。新しい実行と保存は 402 で止まり、台帳・ファイル・
   過去のやり取りの閲覧と書き出しは続けられる。データは消さない。
   削除するなら90日後に予告してから、という方針だが**自動削除はまだ実装していない**（運用で行う）。
@@ -69,6 +78,20 @@
 
 `.env.example` の「決済 (Stripe)」を参照。`STRIPE_SECRET_KEY` が無ければ決済は未設定として扱い、
 設定 > プラン は「準備中」を表示するだけで、他の機能には影響しない。
+
+### 既存の組織をトライアルに乗せる（任意・手作業）
+
+既定では乗せない（`trialEndsAt = null` のまま止まらない）。乗せると決めたら、件数を確かめてから流す。
+
+```sql
+-- 対象の件数（未契約・トライアル未設定）
+SELECT count(*) FROM "Organization" WHERE "subscriptionStatus" IS NULL AND "trialEndsAt" IS NULL;
+-- 今から 30 日のトライアルを付ける（決済設定済みなら、期限後は閲覧のみ）
+UPDATE "Organization" SET "trialEndsAt" = now() + interval '30 days'
+ WHERE "subscriptionStatus" IS NULL AND "trialEndsAt" IS NULL;
+```
+
+所属のキャッシュは 30 秒で切れるので、gateway の再起動は要らない。
 
 ## 解約したお客さまのデータ
 

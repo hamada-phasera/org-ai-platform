@@ -18,6 +18,8 @@ import {
   type SubscriptionStatus,
 } from '@org-ai/shared-types';
 import { creatorTrialUsed } from '../services/organizations';
+import { appTrialOf } from '../services/entitlement';
+import { config as appConfig } from '../config/env';
 import { authOf, type TenantDb } from '../tenancy';
 import { requireAuth, requireOwner } from '../middleware/auth';
 import {
@@ -113,7 +115,8 @@ async function buildOverview(db: TenantDb, orgId: string): Promise<BillingOvervi
     trialEndsAt: org.trialEndsAt?.toISOString() ?? null,
     cancelAtPeriodEnd: org.cancelAtPeriodEnd,
     trialAvailable: !org.trialEndsAt && !org.stripeSubscriptionId && !(await creatorTrialUsed(org)),
-    trialDays: config?.trialDays ?? 30,
+    trialDays: config?.trialDays ?? appConfig.billingTrialDays,
+    appTrial: appTrialOf({ status: org.subscriptionStatus, trialEndsAt: org.trialEndsAt, now: Date.now() }),
     hasCustomer: !!org.stripeCustomerId,
     prices,
     storageAddon: {

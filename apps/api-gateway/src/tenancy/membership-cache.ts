@@ -8,7 +8,7 @@
 //   Membership を変える API（役割の変更・無効化・招待の受諾・組織の作成）は、同じプロセスのキャッシュを
 //   即座に破棄する。Render の api-gateway は1インスタンスの想定。台数を増やすと、他のインスタンスでは
 //   最大 TTL 分だけ遅れる（設計書 §15-9）。
-//   契約状態（subscriptionStatus）も載せているので、Stripe の写し込みでも組織単位で破棄する。
+//   契約状態（subscriptionStatus・trialEndsAt）も載せているので、Stripe の写し込みでも組織単位で破棄する。
 //
 // ⚠️ DB の素のクライアントを使う（所属の確認はテナントが決まる前の処理なので）。
 
@@ -21,6 +21,8 @@ export interface MembershipSnapshot {
   membership: { role: string; status: string } | null;
   /** 組織の契約状態（解約後の閲覧のみ判定に使う） */
   subscriptionStatus: string | null;
+  /** 組織のトライアルの終わり（登録時トライアルの期限切れ判定に使う。判定は要求時刻で行う） */
+  trialEndsAt: Date | null;
 }
 
 export const MEMBERSHIP_CACHE_TTL_MS = 30_000;
@@ -36,17 +38,18 @@ async function load(userId: string, orgId: string): Promise<MembershipSnapshot> 
       status: true,
       memberships: {
         where: { orgId },
-        select: { role: true, status: true, org: { select: { subscriptionStatus: true } } },
+        select: { role: true, status: true, org: { select: { subscriptionStatus: true, trialEndsAt: true } } },
         take: 1,
       },
     },
   });
-  if (!user) return { userStatus: null, membership: null, subscriptionStatus: null };
+  if (!user) return { userStatus: null, membership: null, subscriptionStatus: null, trialEndsAt: null };
   const m = user.memberships?.[0];
   return {
     userStatus: user.status,
     membership: m ? { role: m.role, status: m.status } : null,
     subscriptionStatus: m?.org?.subscriptionStatus ?? null,
+    trialEndsAt: m?.org?.trialEndsAt ?? null,
   };
 }
 

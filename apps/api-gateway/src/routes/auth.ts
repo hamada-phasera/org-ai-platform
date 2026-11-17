@@ -14,6 +14,8 @@ import {
 } from '../services/memberships';
 import { seedDefaultCapabilities } from '../services/organizations';
 import { tenantDbFrom } from '../tenancy/tenant-db';
+import { appTrialEndFrom } from '../services/entitlement';
+import { config } from '../config/env';
 
 const registerSchema = z.object({
   name: z.string().min(1),
@@ -46,7 +48,15 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     /* 組織・本人・所属は1トランザクションで作る（途中で落ちて「所属の無いオーナー」を残さない）。
        新しい組織を作った本人がオーナー。以降のメンバーは招待から入る（Invitation の role は ADMIN|MEMBER のみ）。 */
     const { org, user } = await prisma.$transaction(async (tx) => {
-      const org = await tx.organization.create({ data: { name: orgName, plan: 'STARTER' } });
+      /* 登録と同時にカード不要のトライアルを始める（D1）。期限を過ぎて未契約なら閲覧のみ（決済設定済みのとき）。
+         上限は梅のまま（D5）。 */
+      const org = await tx.organization.create({
+        data: {
+          name: orgName,
+          plan: 'STARTER',
+          trialEndsAt: appTrialEndFrom(new Date(), config.billingTrialDays),
+        },
+      });
       const user = await tx.user.create({
         // User.role / User.orgId は移行期間中の写し（正本は Membership）
         data: { name, email, passwordHash, role: 'OWNER', orgId: org.id },

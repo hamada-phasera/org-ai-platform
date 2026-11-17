@@ -109,6 +109,51 @@ describe('POST /api/auth/register', () => {
     expect(payload.orgId).toBe('org-new');
     await app.close();
   });
+
+  it('D1: 登録と同時にカード不要のトライアルを始める（trialEndsAt = 作成時刻 + 30 日、プランは梅）', async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.$transaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(prismaMock));
+    prismaMock.organization.create.mockResolvedValue({ id: 'org-new', name: '新会社', plan: 'STARTER' });
+    prismaMock.user.create.mockResolvedValue({ id: 'u-new', name: 'N', email: 'n@example.com', role: 'OWNER' });
+    prismaMock.membership.create.mockResolvedValue({});
+    prismaMock.organization.update.mockResolvedValue({});
+    const app = await build();
+    const before = Date.now();
+    const res = await app.inject({
+      method: 'POST', url: '/api/auth/register',
+      payload: { name: 'N', email: 'n@example.com', password: 'password123', orgName: '新会社' },
+    });
+    expect(res.statusCode).toBe(201);
+    const data = prismaMock.organization.create.mock.calls[0][0].data as { plan: string; trialEndsAt: Date };
+    expect(data.plan).toBe('STARTER');
+    const DAY = 86_400_000;
+    expect(data.trialEndsAt.getTime()).toBeGreaterThanOrEqual(before + 30 * DAY);
+    expect(data.trialEndsAt.getTime()).toBeLessThanOrEqual(Date.now() + 30 * DAY);
+    await app.close();
+  });
+
+  it('BILLING_TRIAL_DAYS で日数を変えられる', async () => {
+    const original = process.env.BILLING_TRIAL_DAYS;
+    process.env.BILLING_TRIAL_DAYS = '14';
+    try {
+      prismaMock.user.findUnique.mockResolvedValue(null);
+      prismaMock.$transaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(prismaMock));
+      prismaMock.organization.create.mockResolvedValue({ id: 'org-new', name: '新会社', plan: 'STARTER' });
+      prismaMock.user.create.mockResolvedValue({ id: 'u-new', name: 'N', email: 'n@example.com', role: 'OWNER' });
+      const app = await build();
+      const res = await app.inject({
+        method: 'POST', url: '/api/auth/register',
+        payload: { name: 'N', email: 'n@example.com', password: 'password123', orgName: '新会社' },
+      });
+      expect(res.statusCode).toBe(201);
+      const ends = (prismaMock.organization.create.mock.calls[0][0].data as { trialEndsAt: Date }).trialEndsAt;
+      expect(Math.round((ends.getTime() - Date.now()) / 86_400_000)).toBe(14);
+      await app.close();
+    } finally {
+      if (original === undefined) delete process.env.BILLING_TRIAL_DAYS;
+      else process.env.BILLING_TRIAL_DAYS = original;
+    }
+  });
 });
 
 describe('PATCH /api/organizations/me', () => {
