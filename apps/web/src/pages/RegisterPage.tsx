@@ -7,11 +7,12 @@ import { useAuthStore } from '../store/authStore';
 import type { MembershipSummary, User } from '@org-ai/shared-types';
 import { AmbientBackground, Card, Input, Button } from '../components/ui';
 
+/* autoComplete と inputMode はスマホのキーボードと自動入力のため（メールは小文字・自動修正なし） */
 const FIELDS = [
-  { key: 'name', label: 'お名前', type: 'text', placeholder: '山田 太郎', autoComplete: 'name' },
-  { key: 'email', label: 'メールアドレス', type: 'email', placeholder: 'you@example.com', autoComplete: 'email' },
-  { key: 'password', label: 'パスワード (8文字以上)', type: 'password', placeholder: '••••••••', autoComplete: 'new-password' },
-  { key: 'orgName', label: '組織名', type: 'text', placeholder: '株式会社サンプル', autoComplete: 'organization' },
+  { key: 'name', label: 'お名前', type: 'text', placeholder: '山田 太郎', autoComplete: 'name', inputMode: 'text' },
+  { key: 'email', label: 'メールアドレス', type: 'email', placeholder: 'you@example.com', autoComplete: 'email', inputMode: 'email' },
+  { key: 'password', label: 'パスワード (8文字以上)', type: 'password', placeholder: '••••••••', autoComplete: 'new-password', inputMode: 'text' },
+  { key: 'orgName', label: '組織名', type: 'text', placeholder: '株式会社サンプル', autoComplete: 'organization', inputMode: 'text' },
 ] as const;
 
 export default function RegisterPage() {
@@ -41,7 +42,7 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden">
+    <div className="min-h-dvh flex items-center justify-center p-6 relative overflow-hidden">
       <AmbientBackground />
       <motion.div
         className="w-full max-w-sm relative z-10"
@@ -79,7 +80,7 @@ export default function RegisterPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {FIELDS.map(({ key, label, type, placeholder, autoComplete }) => (
+            {FIELDS.map(({ key, label, type, placeholder, autoComplete, inputMode }) => (
               <div key={key}>
                 <label
                   htmlFor={key}
@@ -94,6 +95,11 @@ export default function RegisterPage() {
                   onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
                   placeholder={placeholder}
                   autoComplete={autoComplete}
+                  inputMode={inputMode}
+                  autoCapitalize={key === 'email' ? 'none' : undefined}
+                  autoCorrect={key === 'email' ? 'off' : undefined}
+                  spellCheck={key === 'email' ? false : undefined}
+                  minLength={key === 'password' ? 8 : undefined}
                   required
                 />
               </div>

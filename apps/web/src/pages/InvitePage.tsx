@@ -76,7 +76,7 @@ export default function InvitePage() {
 
   if (previewQ.isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex min-h-dvh items-center justify-center">
         <Spinner />
       </div>
     );
@@ -85,7 +85,7 @@ export default function InvitePage() {
   /* 無効なリンク。理由は細かく出さない（トークンの当てずっぽうに情報を与えない） */
   if (previewQ.isError || !previewQ.data) {
     return (
-      <div className="flex min-h-screen items-center justify-center px-4">
+      <div className="flex min-h-dvh items-center justify-center px-4">
         <Card variant="regular" padding="lg" radius="2xl" className="w-full max-w-md text-center">
           <h1 className="text-body font-semibold text-primary">この招待リンクは使えません</h1>
           <p className="mt-2 text-sm leading-relaxed text-muted">
@@ -104,7 +104,7 @@ export default function InvitePage() {
 
   if (invite.requiresLogin) {
     return (
-      <div className="flex min-h-screen items-center justify-center px-4">
+      <div className="flex min-h-dvh items-center justify-center px-4">
         <Card variant="regular" padding="lg" radius="2xl" className="w-full max-w-md space-y-4 text-center">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-soft">
             <Building2 size={20} className="text-accent" aria-hidden="true" />
@@ -133,7 +133,7 @@ export default function InvitePage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
+    <div className="flex min-h-dvh items-center justify-center px-4">
       <motion.div
         className="w-full max-w-md"
         initial={{ opacity: 0, y: 10 }}
@@ -164,6 +164,7 @@ export default function InvitePage() {
                 size="md"
                 fullWidth
                 placeholder="山田 太郎"
+                autoComplete="name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />

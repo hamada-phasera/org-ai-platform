@@ -51,7 +51,7 @@ export function MobileNav() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={transition}
-            className="fixed inset-0 z-40 overflow-y-auto bg-canvas pb-16 lg:hidden"
+            className="fixed inset-0 z-40 overflow-y-auto bg-canvas pb-[calc(4rem+env(safe-area-inset-bottom))] pt-[env(safe-area-inset-top)] lg:hidden"
             role="dialog"
             aria-modal="true"
             aria-label="メニュー"
@@ -119,7 +119,7 @@ export function MobileNav() {
       </AnimatePresence>
 
       <nav
-        className="bg-elevated border border-border shadow-elev-3 fixed inset-x-0 bottom-0 z-50 flex rounded-none border-x-0 border-b-0 lg:hidden"
+        className="bg-elevated border border-border shadow-elev-3 fixed inset-x-0 bottom-0 z-50 flex rounded-none border-x-0 border-b-0 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] lg:hidden"
         aria-label="モバイルナビゲーション"
       >
         {MOBILE_TABS.map((tab) => (

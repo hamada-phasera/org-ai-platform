@@ -14,8 +14,11 @@ import { useMotion, usePrefersReducedMotion } from '../motion/springs';
  * アプリの唯一のシェル。
  *
  * v1 は Layout.tsx（全ルート）と Dashboard/DashboardLayout.tsx（"/" 専用）の
- * 2 つが並立し、同じ h-screen + AmbientBackground + BottomNav を二重に持っていた。
+ * 2 つが並立し、同じ全画面の高さ + AmbientBackground + BottomNav を二重に持っていた。
  * ここへ統合する。
+ *
+ * 高さは 100dvh（h-dvh）。100vh だとスマホのアドレスバーの分だけ下部ナビが画面外に押し出される。
+ * 左右はノッチ（viewport-fit=cover）、下は下部ナビの 56px とホームバー（safe-area）の分を空ける。
  */
 export function AppShell() {
   const location = useLocation();
@@ -27,7 +30,7 @@ export function AppShell() {
   const mobileAllowed = isMobileRoute(location.pathname);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-canvas">
+    <div className="flex h-dvh overflow-hidden bg-canvas pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       <Sidebar />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -50,7 +53,7 @@ export function AppShell() {
         {/* 契約状態・上限の帯。スマホで開かない画面（DesktopOnly）の上にも出す */}
         <PlanNotice />
 
-        <main className="relative min-h-0 flex-1 overflow-y-auto pb-14 lg:pb-0">
+        <main className="relative min-h-0 flex-1 overflow-y-auto pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-0">
           {/* スマホで開かない画面はここで一括して誘導に差し替える。
               各ページに分岐を撒くとすぐに漏れるので、判定は 1 箇所に置く。 */}
           <div className="lg:hidden">{!mobileAllowed && <DesktopOnly />}</div>

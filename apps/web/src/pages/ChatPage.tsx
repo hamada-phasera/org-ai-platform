@@ -1269,7 +1269,7 @@ export default function ChatPage() {
                     }}
                     placeholder={selectedDept ? `${DEPT_LABEL[selectedDept]}AIに指示を入力...` : 'AIに何でも聞いてください...'}
                     aria-label="AIへのメッセージ"
-                    className="w-full bg-transparent border-0 text-sm text-primary placeholder:text-muted resize-none focus:outline-none"
+                    className="w-full bg-transparent border-0 text-sm max-lg:text-base text-primary placeholder:text-muted resize-none focus:outline-none"
                     rows={1}
                     style={{ maxHeight: '160px' }}
                   />

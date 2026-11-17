@@ -26,7 +26,7 @@ export default function NoOrgPage() {
   });
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
+    <div className="flex min-h-dvh items-center justify-center px-4">
       <Card variant="regular" padding="lg" radius="2xl" className="w-full max-w-md space-y-4 text-center">
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-soft">
           <Building2 size={20} className="text-accent" aria-hidden="true" />
