@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { assertStartupConfig, StartupConfigError } from '../startup-checks';
+import { assertStartupConfig, PUBLIC_JWT_SECRETS, StartupConfigError } from '../startup-checks';
 import { ENV_DEFAULTS } from '../env';
 
 // チャンク 7: 起動拒否（本番で n8n トークンが既定値・未設定なら起動しない）
@@ -48,6 +48,22 @@ describe('assertStartupConfig', () => {
     expect(() => assertStartupConfig()).toThrow(/JWT_SECRET/);
     process.env.JWT_SECRET = 'short';
     expect(() => assertStartupConfig()).toThrow(/JWT_SECRET/);
+  });
+
+  it('チャンク 8: 本番でリポジトリに載っている JWT_SECRET（見本・compose の既定値）なら例外、開発では起動する', () => {
+    process.env.N8N_WEBHOOK_AUTH_TOKEN = N8N;
+    for (const published of PUBLIC_JWT_SECRETS) {
+      process.env.JWT_SECRET = published;
+      process.env.NODE_ENV = 'development';
+      expect(() => assertStartupConfig()).not.toThrow();
+      process.env.NODE_ENV = 'production';
+      expect(() => assertStartupConfig()).toThrow(/JWT_SECRET/);
+      try {
+        assertStartupConfig();
+      } catch (e) {
+        expect((e as Error).message).not.toContain(published);
+      }
+    }
   });
 
   it('⚠️ 例外の文言に秘密の値を入れない', () => {

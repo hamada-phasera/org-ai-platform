@@ -30,7 +30,6 @@ describe('config: 既定値（移行前と同じ）', () => {
     ['inviteTtlDays', 7],
     ['apiGatewayUrl', 'http://localhost:4000'],
     ['aiEngineUrl', 'http://localhost:8000'],
-    ['aiEngineUrlComposeDefault', 'http://ai-engine:8000'],
     ['n8nUrl', 'http://localhost:5678'],
     ['n8nChatCloudUrl', ENV_DEFAULTS.N8N_CHAT_CLOUD_URL],
     ['n8nApiKey', ''],

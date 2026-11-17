@@ -112,12 +112,8 @@ export const ENV_DEFAULTS = {
   ALLOWED_ORIGIN_HOSTS: 'org-ai-platform.vercel.app',
   VERCEL_PREVIEW_SUFFIX: '-hamahiro1668s-projects.vercel.app',
   API_GATEWAY_URL: 'http://localhost:4000',
+  /** 呼び出し元すべてで同じ。docker-compose では compose 側で http://ai-engine:8000 を渡す */
   AI_ENGINE_URL: 'http://localhost:8000',
-  /**
-   * ⚠️ chat / deliverables だけは docker-compose のサービス名を既定にしている（歴史的経緯）。
-   *    他の呼び出し元は localhost。挙動を変えないため両方を残してある。
-   */
-  AI_ENGINE_URL_COMPOSE: 'http://ai-engine:8000',
   N8N_URL: 'http://localhost:5678',
   /** chat.ts のワークフロー一覧/実行だけが使う既定（N8N_URL は見ない）。 */
   N8N_CHAT_CLOUD_URL: 'https://hamahiro.app.n8n.cloud',
@@ -144,7 +140,7 @@ function enabledUnlessFalse(value: string | undefined): boolean {
 
 /**
  * 型付きの設定値。すべて getter なので、参照した時点の process.env を反映する。
- * 呼び出し元ごとに既定値が違っていたもの（AI_ENGINE_URL 等）は別の名前で持つ。
+ * 呼び出し元ごとに既定値が違うもの（n8n の chat 用 URL）は別の名前で持つ。
  */
 export const config = {
   get nodeEnv(): string | undefined {
@@ -219,10 +215,6 @@ export const config = {
   // ── ai-engine ──
   get aiEngineUrl(): string {
     return readEnv().AI_ENGINE_URL ?? ENV_DEFAULTS.AI_ENGINE_URL;
-  },
-  /** chat / deliverables 用（既定が docker-compose のサービス名）。ENV_DEFAULTS の注記を参照。 */
-  get aiEngineUrlComposeDefault(): string {
-    return readEnv().AI_ENGINE_URL ?? ENV_DEFAULTS.AI_ENGINE_URL_COMPOSE;
   },
   get internalApiToken(): string | undefined {
     return readEnv().INTERNAL_API_TOKEN;
