@@ -5,7 +5,9 @@ import logging
 from typing import Any
 
 from app.departments import DEPARTMENTS
-from app.llm.router import TaskKind, llm_router
+from app.governance.audit_logger import schedule_llm_log
+from app.governance.pii_screener import screen
+from app.llm.router import TaskKind, llm_router, provider_of_model
 from app.models.llm import ChatMessage
 from app.planner.prompts import (
     AGENT_SCREEN_SYSTEM,
@@ -30,13 +32,29 @@ async def plan_capability(
     capabilities: list[dict[str, Any]],
     user_email: str | None = None,
 ) -> dict[str, Any]:
+    result, _model = await plan_capability_with_model(message, org_id, plan, capabilities, user_email)
+    return result
+
+
+async def plan_capability_with_model(
+    message: str,
+    org_id: str,
+    plan: str,
+    capabilities: list[dict[str, Any]],
+    user_email: str | None = None,
+) -> tuple[dict[str, Any], str | None]:
+    """plan_capability と同じ結果に、実際に応答したモデル名を添えて返す。
+
+    ⚠️ AILog の model は**応答の実モデル名**を残す。上限超過で軽いモデルへ落ちたとき、
+       事前に決めたモデル名を書くと記録と実際がずれる。LLM を呼ばなかった・失敗したときは None。
+    """
     if not capabilities:
         return {
             "capability_name": None,
             "args": {},
             "confidence": 0.0,
             "reasoning": "登録済みケイパビリティが 0 件",
-        }
+        }, None
 
     messages = [
         ChatMessage(role="system", content=build_planner_system_prompt(capabilities)),
@@ -58,7 +76,7 @@ async def plan_capability(
             "args": {},
             "confidence": 0.0,
             "reasoning": f"LLM 呼び出し失敗: {e}",
-        }
+        }, None
 
     raw = response.content.strip()
     parsed = _safe_parse_json(raw)
@@ -68,7 +86,7 @@ async def plan_capability(
             "args": {},
             "confidence": 0.0,
             "reasoning": f"LLM 出力の JSON パース失敗: {raw[:120]}",
-        }
+        }, response.model
 
     name = parsed.get("capability_name")
     if name is not None and not isinstance(name, str):
@@ -87,14 +105,14 @@ async def plan_capability(
             "confidence": 0.0,
             "reasoning": f"LLM が未登録の name='{name}' を返したため UNSUPPORTED 扱い",
             "inferred_name": name,
-        }
+        }, response.model
 
     return {
         "capability_name": name,
         "args": args,
         "confidence": float(confidence),
         "reasoning": reasoning,
-    }
+    }, response.model
 
 
 async def screen_agent(description: str, org_id: str, plan: str) -> dict[str, Any]:
@@ -106,10 +124,15 @@ async def screen_agent(description: str, org_id: str, plan: str) -> dict[str, An
 
     判定に失敗したときは False を返す（提案を出さない側に倒す）。
     誤って出すより出さないほうが害が小さい。
+
+    ⚠️ この判定も LLM 呼び出し1回なので AILog に残し、月間の回数に入れる
+       （回数は AILog の行数で数える。note_call は LLMRouter.chat が1回だけ行う）。
+       記録する入力はマスク後だけ。呼び出し側がマスク済みでも、ここでもう一度通す。
     """
+    pii_result = screen(description)
     messages = [
         ChatMessage(role="system", content=AGENT_SCREEN_SYSTEM),
-        ChatMessage(role="user", content=build_agent_screen_user_prompt(description)),
+        ChatMessage(role="user", content=build_agent_screen_user_prompt(pii_result.text)),
     ]
     try:
         response, _pii, _types = await llm_router.chat(
@@ -123,6 +146,19 @@ async def screen_agent(description: str, org_id: str, plan: str) -> dict[str, An
     except Exception as e:
         logger.warning("agent screen failed, skipping suggestion: %s", type(e).__name__)
         return {"repeatable": False, "confidence": 0.0, "reason": "判定に失敗しました"}
+
+    schedule_llm_log(
+        org_id=org_id,
+        department="GENERAL",
+        provider=provider_of_model(response.model),
+        model=response.model,
+        input_text=pii_result.text,
+        output_text=response.content,
+        tokens=response.tokens_used,
+        latency_ms=response.latency_ms,
+        pii_detected=pii_result.detected,
+        pii_types=list(pii_result.types) if pii_result.detected else [],
+    )
 
     parsed = _safe_parse_json((response.content or "").strip())
     if not isinstance(parsed, dict):

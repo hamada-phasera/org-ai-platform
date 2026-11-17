@@ -10,6 +10,7 @@ import { ProjectLedger } from '../components/Accounting/ProjectLedger';
 import { CostApproval } from '../components/Accounting/CostApproval';
 import { VendorInvoice } from '../components/Accounting/VendorInvoice';
 import { yenShort, type AccountingSummary } from '../components/Accounting/types';
+import { DesktopOnly } from '../components/shell/DesktopOnly';
 
 /**
  * 経理部（建設業向け）。
@@ -26,7 +27,7 @@ type View = 'ledger' | 'costs' | 'vendors';
 const TABS = [
   { value: 'ledger' as const, label: '工事台帳' },
   { value: 'costs' as const, label: '原価' },
-  { value: 'vendors' as const, label: '取引先・インボイス' },
+  { value: 'vendors' as const, label: '取引先' },
 ];
 
 /** 見出しの数字。「今どうなっているか」を4つだけ出す。 */
@@ -68,7 +69,7 @@ function SummaryStrip() {
   ];
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       {cells.map((c) => (
         <Card key={c.label} variant="thin" padding="md" radius="2xl">
           <p className="text-micro font-semibold uppercase tracking-[0.15em] text-muted">{c.label}</p>
@@ -127,7 +128,17 @@ export default function AccountingPage() {
         >
           {view === 'ledger' && <ProjectLedger />}
           {view === 'costs' && <CostApproval />}
-          {view === 'vendors' && <VendorInvoice />}
+          {/* スマホは工事一覧と下書きの承認まで（D6）。取引先・インボイスの表はパソコン */}
+          {view === 'vendors' && (
+            <>
+              <div className="lg:hidden">
+                <DesktopOnly what="取引先とインボイス" />
+              </div>
+              <div className="hidden lg:block">
+                <VendorInvoice />
+              </div>
+            </>
+          )}
         </motion.div>
 
         <Card variant="thin" padding="md" radius="2xl">

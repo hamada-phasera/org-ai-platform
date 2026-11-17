@@ -7,6 +7,9 @@ import { api } from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 import { Badge, Button, Card, SkeletonList } from '../ui';
 import { LiquidTabs } from '../motion/LiquidTabs';
+import { isReadOnly } from '../../utils/planNotice';
+import { useNow } from '../../hooks/useNow';
+import { LegalLinks } from '../../pages/legal/LegalLinks';
 
 /**
  * プランとお支払い。
@@ -38,9 +41,16 @@ function errorMessage(e: unknown, fallback: string): string {
   return err.response?.data?.error?.message ?? fallback;
 }
 
-function statusOf(b: BillingOverview): { tone: Tone; text: string } {
+function statusOf(b: BillingOverview, now: number): { tone: Tone; text: string } {
+  // 未完了の支払い・解約後でも、登録時トライアルの残りは使える（saas-review #4）。残りを添える
+  const left = b.appTrial?.active ? `（無料期間は残り${b.appTrial.daysLeft}日）` : '';
   switch (b.subscriptionStatus) {
     case null:
+      // 登録時トライアル（カード不要）。期限が過ぎて決済が設定済みなら閲覧のみ
+      if (b.appTrial?.active) {
+        return { tone: 'accent', text: `無料期間中（残り${b.appTrial.daysLeft}日・${dateLabel(b.appTrial.endsAt)}まで）` };
+      }
+      if (isReadOnly(b, now)) return { tone: 'warning', text: '無料期間は終了しました' };
       return { tone: 'info', text: 'まだご契約はありません' };
     case 'trialing':
       return { tone: 'accent', text: `無料トライアル中（${dateLabel(b.trialEndsAt)}まで）` };
@@ -51,11 +61,12 @@ function statusOf(b: BillingOverview): { tone: Tone; text: string } {
     case 'past_due':
       return { tone: 'danger', text: 'お支払いが確認できていません。お支払い情報をご確認ください' };
     case 'incomplete':
-      return { tone: 'warning', text: 'お支払いの手続きが完了していません' };
+    case 'incomplete_expired':
+      return { tone: 'warning', text: `お支払いの手続きが完了していません${left}` };
     case 'paused':
-      return { tone: 'warning', text: '契約は一時停止中です' };
+      return { tone: 'warning', text: `契約は一時停止中です${left}` };
     default:
-      return { tone: 'warning', text: '契約は終了しています' };
+      return { tone: 'warning', text: `契約は終了しています${left}` };
   }
 }
 
@@ -70,7 +81,12 @@ function Banner({ tone, children, onClose }: { tone: 'danger' | 'accent'; childr
       <Icon size={14} className="mt-0.5 flex-shrink-0" aria-hidden="true" />
       <p className="min-w-0 flex-1 leading-relaxed">{children}</p>
       {onClose && (
-        <button type="button" onClick={onClose} aria-label="閉じる" className="shrink-0 text-muted hover:text-primary">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="閉じる"
+          className="-my-2.5 -mr-3 flex h-11 w-11 shrink-0 items-center justify-center text-muted hover:text-primary"
+        >
           <X size={12} />
         </button>
       )}
@@ -85,6 +101,7 @@ export function BillingSection() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draftUnits, setDraftUnits] = useState<number | null>(null);
+  const now = useNow();
   // Checkout から ?checkout=success|cancel で戻ってくる
   const [notice, setNotice] = useState<'success' | 'cancel' | null>(() => {
     const v = new URLSearchParams(window.location.search).get('checkout');
@@ -163,7 +180,8 @@ export function BillingSection() {
   if (!billing) return null;
 
   const entitled = isEntitled(billing.subscriptionStatus);
-  const current = statusOf(billing);
+  const readOnly = isReadOnly(billing, now);
+  const current = statusOf(billing, now);
   const priceOf = (plan: Plan, interval: BillingInterval) =>
     billing.prices.find((p) => p.plan === plan && p.interval === interval)?.amount ?? null;
   const addon = billing.storageAddon;
@@ -213,7 +231,7 @@ export function BillingSection() {
         {billing.configured && !isOwner && (
           <p className="mt-3 text-xs text-muted">プランのお申し込み・変更はオーナーのみ行えます。</p>
         )}
-        {billing.subscriptionStatus && !entitled && (
+        {readOnly && (
           <p className="mt-3 text-xs text-warning">
             現在は閲覧のみです。台帳・ファイル・過去のやり取りはそのまま見られますが、新しい実行と保存はできません。
             プランを再開すると元に戻ります。
@@ -239,7 +257,8 @@ export function BillingSection() {
             <span className="ml-auto text-xs text-muted">ユーザー数は全プラン無制限・初期費用 0円</span>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          {/* 3 プランは区切り線で並べる（カードの入れ子にしない）。スマホは縦積みの行、md 以上は 3 列 */}
+          <div className="grid grid-cols-1 divide-y divide-hairline md:grid-cols-3 md:divide-x md:divide-y-0">
             {PLAN_ORDER.map((plan) => {
               const amount = priceOf(plan, cycle);
               const limits = PLAN_LIMITS[plan];
@@ -248,9 +267,7 @@ export function BillingSection() {
               return (
                 <div
                   key={plan}
-                  className={`flex flex-col rounded-2xl border p-4 ${
-                    isCurrent ? 'border-accent-soft-border bg-accent-soft' : 'border-border bg-sunken'
-                  }`}
+                  className="flex flex-col py-4 first:pt-0 last:pb-0 md:px-4 md:py-0 md:first:pl-0 md:last:pr-0"
                 >
                   <p className="text-lg font-bold text-primary">
                     {PLAN_NAME[plan].name}
@@ -312,6 +329,14 @@ export function BillingSection() {
               無料期間中はいつでも解約でき、料金は発生しません。無料期間が終わると選んだプランの料金がかかります。
             </p>
           )}
+          {/* 残り 48 時間以上なら無料期間を Checkout に引き継ぐ（D3）。サーバの checkoutTrialEndsAt が正 */}
+          {!billing.trialAvailable && !entitled && billing.appTrial?.active && (
+            <p className="mt-3 text-xs text-muted">
+              {billing.checkoutTrialEndsAt
+                ? `無料期間は残り${billing.appTrial.daysLeft}日です。今ご契約いただいても、料金は${dateLabel(billing.checkoutTrialEndsAt)}からかかります。`
+                : `無料期間は残り${billing.appTrial.daysLeft}日です。ご契約の日から料金がかかります。`}
+            </p>
+          )}
         </Card>
       )}
 
@@ -333,7 +358,7 @@ export function BillingSection() {
                 aria-label="1口減らす"
                 onClick={() => setDraftUnits(Math.max(0, units - 1))}
                 disabled={!addon.purchasable || !isOwner || units <= 0}
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-secondary hover:text-primary disabled:opacity-40"
+                className="flex h-11 w-11 items-center justify-center rounded-lg text-secondary hover:text-primary disabled:opacity-40"
               >
                 <Minus size={13} />
               </button>
@@ -345,7 +370,7 @@ export function BillingSection() {
                 aria-label="1口増やす"
                 onClick={() => setDraftUnits(Math.min(50, units + 1))}
                 disabled={!addon.purchasable || !isOwner || units >= 50}
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-secondary hover:text-primary disabled:opacity-40"
+                className="flex h-11 w-11 items-center justify-center rounded-lg text-secondary hover:text-primary disabled:opacity-40"
               >
                 <Plus size={13} />
               </button>
@@ -372,9 +397,12 @@ export function BillingSection() {
         </Card>
       )}
 
-      <p className="text-xs text-muted">
-        価格はすべて税抜です。お支払いは Stripe の画面で行われ、カード情報はこのサービスに保存されません。
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-muted">
+          価格はすべて税抜です。お支払いは Stripe の画面で行われ、カード情報はこのサービスに保存されません。
+        </p>
+        <LegalLinks />
+      </div>
     </div>
   );
 }

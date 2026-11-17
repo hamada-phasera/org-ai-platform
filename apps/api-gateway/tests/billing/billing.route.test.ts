@@ -6,6 +6,7 @@ import { setTenant } from '../helpers/tenant';
 const prismaMock = {
   organization: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn(), count: vi.fn() },
   user: { findUnique: vi.fn() },
+  auditEvent: { create: vi.fn(async () => ({})) },
 };
 vi.mock('../../src/utils/prisma', () => ({ prisma: prismaMock }));
 
@@ -42,7 +43,7 @@ vi.mock('../../src/services/billing/stripe-client', () => ({
 const applySubscription = vi.fn();
 vi.mock('../../src/services/billing/sync', () => ({ applySubscription: (...a: unknown[]) => applySubscription(...a) }));
 
-const { billingRoutes, resetBillingPriceCache } = await import('../../src/routes/billing');
+const { billingRoutes, resetBillingPriceCache, CHECKOUT_NOT_READY_MESSAGE } = await import('../../src/routes/billing');
 
 async function build(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -52,12 +53,13 @@ async function build(): Promise<FastifyInstance> {
 }
 
 const ENV_KEYS = [
-  'STRIPE_SECRET_KEY', 'STRIPE_PRICE_STARTER_MONTHLY', 'STRIPE_PRICE_PRO_MONTHLY', 'STRIPE_PRICE_PRO_YEARLY',
+  'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_PRICE_STARTER_MONTHLY', 'STRIPE_PRICE_PRO_MONTHLY', 'STRIPE_PRICE_PRO_YEARLY',
   'STRIPE_PRICE_STORAGE_ADDON', 'STRIPE_TAX_RATE_ID', 'APP_BASE_URL', 'BILLING_TRIAL_DAYS',
 ];
 
 function configure(): void {
   process.env.STRIPE_SECRET_KEY = ['sk', 'test', 'unit'].join('_');
+  process.env.STRIPE_WEBHOOK_SECRET = ['whsec', 'unit'].join('_');
   process.env.STRIPE_PRICE_STARTER_MONTHLY = 'price_s_m';
   process.env.STRIPE_PRICE_PRO_MONTHLY = 'price_p_m';
   process.env.STRIPE_PRICE_PRO_YEARLY = 'price_p_y';
@@ -111,6 +113,40 @@ describe('GET /api/billing', () => {
     await app.close();
   });
 
+  it('登録時トライアル中は appTrial に残り日数を返す（Checkout では二重に無料期間を付けない）', async () => {
+    configure();
+    const endsAt = new Date(Date.now() + 9.5 * 86_400_000);
+    prismaMock.organization.findUnique.mockResolvedValue(org({ trialEndsAt: endsAt }));
+    const app = await build();
+    const data = (await app.inject({ method: 'GET', url: '/api/billing' })).json().data;
+    expect(data.appTrial).toEqual({ active: true, endsAt: endsAt.toISOString(), daysLeft: 10 });
+    expect(data.trialAvailable).toBe(false);
+    await app.close();
+  });
+
+  it('登録時トライアルが切れていれば appTrial.active=false・残り 0', async () => {
+    configure();
+    const endsAt = new Date(Date.now() - 86_400_000);
+    prismaMock.organization.findUnique.mockResolvedValue(org({ trialEndsAt: endsAt }));
+    const app = await build();
+    const data = (await app.inject({ method: 'GET', url: '/api/billing' })).json().data;
+    expect(data.appTrial).toEqual({ active: false, endsAt: endsAt.toISOString(), daysLeft: 0 });
+    await app.close();
+  });
+
+  it('契約中・トライアルの無い既存組織は appTrial の対象外', async () => {
+    configure();
+    const app = await build();
+    expect((await app.inject({ method: 'GET', url: '/api/billing' })).json().data.appTrial).toEqual({
+      active: false, endsAt: null, daysLeft: 0,
+    });
+    prismaMock.organization.findUnique.mockResolvedValue(
+      org({ subscriptionStatus: 'trialing', stripeSubscriptionId: 'sub_1', trialEndsAt: new Date(Date.now() + 86_400_000) }),
+    );
+    expect((await app.inject({ method: 'GET', url: '/api/billing' })).json().data.appTrial.active).toBe(false);
+    await app.close();
+  });
+
   it('追加容量は課金中（active）だけ買える', async () => {
     configure();
     prismaMock.organization.findUnique.mockResolvedValue(org({ subscriptionStatus: 'trialing', stripeSubscriptionId: 'sub_1' }));
@@ -140,6 +176,21 @@ describe('POST /api/billing/checkout', () => {
     await app.close();
   });
 
+  it('webhook の署名鍵が無ければ 503（支払っても組織に写らないため申し込ませない。saas-review #2）', async () => {
+    configure();
+    delete process.env.STRIPE_WEBHOOK_SECRET;
+    const app = await build();
+    const res = await app.inject({ method: 'POST', url: '/api/billing/checkout', payload: { plan: 'PRO', interval: 'month' } });
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error).toEqual({ code: 'BILLING_NOT_CONFIGURED', message: CHECKOUT_NOT_READY_MESSAGE });
+    // 秘密の名前・値は返さない
+    expect(res.body).not.toContain('STRIPE');
+    expect(res.body).not.toContain('whsec');
+    expect(stripeMock.createCustomer).not.toHaveBeenCalled();
+    expect(stripeMock.createCheckoutSession).not.toHaveBeenCalled();
+    await app.close();
+  });
+
   it('顧客を作り（まだ空のときだけ書く）、初回はトライアル付きの Checkout を返す', async () => {
     configure();
     stripeMock.createCustomer.mockResolvedValue({ id: 'cus_new' });
@@ -157,6 +208,10 @@ describe('POST /api/billing/checkout', () => {
     const params = stripeMock.createCheckoutSession.mock.calls[0][0];
     expect(params).toMatchObject({ customer: 'cus_new', client_reference_id: 'org-1', line_items: [{ price: 'price_p_y' }] });
     expect(params.subscription_data.trial_period_days).toBe(30);
+    // 申し込みの開始は監査に残る（契約の成立は webhook で分かる）
+    expect(prismaMock.auditEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ orgId: 'org-1', actorId: 'owner-1', action: 'billing.checkout_start', meta: { plan: 'PRO', interval: 'year' } }),
+    });
     await app.close();
   });
 
@@ -319,6 +374,9 @@ describe('POST /api/billing/storage-addon', () => {
     expect(params).toEqual({ items: [{ price: 'price_addon', quantity: 2, tax_rates: undefined }], proration_behavior: 'create_prorations' });
     expect(idempotencyKey).toContain('addon:sub_1:2:');
     expect(applySubscription).toHaveBeenCalledWith('org-1', updated, expect.objectContaining({ storageAddonPrice: 'price_addon' }));
+    expect(prismaMock.auditEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: 'billing.storage_addon', actorId: 'owner-1', meta: { from: 0, units: 2 } }),
+    });
     await app.close();
   });
 });
@@ -369,6 +427,9 @@ describe('POST /api/billing/change-plan', () => {
       'plan:sub_1:si_base:price_s_m:price_p_m',
     );
     expect(applySubscription).toHaveBeenCalledWith('org-1', updated, expect.anything());
+    expect(prismaMock.auditEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: 'billing.plan_change', meta: { from: 'STARTER', plan: 'PRO', interval: 'month' } }),
+    });
     await app.close();
   });
 
@@ -380,6 +441,8 @@ describe('POST /api/billing/change-plan', () => {
     const res = await app.inject({ method: 'POST', url: '/api/billing/change-plan', payload: { plan: 'PRO', interval: 'month' } });
     expect(res.statusCode).toBe(200);
     expect(stripeMock.updateSubscription).not.toHaveBeenCalled();
+    // 何も変わっていないので記録しない
+    expect(prismaMock.auditEvent.create).not.toHaveBeenCalled();
     await app.close();
   });
 

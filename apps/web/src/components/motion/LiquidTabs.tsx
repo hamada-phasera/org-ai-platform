@@ -43,7 +43,8 @@ export function LiquidTabs<T extends string>({
   const transition = useMotion('indicator');
   const refs = useRef<Record<string, HTMLButtonElement | null>>({});
 
-  const height = size === 'sm' ? 'h-7' : 'h-8';
+  // スマホ（lg 未満）では押せる面を 44px にする（DESIGN.md §5）
+  const height = size === 'sm' ? 'h-7 max-lg:h-11' : 'h-8 max-lg:h-11';
   const padding = size === 'sm' ? 'px-3' : 'px-3.5';
   const text = size === 'sm' ? 'text-xs' : 'text-sm';
 

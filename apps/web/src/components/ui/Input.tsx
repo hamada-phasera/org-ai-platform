@@ -19,9 +19,10 @@ type TextareaProps = BaseProps & {
 
 type InputProps = InputOnlyProps | TextareaProps;
 
+/* スマホ（lg 未満）は 16px。iOS Safari は 16px 未満の入力欄にフォーカスすると画面を拡大し、戻らない */
 const sizeClass = {
-  sm: 'text-xs px-3 py-2 rounded-sm',
-  md: 'text-sm px-4 py-2.5 rounded-sm',
+  sm: 'text-xs max-lg:text-base px-3 py-2 rounded-sm',
+  md: 'text-sm max-lg:text-base px-4 py-2.5 rounded-sm',
   lg: 'text-body px-5 py-3 rounded-md',
 } as const;
 

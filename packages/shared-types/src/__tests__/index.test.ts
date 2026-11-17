@@ -3,9 +3,11 @@ import {
   PLAN_LIMITS,
   STORAGE_ADDON_UNIT_BYTES,
   canUpload,
+  effectiveSubscriptionStatus,
   formatBytes,
   hasRoleAtLeast,
   isUserRole,
+  readOnlyReasonOf,
   storageQuotaBytes,
   usageState,
 } from '../index';
@@ -80,5 +82,45 @@ describe('usageState', () => {
     [10, 0, 'ok'],
   ] as const)('%d/%d → %s', (used, limit, expected) => {
     expect(usageState(used, limit)).toBe(expected);
+  });
+});
+
+describe('readOnlyReasonOf（gateway と web の共通の判定。saas-review #4）', () => {
+  const NOW = Date.UTC(2026, 10, 18);
+  const DAY = 86_400_000;
+  const at = (d: number) => new Date(NOW + d * DAY);
+  const r = (status: string | null, trialEndsAt: Date | null, billingConfigured = true) =>
+    readOnlyReasonOf({ status, trialEndsAt, billingConfigured, now: NOW });
+
+  it('incomplete 系は未契約に寄せる', () => {
+    expect(effectiveSubscriptionStatus('incomplete')).toBeNull();
+    expect(effectiveSubscriptionStatus('incomplete_expired')).toBeNull();
+    expect(effectiveSubscriptionStatus('')).toBeNull();
+    expect(effectiveSubscriptionStatus('canceled')).toBe('canceled');
+  });
+
+  it('未契約: 期限切れは trial_expired、既存組織・決済未設定・壊れた日付は止めない', () => {
+    expect(r(null, at(-1))).toBe('trial_expired');
+    expect(r(null, at(0))).toBe('trial_expired'); // 期限ちょうどは閲覧のみ側
+    expect(r(null, at(1))).toBeNull();
+    expect(r(null, null)).toBeNull();
+    expect(r(null, at(-1), false)).toBeNull();
+    expect(readOnlyReasonOf({ status: null, trialEndsAt: 'broken', billingConfigured: true, now: NOW })).toBeNull();
+  });
+
+  it('incomplete はトライアル側の文言（trial_expired）', () => {
+    expect(r('incomplete', at(-1))).toBe('trial_expired');
+    expect(r('incomplete', at(3))).toBeNull();
+  });
+
+  it('解約後も trialEndsAt の残りがあれば使える。無ければ subscription_ended', () => {
+    expect(r('canceled', at(3))).toBeNull();
+    expect(r('canceled', at(-1))).toBe('subscription_ended');
+    expect(r('canceled', null)).toBe('subscription_ended');
+    expect(r('canceled', null, false)).toBe('subscription_ended');
+  });
+
+  it('trialing / active / past_due は常に使える', () => {
+    for (const s of ['trialing', 'active', 'past_due']) expect(r(s, at(-10))).toBeNull();
   });
 });

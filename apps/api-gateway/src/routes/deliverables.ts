@@ -34,7 +34,7 @@ export async function deliverablesRoutes(app: FastifyInstance): Promise<void> {
 
     const org = await db.organization.findUnique({ where: { id: payload.orgId } });
     const plan = org?.plan ?? 'STARTER';
-    const aiEngineUrl = config.aiEngineUrlComposeDefault;
+    const aiEngineUrl = config.aiEngineUrl;
     try {
       const res = await fetch(`${aiEngineUrl}/rank`, {
         method: 'POST',

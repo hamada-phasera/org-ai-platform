@@ -139,7 +139,7 @@ function CreateProjectForm({ onDone }: { onDone: () => void }) {
         />
       </div>
       {error && <p className="text-xs text-danger">{error}</p>}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
           loading={mut.isPending}
@@ -186,7 +186,7 @@ export function ProjectLedger() {
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as ProjectStatus | 'ALL')}
-          className="rounded-sm border border-border bg-elevated px-3 py-2 text-xs text-primary"
+          className="rounded-sm border border-border bg-elevated px-3 py-2 text-xs text-primary max-lg:min-h-11"
           aria-label="工事の状態で絞り込む"
         >
           <option value="ALL">すべての工事</option>
@@ -221,7 +221,52 @@ export function ProjectLedger() {
         />
       ) : (
         <Card variant="regular" padding="none" radius="2xl" className="overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* スマホ: 表を縦積みの行にする（横スクロールを出さない）。行を押すと 4 分類の内訳が開く */}
+          <ul className="divide-y divide-hairline lg:hidden">
+            {projects.map((p) => {
+              const open = openId === p.id;
+              const tone = marginTone(p.grossMarginRate);
+              return (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    onClick={() => setOpenId(open ? null : p.id)}
+                    className="flex min-h-11 w-full items-start gap-3 px-4 py-3.5 text-left"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-bold text-primary">{p.name}</p>
+                      <p className="truncate font-mono text-micro text-text-muted">
+                        {p.code}
+                        {p.client && ` · ${p.client}`}
+                      </p>
+                      <p className="tabular mt-1 text-micro text-secondary">
+                        {PROJECT_STATUS_LABEL[p.status as ProjectStatus] ?? p.status} · 請負 {yenShort(p.contractAmount)} · 原価{' '}
+                        {yenShort(p.actualTotal)} · 進捗 {p.progressRate}%
+                      </p>
+                      {p.overBudget.length > 0 && (
+                        <p className="text-micro text-danger">
+                          {p.overBudget.map((c) => COST_CATEGORY_LABEL[c]).join('・')}が超過
+                        </p>
+                      )}
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className={`tabular text-xs font-bold ${TONE_CLASS[tone]}`}>{yenShort(p.grossProfit)}</p>
+                      <p className={`tabular text-micro ${TONE_CLASS[tone]}`}>{percent(p.grossMarginRate)}</p>
+                    </div>
+                    <ChevronDown
+                      size={14}
+                      className={`mt-0.5 shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`}
+                      aria-hidden="true"
+                    />
+                  </button>
+                  {open && <ProjectDetail project={p} />}
+                </li>
+              );
+            })}
+          </ul>
+
+          <div className="hidden overflow-x-auto lg:block">
             <table className="w-full text-sm">
               <thead className="border-b border-border bg-sunken">
                 <tr>

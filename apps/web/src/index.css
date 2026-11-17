@@ -222,3 +222,14 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* 100dvh を知らない古いブラウザ（iOS 15.3 以前など）では 100vh に戻す。
+   h-dvh / min-h-dvh は AppShell と認証画面が使う（100vh 固定のクラスは使わない: アドレスバーの分だけはみ出す） */
+@supports not (height: 100dvh) {
+  .h-dvh {
+    height: 100vh;
+  }
+  .min-h-dvh {
+    min-height: 100vh;
+  }
+}

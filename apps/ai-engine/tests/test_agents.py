@@ -107,3 +107,13 @@ class TestOrchestrator:
         assert logged[0]["department"] == "ACCOUNTING"
         assert logged[0]["tokens"] == 7
         assert logged[0]["provider"] == "anthropic"
+
+    async def test_process_logs_masked_input(
+        self, providers: Providers, no_gemini: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        logged: list[dict[str, Any]] = []
+        monkeypatch.setattr(orch, "schedule_llm_log", lambda **kw: logged.append(kw))
+        await orch.orchestrator.process("見積を a@example.com と 090-1234-5678 に", "org-1")
+        assert "a@example.com" not in logged[0]["input_text"]
+        assert "090-1234-5678" not in logged[0]["input_text"]
+        assert logged[0]["pii_detected"] is True

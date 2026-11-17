@@ -217,12 +217,13 @@ flowchart TD
 |---|---|---|
 | api-gateway（単体） | `src/**/__tests__/*.test.ts` | vitest。prisma・fetch を `vi.mock` / `vi.spyOn` でモック |
 | api-gateway（ルート） | `tests/<領域>/*.test.ts` | Fastify の `app.inject()` で HTTP の形を検証。DB はモック |
+| api-gateway（統合） | `tests/integration/*.int.test.ts` | `npm run test:int`。実 Postgres + pgvector（`TEST_DATABASE_URL`）でマイグレーション・DoD の通し・raw SQL の組織分離。Stripe は偽物 |
 | web | `src/**/__tests__/*.test.ts` | vitest（純粋関数中心） |
 | shared-types | `src/__tests__/` | vitest |
 | ai-engine | `apps/ai-engine/tests/` | pytest。`test_main_api.py` は TestClient で HTTP API の形を固定する特性テスト。LLM はスタブ |
 | 契約 | `tests/fixtures/` | gateway と ai-engine が同じフィクスチャを読む（プラン→モデル、資格情報サンプル） |
 | usage-metrics-svc | `usage-metrics-svc/internal/**` | `go test` |
 
-- どのテストも DB・外部 API・シークレットなしで通る（CI もそれで回す）。
+- 統合テスト以外は DB・外部 API・シークレットなしで通る（CI もそれで回す）。統合テストは CI の integration ジョブが使い捨ての pgvector サービスで回す。
 - テストコードも型チェックする（api-gateway / shared-types は `tsconfig.test.json`）。
 - 実行コマンドは [README](../README.md#テストlint型チェック) を参照。

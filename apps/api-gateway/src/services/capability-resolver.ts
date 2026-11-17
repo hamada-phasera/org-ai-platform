@@ -1,6 +1,6 @@
 import Ajv, { type Schema } from 'ajv';
 import addFormats from 'ajv-formats';
-import { prisma } from '../utils/prisma';
+import { tenantDb } from '../tenancy/tenant-db';
 import { executeCapability, type N8nEnvelope } from './capability-executor';
 import { nativeProviderFor } from './adapters/provider-map';
 import { httpMethodOf } from './http-node/template';
@@ -60,6 +60,7 @@ export async function resolveAndExecute(input: {
   /** preview = 実行せず内容確認（NEEDS_CONFIRMATION）を返す。既定は execute。 */
   mode?: 'execute' | 'preview';
 }): Promise<ResolveOutcome> {
+  const db = tenantDb(input.orgId);
   let { name, args = {} } = input;
   let reasoning = '';
   // name 明示指定（承認後の確定実行・step-runner）は confidence ゲートを素通りさせる。
@@ -85,7 +86,7 @@ export async function resolveAndExecute(input: {
     }
   }
 
-  const capability = await prisma.capability.findUnique({
+  const capability = await db.capability.findUnique({
     where: { orgId_name: { orgId: input.orgId, name } },
     include: { requiredCreds: true },
   });
@@ -121,7 +122,7 @@ export async function resolveAndExecute(input: {
 
   const validation = validateArgs(capability.inputSchema as Schema, args);
   if (!validation.ok) {
-    await prisma.executionLog.create({
+    await db.executionLog.create({
       data: {
         orgId: input.orgId,
         capabilityId: capability.id,
@@ -146,7 +147,7 @@ export async function resolveAndExecute(input: {
   //    org のメンバーなら誰でも読める。永続化する前に一度落とす。
   //    （native / n8n は宛先が自社管理なので対象外にして、正当なデータを壊さない）
   const isCustomHttp = capability.kind === 'http';
-  const execLog = await prisma.executionLog.create({
+  const execLog = await db.executionLog.create({
     data: {
       orgId: input.orgId,
       capabilityId: capability.id,
@@ -160,7 +161,8 @@ export async function resolveAndExecute(input: {
 }
 
 async function fetchPlanFromAiEngine(message: string, orgId: string, plan: string, _userId: string): Promise<PlanFromAi> {
-  const caps = await prisma.capability.findMany({
+  const db = tenantDb(orgId);
+  const caps = await db.capability.findMany({
     where: { orgId, status: { not: 'DISABLED' } },
     select: { name: true, displayName: true, description: true, department: true, inputSchema: true },
   });
@@ -211,7 +213,8 @@ function validateArgs(schema: Schema, args: unknown): { ok: true } | { ok: false
 }
 
 async function checkCredentials(capabilityId: string, orgId: string): Promise<string[]> {
-  const creds = await prisma.requiredCredential.findMany({ where: { capabilityId } });
+  const db = tenantDb(orgId);
+  const creds = await db.requiredCredential.findMany({ where: { capabilityId } });
   if (creds.length === 0) return [];
   const now = Date.now();
   const missing: string[] = [];
@@ -221,12 +224,12 @@ async function checkCredentials(capabilityId: string, orgId: string): Promise<st
     if (nativeProvider) {
       // セルフサーブ接続（自社DB）が真実の源。org 単位で正確に判定できる
       // （旧 n8n 部分一致判定の「org 分離なし・誤判定」問題はここで解消）。
-      const conn = await prisma.providerConnection.findUnique({
+      const conn = await db.providerConnection.findUnique({
         where: { orgId_provider: { orgId, provider: nativeProvider } },
       });
       status = conn?.status === 'CONNECTED' ? 'CONNECTED' : 'DISCONNECTED';
       if (status !== cred.status) {
-        await prisma.requiredCredential.update({
+        await db.requiredCredential.update({
           where: { id: cred.id },
           data: { status: status as 'CONNECTED' | 'DISCONNECTED', lastCheckedAt: new Date() },
         });
@@ -238,7 +241,7 @@ async function checkCredentials(capabilityId: string, orgId: string): Promise<st
         const refreshed = await refreshCredentialFromN8n(cred.provider);
         if (refreshed !== null) {
           status = refreshed ? 'CONNECTED' : 'DISCONNECTED';
-          await prisma.requiredCredential.update({
+          await db.requiredCredential.update({
             where: { id: cred.id },
             data: { status: status as 'CONNECTED' | 'DISCONNECTED', lastCheckedAt: new Date() },
           });
@@ -282,18 +285,19 @@ async function recordGap(input: {
   rawRequest: string;
   inferredName: string | null;
 }): Promise<{ id: string; rawRequest: string; inferredName: string | null }> {
+  const db = tenantDb(input.orgId);
   const key = input.inferredName ?? input.rawRequest.slice(0, 60);
-  const existing = await prisma.capabilityGap.findFirst({
+  const existing = await db.capabilityGap.findFirst({
     where: { orgId: input.orgId, inferredName: key },
   });
   if (existing) {
-    const updated = await prisma.capabilityGap.update({
+    const updated = await db.capabilityGap.update({
       where: { id: existing.id },
       data: { count: { increment: 1 }, rawRequest: input.rawRequest, requestedBy: input.userId },
     });
     return { id: updated.id, rawRequest: updated.rawRequest, inferredName: updated.inferredName };
   }
-  const created = await prisma.capabilityGap.create({
+  const created = await db.capabilityGap.create({
     data: {
       orgId: input.orgId,
       requestedBy: input.userId,

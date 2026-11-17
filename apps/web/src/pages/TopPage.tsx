@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Bot, BarChart3, CheckCircle2, FileText, Send } from 'lucide-react';
@@ -6,6 +6,7 @@ import { api } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { ExpandableCard } from '../components/motion/ExpandableCard';
 import { DEPT_LABEL } from '../constants/departments';
+import { Onboarding } from '../components/shell/Onboarding';
 
 type PanelKey = 'metrics' | 'approvals' | 'agents' | null;
 
@@ -62,6 +63,7 @@ export default function TopPage() {
   const user = useAuthStore((s) => s.user);
   const [open, setOpen] = useState<PanelKey>(null);
   const [draft, setDraft] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // 展開されたときだけ取得する。TOP を開いただけで 3 本走らせない。
   const metrics = useQuery<Efficiency>({
@@ -126,11 +128,12 @@ export default function TopPage() {
             今日は何をしますか？
           </label>
           <input
+            ref={inputRef}
             id="top-instruction"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="今日は何をしますか？"
-            className="h-11 min-w-0 flex-1 bg-transparent text-body text-primary outline-none placeholder:text-text-muted"
+            className="h-11 min-w-0 flex-1 bg-transparent text-body max-lg:text-base text-primary outline-none placeholder:text-text-muted"
           />
           <button
             type="submit"
@@ -140,6 +143,9 @@ export default function TopPage() {
             送信
           </button>
         </form>
+
+        {/* 初回の案内（指示・連携・招待）。完了か閉じたら出ない */}
+        <Onboarding onInstruct={() => inputRef.current?.focus()} />
 
         <div className="mt-8 grid gap-4 sm:grid-cols-2">
           {/* 提案書 — ここだけは展開ではなくチャットへ渡す */}

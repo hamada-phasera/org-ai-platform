@@ -7,7 +7,8 @@
 //   * SDK は入れない（LINE・Supabase と同じ方針）。使う API は数本だけ
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { ENTITLED_STATUSES, type BillingInterval, type Plan } from '@org-ai/shared-types';
+import { ENTITLED_STATUSES, effectiveSubscriptionStatus, type BillingInterval, type Plan } from '@org-ai/shared-types';
+import { ENV_DEFAULTS, readEnv, type Env } from '../../config/env';
 
 export const PLANS: readonly Plan[] = ['STARTER', 'PRO', 'MAX'];
 export const INTERVALS: readonly BillingInterval[] = ['month', 'year'];
@@ -18,7 +19,7 @@ export interface BillingConfig {
   webhookSecret: string | null;
   /** プラン × 支払い間隔 → price ID */
   prices: Record<Plan, Record<BillingInterval, string | null>>;
-  /** 追加ストレージ 1GB あたりの月額 price（数量で課金） */
+  /** 追加ストレージ 1口（10GB）あたりの月額 price（数量で課金） */
   storageAddonPrice: string | null;
   /** 消費税（外税 10%）の tax rate ID。価格は税抜で作るので、本番では必ず設定する */
   taxRateId: string | null;
@@ -27,22 +28,27 @@ export interface BillingConfig {
   appBaseUrl: string;
 }
 
-export function billingConfigFromEnv(env: NodeJS.ProcessEnv = process.env): BillingConfig | null {
+/**
+ * 決済の設定。読み口は config/env.ts の readEnv()（CLAUDE.md「環境変数の読み口は1か所」）。
+ * 引数はテスト用（envSchema の形の値を直接渡せる）。
+ */
+export function billingConfigFromEnv(env: Env = readEnv()): BillingConfig | null {
   const secretKey = env.STRIPE_SECRET_KEY?.trim();
   if (!secretKey) return null;
-  const pick = (k: string): string | null => env[k]?.trim() || null;
+  const pick = (k: keyof Env): string | null => env[k]?.trim() || null;
   const prices = {} as BillingConfig['prices'];
   for (const plan of PLANS) {
     prices[plan] = { month: pick(`STRIPE_PRICE_${plan}_MONTHLY`), year: pick(`STRIPE_PRICE_${plan}_YEARLY`) };
   }
-  const trial = Number(env.BILLING_TRIAL_DAYS ?? 30);
+  const trial = Number(env.BILLING_TRIAL_DAYS ?? ENV_DEFAULTS.BILLING_TRIAL_DAYS);
   return {
     secretKey,
     webhookSecret: pick('STRIPE_WEBHOOK_SECRET'),
     prices,
     storageAddonPrice: pick('STRIPE_PRICE_STORAGE_ADDON'),
     taxRateId: pick('STRIPE_TAX_RATE_ID'),
-    trialDays: Number.isFinite(trial) && trial >= 0 ? Math.floor(trial) : 30,
+    // 下限 1（config.billingTrialDays と同じ。0 で登録直後から閲覧のみになる事故を避ける。saas-review #12）
+    trialDays: Number.isFinite(trial) && trial >= 1 ? Math.floor(trial) : ENV_DEFAULTS.BILLING_TRIAL_DAYS,
     appBaseUrl: (env.APP_BASE_URL?.trim() || 'http://localhost:3000').replace(/\/+$/, ''),
   };
 }
@@ -169,15 +175,48 @@ export function subscriptionSnapshot(sub: StripeSubscription, config: BillingCon
 
 // ── リクエストの組み立て ───────────────────────────────────────────
 
+const HOUR_MS = 60 * 60 * 1000;
+/**
+ * Checkout の subscription_data.trial_end は「48 時間以上先」でないと Stripe が拒否する
+ * （API リファレンス Create a Checkout Session、2026-11 確認）。
+ * セッション作成までの時差と時計のずれに 1 時間の余裕を見て、49 時間未満なら付けない（＝その日から課金）。
+ */
+export const MIN_CHECKOUT_TRIAL_LEAD_MS = 49 * HOUR_MS;
+
+/**
+ * 登録時トライアルの残りを Checkout に引き継ぐときの trial_end（Unix 秒）。付けないなら null（D3）。
+ * 早く契約した人が損をしないための引き継ぎで、無料期間を延ばすものではない（終わりの日は変わらない）。
+ * ⚠️ 一度でも契約した組織（subscriptionStatus が入っている）には付けない。解約 → 再契約で
+ *    同じ無料期間をもう一度使わせないため（登録時トライアルは「まだ契約していない」間だけのもの）。
+ */
+export function checkoutTrialEnd(input: {
+  status: string | null | undefined;
+  trialEndsAt: Date | string | null | undefined;
+  now: Date | number;
+}): number | null {
+  const { trialEndsAt, now } = input;
+  // incomplete（カード認証の失敗など）は契約が成立していないので、未契約と同じく残りを引き継ぐ（saas-review #4）
+  const status = effectiveSubscriptionStatus(input.status);
+  if (status || !trialEndsAt) return null;
+  const end = new Date(trialEndsAt).getTime();
+  const at = typeof now === 'number' ? now : now.getTime();
+  if (!Number.isFinite(end) || end - at < MIN_CHECKOUT_TRIAL_LEAD_MS) return null;
+  return Math.floor(end / 1000);
+}
+
 /** Checkout（新規契約）のパラメータ。 */
 export function buildCheckoutParams(input: {
   config: BillingConfig;
   orgId: string;
   customerId: string;
   priceId: string;
+  /** Stripe のトライアル（trial_period_days）を付ける。作成者ごとに 1 回 */
   withTrial: boolean;
+  /** 登録時トライアルの残りを引き継ぐ終わり（checkoutTrialEnd の値）。withTrial が優先 */
+  trialEnd?: number | null;
 }): Record<string, unknown> {
   const { config, orgId, customerId, priceId, withTrial } = input;
+  const trialDays = withTrial && config.trialDays > 0 ? config.trialDays : undefined;
   return {
     mode: 'subscription',
     customer: customerId,
@@ -187,7 +226,9 @@ export function buildCheckoutParams(input: {
     line_items: [{ price: priceId, quantity: 1, tax_rates: config.taxRateId ? [config.taxRateId] : undefined }],
     subscription_data: {
       metadata: { orgId },
-      trial_period_days: withTrial && config.trialDays > 0 ? config.trialDays : undefined,
+      // ⚠️ trial_period_days と trial_end は同時に送らない（どちらか一方）
+      trial_period_days: trialDays,
+      trial_end: trialDays === undefined ? (input.trialEnd ?? undefined) : undefined,
     },
     success_url: `${config.appBaseUrl}/settings?tab=billing&checkout=success`,
     cancel_url: `${config.appBaseUrl}/settings?tab=billing&checkout=cancel`,

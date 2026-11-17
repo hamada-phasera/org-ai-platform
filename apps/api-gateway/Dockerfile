@@ -1,4 +1,4 @@
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 
 # ワークスペース定義ファイル（レイヤーキャッシュ最適化）
@@ -24,7 +24,7 @@ RUN npx prisma generate --schema=packages/db-schema/prisma/schema.prisma
 RUN npm run build --workspace=apps/api-gateway
 
 # ランタイムイメージ
-FROM node:20-alpine
+FROM node:22-alpine
 RUN apk add --no-cache openssl
 WORKDIR /app
 

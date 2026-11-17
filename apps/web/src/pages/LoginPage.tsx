@@ -5,6 +5,7 @@ import { Sparkles, ArrowRight, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import type { MembershipSummary, User } from '@org-ai/shared-types';
+import { LegalLinks } from './legal/LegalLinks';
 import { AmbientBackground, Card, Input, Button } from '../components/ui';
 
 export default function LoginPage() {
@@ -38,7 +39,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden">
+    <div className="min-h-dvh flex items-center justify-center p-6 relative overflow-hidden">
       <AmbientBackground />
       <motion.div
         className="w-full max-w-sm relative z-10"
@@ -87,6 +88,10 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
                 autoComplete="email"
+                inputMode="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 required
               />
             </div>
@@ -125,6 +130,7 @@ export default function LoginPage() {
             </p>
           </div>
         </Card>
+        <LegalLinks className="mt-5" />
       </motion.div>
     </div>
   );

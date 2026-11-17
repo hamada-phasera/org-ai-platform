@@ -11,7 +11,10 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+import app.llm.router as router
 import app.main as main
+import app.planner.planner as planner_mod
+from app.governance import usage
 from app.llm.providers.anthropic_provider import MODEL_HAIKU, MODEL_OPUS, MODEL_SONNET
 from tests.conftest import Providers
 
@@ -23,7 +26,17 @@ def logged(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     import app.orchestrator.orchestrator as orch
 
     monkeypatch.setattr(orch, "schedule_llm_log", lambda **kw: records.append(kw))
+    monkeypatch.setattr(planner_mod, "schedule_llm_log", lambda **kw: records.append(kw))
     return records
+
+
+@pytest.fixture
+def counted() -> Any:
+    """利用量のキャッシュに組織 o の当月回数を置き、テスト後に片付ける。"""
+    usage.reset_cache()
+    usage._cache["o"] = (usage.time.time(), 10)
+    yield lambda: usage._cache["o"][1]
+    usage.reset_cache()
 
 
 @pytest.fixture
@@ -118,6 +131,54 @@ class TestLLMChat:
     def test_validation_error_is_422(self, client: TestClient) -> None:
         assert client.post("/llm/chat", json={"messages": []}).status_code == 422
 
+    def test_over_monthly_limit_answers_with_light_model(
+        self,
+        client: TestClient,
+        providers: Providers,
+        logged: list[dict[str, Any]],
+        counted: Any,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # saas-review #5(c): 上限を超えた組織の /llm/chat は止めずに軽いモデルで応答する。
+        # providers フィクスチャは is_over_limit を「常に上限内」に差し替えるので、本物（usage.is_over_limit）に戻す。
+        # DB は読まない（当月の回数は usage のキャッシュに置く）。松（MAX）の上限ちょうどを数えた状態から 1 回呼ぶ
+        monkeypatch.setattr(router, "is_over_limit", usage.is_over_limit)
+        usage._cache["o"] = (usage.time.time(), usage.limit_for_plan("MAX"))
+        providers.anthropic.reply = "answer"
+        res = client.post(
+            "/llm/chat",
+            json={
+                "messages": [{"role": "user", "content": "hi"}],
+                "department": "GENERAL",
+                "org_id": "o",
+                "plan": "MAX",
+            },
+        )
+        assert res.status_code == 200
+        assert res.json()["content"] == "answer"
+        assert res.json()["model"] == MODEL_HAIKU
+        assert providers.anthropic.calls[0]["model"] == MODEL_HAIKU
+        # 記録も落ちた後のモデル名。回数は 1 だけ進む（止めないので数え続ける）
+        assert logged[0]["model"] == MODEL_HAIKU
+        assert counted() == usage.limit_for_plan("MAX") + 1
+
+    def test_within_monthly_limit_keeps_plan_model(
+        self, client: TestClient, providers: Providers, counted: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # 比較: 上限内（当月 10 回）なら同じ要求でプランのモデルのまま（軽いモデルに落ちるのは超過のときだけ）
+        monkeypatch.setattr(router, "is_over_limit", usage.is_over_limit)
+        res = client.post(
+            "/llm/chat",
+            json={
+                "messages": [{"role": "user", "content": "hi"}],
+                "department": "GENERAL",
+                "org_id": "o",
+                "plan": "MAX",
+            },
+        )
+        assert res.status_code == 200
+        assert res.json()["model"] != MODEL_HAIKU
+
 
 class TestOrchestrate:
     def test_explicit_department(self, client: TestClient, providers: Providers, logged: list[dict[str, Any]]) -> None:
@@ -140,12 +201,23 @@ class TestOrchestrate:
         providers.anthropic.error = RuntimeError("ANTHROPIC_API_KEY is not set")
         res = client.post("/orchestrate", json={"message": "hi", "org_id": "o"})
         assert res.status_code == 503
-        assert res.json() == {"detail": "ANTHROPIC_API_KEY is not set"}
+        # ⚠️ 設定名を利用者に返さない（チャンク 4: エラーは固定文言、詳細はログ）
+        assert res.json() == {"detail": main.ERROR_AI_NOT_CONFIGURED}
+        assert "ANTHROPIC_API_KEY" not in res.text
 
-    def test_other_runtime_error_propagates(self, providers: Providers, no_gemini: None) -> None:
-        providers.anthropic.error = RuntimeError("boom")
-        with pytest.raises(RuntimeError, match="boom"):
-            TestClient(main.app).post("/orchestrate", json={"message": "hi", "org_id": "o"})
+    def test_other_error_is_fixed_502(self, client: TestClient, providers: Providers) -> None:
+        # 以前は例外をそのまま投げ直していた（500 と例外文言）。固定文言の 502 に変えた
+        providers.anthropic.error = RuntimeError("boom secret-ish detail")
+        res = client.post("/orchestrate", json={"message": "hi", "org_id": "o"})
+        assert res.status_code == 502
+        assert res.json() == {"detail": main.ERROR_AI_FAILED}
+        assert "boom" not in res.text
+
+    def test_logs_masked_input(self, client: TestClient, providers: Providers, logged: list[dict[str, Any]]) -> None:
+        client.post("/orchestrate", json={"message": "連絡は a@example.com まで", "org_id": "o"})
+        assert len(logged) == 1
+        assert "a@example.com" not in logged[0]["input_text"]
+        assert "[PII_EMAIL]" in logged[0]["input_text"]
 
     def test_system_prompt_and_context_order(self, client: TestClient, providers: Providers) -> None:
         client.post(
@@ -209,10 +281,12 @@ class TestOrchestrateStream:
         assert [(m.role, m.content) for m in a["messages"]] == [(m.role, m.content) for m in b["messages"]]
 
     def test_error_event(self, client: TestClient, providers: Providers, logged: list[dict[str, Any]]) -> None:
-        providers.anthropic.error = RuntimeError("down")
+        providers.anthropic.error = RuntimeError("down: provider said a@example.com")
         events = _sse_events(client.post("/orchestrate/stream", json={"message": "q", "org_id": "o"}).text)
         assert events[0] == {"type": "department", "department": "GENERAL"}
-        assert events[-1] == {"type": "error", "message": "down"}
+        # ⚠️ 例外の文言は返さない（固定文言、詳細はログ）
+        assert events[-1] == {"type": "error", "message": main.ERROR_AI_FAILED}
+        assert "down" not in json.dumps(events, ensure_ascii=False)
         assert logged == []
 
 
@@ -241,6 +315,20 @@ class TestPlan:
         assert logged[0]["input_text"] == "tel [PII_PHONE] に送って"
         assert providers.anthropic.calls[0]["json_mode"] is True
 
+    def test_logs_actual_model_after_degrade(
+        self, client: TestClient, providers: Providers, logged: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # 上限超過で軽いモデルへ落ちたら、記録も落ちた後のモデル名にする
+        async def _degraded(_org: str, _plan: str, _p: str, _m: str) -> tuple[str, str]:
+            return "anthropic", "degraded-model"
+
+        monkeypatch.setattr(router, "_degrade_if_over_limit", _degraded)
+        providers.anthropic.reply = json.dumps({"capability_name": "send_email", "args": {}, "confidence": 0.9})
+        client.post("/plan", json={"message": "m", "org_id": "o", "available_capabilities": CAPS})
+        assert providers.anthropic.calls[0]["model"] == "degraded-model"
+        assert logged[0]["model"] == "degraded-model"
+        assert logged[0]["provider"] == "anthropic"
+
     def test_unknown_capability(self, client: TestClient, providers: Providers) -> None:
         providers.anthropic.reply = json.dumps({"capability_name": "nope", "args": {}, "confidence": 0.9})
         body = client.post("/plan", json={"message": "m", "org_id": "o", "available_capabilities": CAPS}).json()
@@ -264,6 +352,27 @@ class TestRank:
         assert body["rankings"][0] == {"id": "a", "importance": "high", "reason": "x" * 60}
         assert body["rankings"][1] == {"id": "b", "importance": "mid", "reason": ""}
         assert body["rankings"][2] == {"id": "c", "importance": "mid", "reason": ""}
+
+    def test_logs_and_counts_once(
+        self, client: TestClient, providers: Providers, logged: list[dict[str, Any]], counted: Any
+    ) -> None:
+        providers.anthropic.reply = '{"rankings":[{"id":"a","importance":"high","reason":"r"}]}'
+        items = [{"id": "a", "title": "a@example.com 宛の見積"}]
+        client.post("/rank", json={"items": items, "org_id": "o"})
+        # AILog が1件予約され、利用量のキャッシュが1だけ進む（二重に数えない）
+        assert len(logged) == 1
+        assert logged[0]["org_id"] == "o"
+        assert logged[0]["model"] == MODEL_HAIKU
+        assert "a@example.com" not in logged[0]["input_text"]
+        assert logged[0]["pii_detected"] is True
+        assert counted() == 11
+
+    def test_unparsable_reply_is_still_logged(
+        self, client: TestClient, providers: Providers, logged: list[dict[str, Any]]
+    ) -> None:
+        providers.anthropic.reply = "not json"
+        client.post("/rank", json={"items": [{"id": "a", "title": "A"}], "org_id": "o"})
+        assert len(logged) == 1
 
     def test_llm_failure_falls_back_to_mid(self, client: TestClient, providers: Providers) -> None:
         providers.anthropic.error = RuntimeError("x")
@@ -358,7 +467,21 @@ class TestPlanAgent:
             "reasoning": "雑談",
         }
         assert providers.anthropic.calls[0]["model"] == MODEL_HAIKU
-        assert logged == []
+        # 判定も LLM 呼び出し1回なので記録する（以前は記録せず回数に入らなかった）
+        assert len(logged) == 1
+        assert logged[0]["model"] == MODEL_HAIKU
+
+    def test_screen_counts_once(
+        self, client: TestClient, providers: Providers, logged: list[dict[str, Any]], counted: Any
+    ) -> None:
+        providers.anthropic.reply = json.dumps({"repeatable": False, "confidence": 0.9})
+        client.post(
+            "/plan/agent",
+            json={"description": "毎週 a@example.com に送る", "org_id": "o", "screen_first": True},
+        )
+        assert len(logged) == 1
+        assert "a@example.com" not in logged[0]["input_text"]
+        assert counted() == 11
 
     def test_designs_agent(self, client: TestClient, providers: Providers, logged: list[dict[str, Any]]) -> None:
         providers.anthropic.reply = json.dumps(

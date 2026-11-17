@@ -5,7 +5,7 @@
 
 import { getNativeAdapter } from './adapters';
 import { executeHttpCapabilityDetailed } from './http-node/executor';
-import { prisma } from '../utils/prisma';
+import { tenantDb } from '../tenancy/tenant-db';
 import { config } from '../config/env';
 
 const N8N_URL = config.n8nUrl;
@@ -48,7 +48,7 @@ export async function executeCapability(
     const result = await executeHttpCapabilityDetailed(capability, args, orgId);
     if (result.authDead && capability.id) {
       // 資格情報が死んだ = 再接続が要る。Slack/Google と同じく status を落として可視化する
-      await prisma.capability
+      await tenantDb(orgId).capability
         .update({ where: { id: capability.id }, data: { status: 'NEEDS_AUTH' } })
         .catch(() => {});
     }

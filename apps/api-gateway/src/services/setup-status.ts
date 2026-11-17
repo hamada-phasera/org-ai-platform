@@ -13,7 +13,7 @@ import { config } from '../config/env';
 export type Health = 'ok' | 'warn' | 'error' | 'unknown';
 
 export interface SetupItem {
-  key: 'storage' | 'aiEngine' | 'billing' | 'embeddings';
+  key: 'storage' | 'aiEngine' | 'billing' | 'embeddings' | 'geminiTier';
   label: string;
   health: Health;
   detail: string;
@@ -60,6 +60,14 @@ async function checkAiEngine(): Promise<SetupItem> {
   const base = config.aiEngineUrl;
   const label = 'AI エンジンの保護';
 
+  const unsetItem: SetupItem = {
+    key: 'aiEngine',
+    label,
+    health: 'error',
+    detail: 'INTERNAL_API_TOKEN が未設定です。AI エンジンの公開 URL を知っている人が誰でも AI を呼べ、その費用はこちら持ちになります。',
+    action: 'openssl rand -hex 32 で作った同じ値を、api-gateway と ai-engine の両方に設定してください。',
+  };
+
   let status: number;
   try {
     const res = await fetch(`${base}/llm/chat`, {
@@ -70,6 +78,8 @@ async function checkAiEngine(): Promise<SetupItem> {
     });
     status = res.status;
   } catch {
+    // 未設定はつながらなくても分かる（「確認できず」で隠さない）
+    if (!tokenConfigured) return unsetItem;
     return {
       key: 'aiEngine',
       label,
@@ -88,15 +98,7 @@ async function checkAiEngine(): Promise<SetupItem> {
       action: 'api-gateway と ai-engine の INTERNAL_API_TOKEN に同じ値を設定してください。',
     };
   }
-  if (!tokenConfigured) {
-    return {
-      key: 'aiEngine',
-      label,
-      health: 'error',
-      detail: 'INTERNAL_API_TOKEN が未設定です。AI エンジンの公開 URL を知っている人が誰でも AI を呼べ、その費用はこちら持ちになります。',
-      action: 'openssl rand -hex 32 で作った同じ値を、api-gateway と ai-engine の両方に設定してください。',
-    };
-  }
+  if (!tokenConfigured) return unsetItem;
   return { key: 'aiEngine', label, health: 'ok', detail: 'トークンで保護されています。', action: '' };
 }
 
@@ -145,7 +147,25 @@ function checkEmbeddings(): SetupItem {
       };
 }
 
+/**
+ * Gemini の無料枠のまま有料のお客さまを乗せていないか（CLAUDE.md「GEMINI_PAID_TIER」）。
+ * 値は ai-engine と同じものを gateway にも入れる前提（render.yaml は両方に置いてある）。
+ */
+function checkGeminiTier(): SetupItem {
+  const label = 'Gemini の利用区分';
+  if (config.geminiPaidTier) {
+    return { key: 'geminiTier', label, health: 'ok', detail: '有料枠です。', action: '' };
+  }
+  return {
+    key: 'geminiTier',
+    label,
+    health: 'error',
+    detail: '無料枠のままです。梅・竹プランの入力が Google の製品改善に使われることがあります。',
+    action: 'Google AI Studio で有料課金に切り替え、api-gateway と ai-engine の GEMINI_PAID_TIER を true にしてください。',
+  };
+}
+
 export async function collectSetupStatus(): Promise<SetupItem[]> {
   const [storage, aiEngine] = await Promise.all([checkStorage(), checkAiEngine()]);
-  return [aiEngine, storage, checkBilling(), checkEmbeddings()];
+  return [aiEngine, storage, checkGeminiTier(), checkBilling(), checkEmbeddings()];
 }

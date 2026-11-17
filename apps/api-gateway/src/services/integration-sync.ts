@@ -3,7 +3,7 @@
 // 呼び出し点: Slack 接続/解除、Google OAuth callback 成功/解除、refresh 失敗時。
 
 import type { ProviderConnectionProvider } from '@org-ai/shared-types';
-import { prisma } from '../utils/prisma';
+import { tenantDb } from '../tenancy/tenant-db';
 import { credentialProvidersFor } from './adapters/provider-map';
 
 /**
@@ -19,14 +19,14 @@ export async function syncRequiredCredentialStatus(
   const credProviders = credentialProvidersFor(provider);
   if (credProviders.length === 0) return;
 
-  await prisma.requiredCredential.updateMany({
+  await tenantDb(orgId).requiredCredential.updateMany({
     where: { provider: { in: credProviders }, capability: { orgId } },
     data: { status, lastCheckedAt: new Date() },
   });
 
   // 影響 capability の status を再計算（全 creds CONNECTED なら ACTIVE、欠けがあれば NEEDS_AUTH）。
   // DISABLED は運用者の意思なので触らない。
-  const caps = await prisma.capability.findMany({
+  const caps = await tenantDb(orgId).capability.findMany({
     where: { orgId, status: { not: 'DISABLED' }, requiredCreds: { some: { provider: { in: credProviders } } } },
     include: { requiredCreds: true },
   });
@@ -34,7 +34,7 @@ export async function syncRequiredCredentialStatus(
     const allConnected = cap.requiredCreds.every((c) => c.status === 'CONNECTED');
     const next = allConnected ? 'ACTIVE' : 'NEEDS_AUTH';
     if (cap.status !== next) {
-      await prisma.capability.update({ where: { id: cap.id }, data: { status: next } });
+      await tenantDb(orgId).capability.update({ where: { id: cap.id }, data: { status: next } });
     }
   }
 }

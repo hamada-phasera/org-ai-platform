@@ -46,8 +46,8 @@ from app.models.api import (
 )
 from app.models.llm import ChatMessage, LLMRequest, LLMResponse, OrchestateRequest, OrchestrateResponse
 from app.orchestrator.orchestrator import get_agent, orchestrator, resolve_department
-from app.planner import plan_agent, plan_capability
-from app.planner.planner import plan_http_node, screen_agent
+from app.planner import plan_agent
+from app.planner.planner import plan_capability_with_model, plan_http_node, screen_agent
 from app.planner.receipt_vision import read_receipt
 from app.tenancy import ORG_HEADER, bind_org, current_org_header
 
@@ -80,6 +80,12 @@ INTERNAL_API_TOKEN = settings.internal_api_token
 
 # 認証を求めないパス（Render のヘルスチェックと、ドキュメント類）
 PUBLIC_PATHS = frozenset({"/health", "/docs", "/redoc", "/openapi.json"})
+
+if not settings.database_url_configured:
+    logger.warning(
+        "[ai-engine] ⚠️ DATABASE_URL が未設定です。AILog は既定のローカル SQLite に書かれ、"
+        "月間の利用量は数えられません（上限の判定は行いません）。gateway と同じ Postgres を設定してください。"
+    )
 
 if not INTERNAL_API_TOKEN:
     logger.warning(
@@ -139,6 +145,12 @@ def _log_masked_call(
     )
 
 
+# ⚠️ 利用者に返すエラーは固定文言だけ。例外の文言にはプロバイダの応答や入力の断片、
+#    設定名が混ざりうるので、詳細はログにだけ残す。
+ERROR_AI_NOT_CONFIGURED = "AI の設定が完了していません。管理者にお問い合わせください。"
+ERROR_AI_FAILED = "AI の応答を取得できませんでした。しばらくしてからもう一度お試しください。"
+
+
 def _sse(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
@@ -183,11 +195,12 @@ async def orchestrate(request: OrchestateRequest) -> OrchestrateResponse:
             history=request.history,
             user_email=request.user_email,
         )
-    except RuntimeError as e:
-        msg = str(e)
-        if "ANTHROPIC_API_KEY" in msg:
-            raise HTTPException(status_code=503, detail=msg) from e
-        raise
+    except Exception as e:
+        if isinstance(e, RuntimeError) and "ANTHROPIC_API_KEY" in str(e):
+            logger.error("[orchestrate] ANTHROPIC_API_KEY が未設定です")
+            raise HTTPException(status_code=503, detail=ERROR_AI_NOT_CONFIGURED) from e
+        logger.exception("[orchestrate] 応答の生成に失敗しました")
+        raise HTTPException(status_code=502, detail=ERROR_AI_FAILED) from e
 
 
 @app.post("/orchestrate/stream")
@@ -241,8 +254,9 @@ async def orchestrate_stream(request: OrchestateRequest) -> StreamingResponse:
                 pii_detected=pii_detected,
                 pii_types=pii_types,
             )
-        except Exception as e:
-            yield _sse({"type": "error", "message": str(e)})
+        except Exception:
+            logger.exception("[orchestrate/stream] 応答の生成に失敗しました")
+            yield _sse({"type": "error", "message": ERROR_AI_FAILED})
 
     return StreamingResponse(
         event_generator(),
@@ -288,14 +302,19 @@ async def plan(request: PlanRequest) -> PlanResponse:
     bind_org(request.org_id)
     pii_result = screen(request.message)
     capabilities = [c.model_dump() for c in request.available_capabilities]
-    result = await plan_capability(
+    result, actual_model = await plan_capability_with_model(
         message=pii_result.text,
         org_id=request.org_id,
         plan=request.plan,
         capabilities=capabilities,
         user_email=request.user_email,
     )
-    plan_provider, plan_model = resolve_provider_model(request.plan, request.user_email, json_mode=True)
+    # ⚠️ 応答の実モデル名を記録する（上限超過で軽いモデルへ落ちたとき、事前の決定とずれる）。
+    #    応答が無かったときだけ、事前に決めたモデルで埋める
+    if actual_model:
+        plan_provider, plan_model = provider_of_model(actual_model), actual_model
+    else:
+        plan_provider, plan_model = resolve_provider_model(request.plan, request.user_email, json_mode=True)
     _log_masked_call(
         org_id=request.org_id,
         department=DEFAULT_DEPARTMENT,
@@ -364,8 +383,22 @@ async def rank(request: RankRequest) -> RankResponse:
     ]
     by_id: dict[str, Ranking] = {}
     try:
-        response, _pii, _types = await llm_router.chat(
+        response, pii_detected, pii_types = await llm_router.chat(
             messages=messages, department="GENERAL", org_id=request.org_id, plan=request.plan, json_mode=True
+        )
+        # ⚠️ LLM 呼び出し1回なので AILog に残し、月間の回数に入れる（回数は AILog の行数）。
+        #    応答が壊れていても呼び出しは発生しているので、解析より先に記録する。入力はマスク後だけ
+        schedule_llm_log(
+            org_id=request.org_id,
+            department="GENERAL",
+            provider=provider_of_model(response.model),
+            model=response.model,
+            input_text=screen(messages[1].content).text,
+            output_text=response.content,
+            tokens=response.tokens_used,
+            latency_ms=response.latency_ms,
+            pii_detected=pii_detected,
+            pii_types=pii_types,
         )
         by_id = _parse_rankings(response.content)
     except Exception as e:

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../utils/prisma';
 import { claimAndEnqueueScheduledTask, startOfCurrentHourUtc } from '../services/schedule-dispatcher';
 import { config } from '../config/env';
+import { entitlementDecision } from '../services/entitlement';
 import { sendError } from '../utils/http-error';
 import { createLogger } from '../utils/logger';
 
@@ -172,14 +173,31 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
         // 最終防衛線は enqueue 側の atomic claim）
         OR: [{ lastRunAt: null }, { lastRunAt: { lt: startOfCurrentHourUtc(now) } }],
       },
-      include: { org: { select: { plan: true, billingEmail: true } } },
+      include: {
+        org: { select: { plan: true, billingEmail: true, subscriptionStatus: true, trialEndsAt: true } },
+      },
     });
 
-    const jobs = candidates.filter((s) => {
+    const due = candidates.filter((s) => {
       if (s.frequency === 'daily') return true;
       if (s.frequency === 'weekly') return s.dayOfWeek === currentDayOfWeek;
       if (s.frequency === 'monthly') return s.dayOfMonth === currentDayOfMonth;
       return false;
+    });
+    /* 閲覧のみ（期限切れ・解約済み）の組織のジョブは渡さない。n8n はこの一覧から ai-engine を直接呼びうるので、
+       enqueue 側（claimAndEnqueueScheduledTask）だけでなくここでも外す（saas-review #1） */
+    const jobs = due.filter((s) => {
+      const decision = entitlementDecision({
+        status: s.org.subscriptionStatus,
+        trialEndsAt: s.org.trialEndsAt,
+        billingConfigured: config.billingConfigured,
+        now,
+      });
+      if (decision.access === 'read_only') {
+        webhookLog.info(`契約が無いため定期ジョブを一覧から除外 (scheduledTask=${s.id}, org=${s.orgId}, reason=${decision.reason})`);
+        return false;
+      }
+      return true;
     });
 
     return reply.send({

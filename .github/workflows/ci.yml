@@ -1,7 +1,8 @@
 # PR と main への push で、TypeScript / Python / Go の lint・型チェック・テスト・ビルドを回す。
 #
-# ⚠️ DB・外部 API・シークレットには一切触れない。
-#   - gateway のテストは prisma をモックしているので DB 不要（prisma generate だけ要る）
+# ⚠️ 外部 API・シークレットには一切触れない。
+#   - gateway の単体テストは prisma をモックしているので DB 不要（prisma generate だけ要る）
+#   - 実 DB を使うのは integration ジョブだけ（使い捨ての pgvector/pgvector:pg16 サービス）
 #   - ai-engine のテストは LLM をスタブしているので API キー不要
 #   - どちらも環境変数を何も設定しない状態（env -i）で通ることをローカルで確認済み
 # ローカルで同じことをするなら: README.md「テスト・lint・型チェック」を参照。
@@ -31,7 +32,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           # undici 8（api-gateway の依存）は Node >=22.19 を要求する。20 だと http-node/client.ts を読むテストが落ちる。
-          # ⚠️ apps/*/Dockerfile は node:20-alpine のまま（要確認: docs/maintenance/cleanup-hold-list.md）
+          # Dockerfile・.node-version・render.yaml も 22（scripts/check-deploy-config.mjs が突き合わせる）
           node-version: '22'
           cache: npm
 
@@ -52,6 +53,48 @@ jobs:
 
       - name: Build (shared-types → api-gateway, web)
         run: npm run build
+
+  # 実 Postgres（pgvector）の統合テスト（計画書チャンク 9）。
+  # 空の DB への migrate deploy、DoD の通し（登録 → 分離 → 上限 → 契約 → 402）、raw SQL の組織分離。
+  # Stripe と ai-engine は偽物。DB はこのジョブだけの使い捨てコンテナ（パスワードはテスト用の固定値）。
+  integration:
+    name: 統合テスト（実 Postgres + pgvector）
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: flow_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      # DB 名は flow_ で始めること（テストはファイルごとに flow_test_<乱数> を作って消す）
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/flow_test
+      REQUIRE_TEST_DATABASE: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Prisma generate
+        run: npm run prisma:generate
+
+      - name: Integration tests
+        run: npm run test:int
 
   python:
     name: Python (ai-engine)
@@ -100,3 +143,44 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+  # docker compose が .env も鍵も無しで一発で起動し、登録まで通ることを確かめる（計画書チャンク 8）。
+  # ⚠️ ここだけ Docker を使う。外部 API・シークレットは使わない（LLM の鍵が無くても登録は通る）。
+  compose-smoke:
+    name: docker compose（.env 無しで起動 → 登録）
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: .env が無いこと
+        run: test ! -e .env
+
+      - name: 設定が .env 無しで解決できる
+        run: docker compose config --quiet
+
+      - name: 起動（healthcheck が通るまで待つ）
+        run: docker compose up --build --detach --wait --wait-timeout 900
+
+      - name: /health と /ready
+        run: |
+          curl -fsS http://127.0.0.1:4000/health
+          curl -fsS http://127.0.0.1:4000/ready
+          curl -fsS http://127.0.0.1:3000/ -o /dev/null
+
+      - name: 登録 1 回（web の nginx 経由）
+        run: |
+          code=$(curl -sS -o register.json -w '%{http_code}' -X POST http://127.0.0.1:3000/api/auth/register \
+            -H 'content-type: application/json' \
+            -d '{"name":"Smoke","email":"smoke@example.com","password":"smoke-pass-1234","orgName":"Smoke Co"}')
+          echo "status=$code"
+          test "$code" = "201"
+          node -e 'const b=require("./register.json"); if(!b.success||!b.data.token||!b.data.user.orgId) process.exit(1)'
+
+      - name: 失敗したらログ
+        if: failure()
+        run: docker compose logs --no-color --tail=300
+
+      - name: 片付け
+        if: always()
+        run: docker compose down -v

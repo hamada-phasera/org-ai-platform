@@ -4,7 +4,9 @@ import {
   billingConfigFromEnv,
   buildAddonItems,
   buildCheckoutParams,
+  checkoutTrialEnd,
   encodeStripeForm,
+  MIN_CHECKOUT_TRIAL_LEAD_MS,
   findBaseItem,
   planFromPriceId,
   subscriptionSnapshot,
@@ -62,7 +64,9 @@ describe('billingConfigFromEnv', () => {
 
   it('トライアル日数が壊れていたら既定の30日', () => {
     expect(billingConfigFromEnv({ STRIPE_SECRET_KEY: SECRET_KEY, BILLING_TRIAL_DAYS: 'abc' })?.trialDays).toBe(30);
-    expect(billingConfigFromEnv({ STRIPE_SECRET_KEY: SECRET_KEY, BILLING_TRIAL_DAYS: '0' })?.trialDays).toBe(0);
+    // 0 は既定に戻す（下限 1。登録時トライアルと同じ値を使うので、0 だと登録直後から閲覧のみになる。saas-review #12）
+    expect(billingConfigFromEnv({ STRIPE_SECRET_KEY: SECRET_KEY, BILLING_TRIAL_DAYS: '0' })?.trialDays).toBe(30);
+    expect(billingConfigFromEnv({ STRIPE_SECRET_KEY: SECRET_KEY, BILLING_TRIAL_DAYS: '1' })?.trialDays).toBe(1);
   });
 });
 
@@ -164,6 +168,64 @@ describe('buildCheckoutParams', () => {
   it('トライアル使用済みなら無料期間を付けない', () => {
     const p = buildCheckoutParams({ config, orgId: 'org-1', customerId: 'cus_1', priceId: 'price_p_y', withTrial: false });
     expect((p.subscription_data as Record<string, unknown>).trial_period_days).toBeUndefined();
+  });
+});
+
+describe('登録時トライアルの残りを Checkout に引き継ぐ（D3: trial_end）', () => {
+  const NOW = new Date('2026-11-17T00:00:00Z').getTime();
+  const DAY = 24 * 60 * 60 * 1000;
+  const params = (trialEndsAt: Date | null, withTrial = false) =>
+    buildCheckoutParams({
+      config, orgId: 'org-1', customerId: 'cus_1', priceId: 'price_p_m', withTrial,
+      trialEnd: checkoutTrialEnd({ status: null, trialEndsAt, now: NOW }),
+    }).subscription_data as Record<string, unknown>;
+
+  it('残り 10 日なら trial_end にトライアルの終わり（秒）が入り、trial_period_days は付かない', () => {
+    const end = new Date(NOW + 10 * DAY);
+    const sd = params(end);
+    expect(sd.trial_end).toBe(Math.floor(end.getTime() / 1000));
+    expect(sd.trial_period_days).toBeUndefined();
+    // form にしても 1 本だけ（Stripe は両方の同時指定を受け付けない）
+    const form = encodeStripeForm({ subscription_data: sd });
+    expect(form).toContain('subscription_data[trial_end]=');
+    expect(form).not.toContain('trial_period_days');
+  });
+
+  it('残り 1 日なら付けない（Stripe は 48 時間以上先でないと拒否する）＝その日から課金', () => {
+    const sd = params(new Date(NOW + 1 * DAY));
+    expect(sd.trial_end).toBeUndefined();
+    expect(sd.trial_period_days).toBeUndefined();
+  });
+
+  it('期限切れ・未設定・壊れた日付なら付けない。境界は 49 時間（1 時間の余裕）', () => {
+    expect(checkoutTrialEnd({ status: null, trialEndsAt: new Date(NOW - DAY), now: NOW })).toBeNull();
+    expect(checkoutTrialEnd({ status: null, trialEndsAt: null, now: NOW })).toBeNull();
+    expect(checkoutTrialEnd({ status: null, trialEndsAt: 'not-a-date', now: NOW })).toBeNull();
+    expect(checkoutTrialEnd({ status: null, trialEndsAt: new Date(NOW + 48 * 60 * 60 * 1000), now: NOW })).toBeNull();
+    expect(checkoutTrialEnd({ status: null, trialEndsAt: new Date(NOW + MIN_CHECKOUT_TRIAL_LEAD_MS), now: NOW })).toBe(
+      Math.floor((NOW + MIN_CHECKOUT_TRIAL_LEAD_MS) / 1000),
+    );
+  });
+
+  it('一度でも契約した組織（解約後の再契約など）には付けない', () => {
+    for (const status of ['canceled', 'unpaid', 'paused']) {
+      expect(checkoutTrialEnd({ status, trialEndsAt: new Date(NOW + 10 * DAY), now: NOW })).toBeNull();
+    }
+  });
+
+  it('incomplete / incomplete_expired（契約が成立していない）は未契約と同じく引き継ぐ（saas-review #4）', () => {
+    // 3D セキュアの失敗などで初回の支払いが通らなかっただけ。やり直しで無料期間の残りを失わせない
+    for (const status of ['incomplete', 'incomplete_expired']) {
+      expect(checkoutTrialEnd({ status, trialEndsAt: new Date(NOW + 10 * DAY), now: NOW })).toBe(
+        Math.floor((NOW + 10 * DAY) / 1000),
+      );
+    }
+  });
+
+  it('Stripe のトライアル（withTrial）があるときはそちらだけ', () => {
+    const sd = params(new Date(NOW + 10 * DAY), true);
+    expect(sd.trial_period_days).toBe(30);
+    expect(sd.trial_end).toBeUndefined();
   });
 });
 

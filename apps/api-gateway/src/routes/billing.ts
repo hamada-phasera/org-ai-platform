@@ -18,6 +18,8 @@ import {
   type SubscriptionStatus,
 } from '@org-ai/shared-types';
 import { creatorTrialUsed } from '../services/organizations';
+import { appTrialOf } from '../services/entitlement';
+import { config as appConfig } from '../config/env';
 import { authOf, type TenantDb } from '../tenancy';
 import { requireAuth, requireOwner } from '../middleware/auth';
 import {
@@ -26,17 +28,19 @@ import {
   billingConfigFromEnv,
   buildAddonItems,
   buildCheckoutParams,
+  checkoutTrialEnd,
   findBaseItem,
   isEntitled,
 } from '../services/billing/billing-core';
 import { StripeClient } from '../services/billing/stripe-client';
 import { applySubscription } from '../services/billing/sync';
 import { sendError } from '../utils/http-error';
+import { recordAudit } from '../services/audit';
 import { createLogger, errorMessage } from '../utils/logger';
 
 const billingLog = createLogger('billing');
 
-/** 追加容量の上限（1口 = 1GB）。桁の打ち間違いで高額な請求を作らないための柵 */
+/** 追加容量の上限（1口 = 10GB）。桁の打ち間違いで高額な請求を作らないための柵 */
 const MAX_ADDON_UNITS = 50;
 const PRICE_CACHE_MS = 10 * 60 * 1000;
 
@@ -113,7 +117,9 @@ async function buildOverview(db: TenantDb, orgId: string): Promise<BillingOvervi
     trialEndsAt: org.trialEndsAt?.toISOString() ?? null,
     cancelAtPeriodEnd: org.cancelAtPeriodEnd,
     trialAvailable: !org.trialEndsAt && !org.stripeSubscriptionId && !(await creatorTrialUsed(org)),
-    trialDays: config?.trialDays ?? 30,
+    trialDays: config?.trialDays ?? appConfig.billingTrialDays,
+    appTrial: appTrialOf({ status: org.subscriptionStatus, trialEndsAt: org.trialEndsAt, now: Date.now() }),
+    checkoutTrialEndsAt: checkoutTrialEndIso(org.subscriptionStatus, org.trialEndsAt),
     hasCustomer: !!org.stripeCustomerId,
     prices,
     storageAddon: {
@@ -126,8 +132,17 @@ async function buildOverview(db: TenantDb, orgId: string): Promise<BillingOvervi
   };
 }
 
+/** Checkout に引き継ぐ無料期間の終わり（画面の文言用。/checkout と同じ関数で決める）。 */
+function checkoutTrialEndIso(status: string | null, trialEndsAt: Date | null): string | null {
+  const sec = checkoutTrialEnd({ status, trialEndsAt, now: Date.now() });
+  return sec === null ? null : new Date(sec * 1000).toISOString();
+}
+
 const notConfigured = (reply: FastifyReply) =>
   sendError(reply, 503, 'BILLING_NOT_CONFIGURED', '決済はまだ準備中です。');
+
+/** 申し込みを受け付けられない設定不足（webhook の署名鍵が無い）。秘密の値・キー名は利用者に返さない */
+export const CHECKOUT_NOT_READY_MESSAGE = '決済の設定が完了していないため、お申し込みを受け付けられません。管理者にご連絡ください。';
 
 /** ⚠️ Stripe のエラー文言は利用者へ返さない（決済の文脈が混じる）。ログにだけ残す */
 const upstreamFailed = (reply: FastifyReply, e: unknown) => {
@@ -155,9 +170,15 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
 
   // 新規契約（Stripe Checkout の URL を返す）
   app.post('/checkout', { preHandler: requireOwner }, async (request, reply) => {
-    const { orgId, email, db } = authOf(request);
+    const { orgId, email, db, sub } = authOf(request);
     const config = billingConfigFromEnv();
     if (!config) return notConfigured(reply);
+    /* ⚠️ webhook の署名鍵が無いと、支払っても組織に写らない（写し込みは webhook だけ）。
+       支払ったのに閲覧のみのまま、を作らないため、申し込みの入口で止める（saas-review #2） */
+    if (!config.webhookSecret) {
+      billingLog.error('STRIPE_WEBHOOK_SECRET が未設定のため Checkout を作りません');
+      return sendError(reply, 503, 'BILLING_NOT_CONFIGURED', CHECKOUT_NOT_READY_MESSAGE);
+    }
 
     const parsed = checkoutSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -202,12 +223,21 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
           orgId: org.id,
           customerId,
           priceId,
-          // トライアルは組織ごとに1回だけ
-          // トライアルは作成者ごとに1回（設計書 Q3）
+          // Stripe のトライアルは作成者ごとに1回（設計書 Q3）。登録時トライアルがある組織には付かない
           withTrial: !org.trialEndsAt && !org.stripeSubscriptionId && !(await creatorTrialUsed(org)),
+          // 登録時トライアルの残り（48 時間以上）を引き継ぐ。終わりの日は延びない（D3）
+          trialEnd: checkoutTrialEnd({ status: org.subscriptionStatus, trialEndsAt: org.trialEndsAt, now: Date.now() }),
         }),
       );
       if (!session.url) return upstreamFailed(reply, new Error('Checkout の URL が返りませんでした'));
+      // 契約の成立は webhook で分かる。ここで残すのは「誰が申し込みを始めたか」
+      await recordAudit(db, {
+        action: 'billing.checkout_start',
+        actorId: sub,
+        targetType: 'organization',
+        targetId: org.id,
+        meta: { plan: parsed.data.plan, interval: parsed.data.interval },
+      });
       return reply.send({ success: true, data: { url: session.url } });
     } catch (e) {
       return upstreamFailed(reply, e);
@@ -239,7 +269,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
   // ⚠️ ポータルに任せない。追加ストレージを買った契約は明細が2本になり、ポータルのプラン変更が使えない。
   //    またポータルでは「下げた先の容量に今のファイルが収まるか」を確かめられない。
   app.post('/change-plan', { preHandler: requireOwner }, async (request, reply) => {
-    const { orgId, db } = authOf(request);
+    const { orgId, db, sub } = authOf(request);
     const config = billingConfigFromEnv();
     if (!config) return notConfigured(reply);
 
@@ -288,6 +318,13 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
           `plan:${current.id}:${base.id}:${base.price.id}:${priceId}`,
         );
         await applySubscription(org.id, updated, config);
+        await recordAudit(db, {
+          action: 'billing.plan_change',
+          actorId: sub,
+          targetType: 'organization',
+          targetId: org.id,
+          meta: { from: org.plan, plan, interval },
+        });
       }
     } catch (e) {
       return upstreamFailed(reply, e);
@@ -295,9 +332,9 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: await buildOverview(db, org.id) });
   });
 
-  // 追加容量の口数を変える（1口 = 1GB / 月額）
+  // 追加容量の口数を変える（1口 = 10GB / 月額）
   app.post('/storage-addon', { preHandler: requireOwner }, async (request, reply) => {
-    const { orgId, db } = authOf(request);
+    const { orgId, db, sub } = authOf(request);
     const config = billingConfigFromEnv();
     if (!config?.storageAddonPrice) return notConfigured(reply);
 
@@ -341,6 +378,15 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
           )
         : current;
       await applySubscription(org.id, updated, config);
+      if (items) {
+        await recordAudit(db, {
+          action: 'billing.storage_addon',
+          actorId: sub,
+          targetType: 'organization',
+          targetId: org.id,
+          meta: { from: org.storageAddonUnits, units },
+        });
+      }
     } catch (e) {
       return upstreamFailed(reply, e);
     }

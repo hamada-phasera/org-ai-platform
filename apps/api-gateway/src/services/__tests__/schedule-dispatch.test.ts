@@ -1,10 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const prismaMock = {
   scheduledTask: { updateMany: vi.fn(), findUnique: vi.fn(), findMany: vi.fn() },
   agent: { findUnique: vi.fn() },
   task: { create: vi.fn(), update: vi.fn() },
   taskLog: { create: vi.fn() },
+  organization: { findUnique: vi.fn() },
 };
 vi.mock('../../utils/prisma', () => ({ prisma: prismaMock }));
 
@@ -55,6 +56,8 @@ beforeEach(() => {
   prismaMock.task.create.mockResolvedValue({ id: 't1', orgId: 'org-1', title: 'T', input: 'i', department: 'ANALYTICS' });
   prismaMock.task.update.mockResolvedValue({ id: 't1' });
   prismaMock.taskLog.create.mockResolvedValue({ id: 'l' });
+  // 既定は「まだ決済を繋いでいない既存組織」（止めない）
+  prismaMock.organization.findUnique.mockResolvedValue({ subscriptionStatus: null, trialEndsAt: null });
 });
 
 /** fire-and-forget の catch はマイクロタスク後に走るので 1 tick 待つ。 */
@@ -246,5 +249,76 @@ describe('enqueueDueScheduledTasks', () => {
 
     expect(n).toBe(1);
     expect(prismaMock.scheduledTask.updateMany).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('閲覧のみ（期限切れ・解約済み）の組織は定期実行しない（saas-review #1）', () => {
+  const KEYS = ['STRIPE_SECRET_KEY', 'STRIPE_PRICE_STARTER_MONTHLY', 'STRIPE_WEBHOOK_SECRET'] as const;
+  const saved: Record<string, string | undefined> = {};
+  beforeEach(() => {
+    for (const k of KEYS) saved[k] = process.env[k];
+    process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+    process.env.STRIPE_PRICE_STARTER_MONTHLY = 'price_s_m';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_dummy';
+  });
+  afterEach(() => {
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+  const NOW = new Date('2026-09-09T00:30:00Z');
+
+  it('登録時トライアルが切れた組織: claim せず（lastRunAt を進めず）Task も作らない', async () => {
+    prismaMock.scheduledTask.findUnique.mockResolvedValue(ST);
+    prismaMock.organization.findUnique.mockResolvedValue({
+      subscriptionStatus: null,
+      trialEndsAt: new Date('2026-09-01T00:00:00Z'),
+    });
+
+    const r = await claimAndEnqueueScheduledTask('st1', NOW);
+
+    expect(r).toEqual({ enqueued: false, reason: 'read_only' });
+    expect(prismaMock.organization.findUnique.mock.calls[0][0].where).toEqual({ id: 'org-1' });
+    expect(prismaMock.scheduledTask.updateMany).not.toHaveBeenCalled();
+    expect(prismaMock.task.create).not.toHaveBeenCalled();
+    expect(dispatchQueuedTaskMock).not.toHaveBeenCalled();
+    expect(runAgentTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('解約済み（canceled）の組織も同じ', async () => {
+    prismaMock.scheduledTask.findUnique.mockResolvedValue({ ...ST, agentId: 'A1' });
+    prismaMock.organization.findUnique.mockResolvedValue({ subscriptionStatus: 'canceled', trialEndsAt: null });
+
+    const r = await claimAndEnqueueScheduledTask('st1', NOW);
+
+    expect(r).toEqual({ enqueued: false, reason: 'read_only' });
+    expect(prismaMock.scheduledTask.updateMany).not.toHaveBeenCalled();
+    expect(dispatchAgentTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('gateway 内 tick でも発火数に数えない', async () => {
+    prismaMock.scheduledTask.findMany.mockResolvedValue([
+      { id: 'st1', frequency: 'daily', dayOfWeek: null, dayOfMonth: null },
+    ]);
+    prismaMock.scheduledTask.findUnique.mockResolvedValue(ST);
+    prismaMock.organization.findUnique.mockResolvedValue({ subscriptionStatus: 'unpaid', trialEndsAt: null });
+
+    expect(await enqueueDueScheduledTasks(NOW)).toBe(0);
+    expect(prismaMock.task.create).not.toHaveBeenCalled();
+  });
+
+  it('契約中・トライアル中は従来どおり発火する', async () => {
+    prismaMock.scheduledTask.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.scheduledTask.findUnique.mockResolvedValue(ST);
+    prismaMock.organization.findUnique.mockResolvedValue({
+      subscriptionStatus: null,
+      trialEndsAt: new Date('2026-09-30T00:00:00Z'),
+    });
+
+    const r = await claimAndEnqueueScheduledTask('st1', NOW);
+
+    expect(r.enqueued).toBe(true);
+    expect(dispatchQueuedTaskMock).toHaveBeenCalledTimes(1);
   });
 });

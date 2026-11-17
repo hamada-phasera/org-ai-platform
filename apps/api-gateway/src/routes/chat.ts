@@ -201,7 +201,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     });
     const history = recentMessages.reverse().map((m) => ({ role: m.role, content: m.content }));
 
-    const aiEngineUrl = config.aiEngineUrlComposeDefault;
+    const aiEngineUrl = config.aiEngineUrl;
     let aiResponse: { content: string; department: string };
     const n8nResult = await generateViaN8n({
       message: userContent,
@@ -360,7 +360,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     };
     sendProgress('RECEIVED', undefined, true);
 
-    const aiEngineUrl = config.aiEngineUrlComposeDefault;
+    const aiEngineUrl = config.aiEngineUrl;
     let fullContent = '';
     let department = body.data.department ?? 'GENERAL';
     /** 上流がエラーを送ってきたか。空メッセージを DB に作らないための旗 */
@@ -466,7 +466,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         sessionId: id,
         history: [],
         plan: orgRow?.plan ?? 'STARTER',
-        aiEngineUrl: config.aiEngineUrlComposeDefault,
+        aiEngineUrl: config.aiEngineUrl,
       });
       if (n8nResult) {
         fullContent = n8nResult.content;
@@ -565,7 +565,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       select: { name: true, displayName: true, description: true, department: true, inputSchema: true },
     });
 
-    const aiEngineUrl = config.aiEngineUrlComposeDefault;
+    const aiEngineUrl = config.aiEngineUrl;
     try {
       const res = await fetch(`${aiEngineUrl}/plan/agent`, {
         method: 'POST',

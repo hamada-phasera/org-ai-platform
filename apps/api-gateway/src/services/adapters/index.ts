@@ -4,7 +4,7 @@
 // 戻り値は既存の N8nEnvelope に統一し、resolver の ExecutionLog 記録が無変更で効く。
 
 import type { N8nEnvelope } from '../capability-executor';
-import { prisma } from '../../utils/prisma';
+import { tenantDb } from '../../tenancy/tenant-db';
 import { openSecret } from '../secret-box';
 import { getGoogleAccessToken } from '../google-auth';
 import { syncRequiredCredentialStatus } from '../integration-sync';
@@ -41,7 +41,7 @@ const AUTH_MISSING_GOOGLE: N8nEnvelope = {
 
 /** org の Slack Bot トークンを復号して返す。未接続 / 復号不能は null。 */
 async function getSlackToken(orgId: string): Promise<string | null> {
-  const conn = await prisma.providerConnection.findUnique({
+  const conn = await tenantDb(orgId).providerConnection.findUnique({
     where: { orgId_provider: { orgId, provider: 'slack' } },
   });
   if (!conn || conn.status !== 'CONNECTED') return null;
@@ -54,7 +54,7 @@ async function getSlackToken(orgId: string): Promise<string | null> {
 
 /** Slack のトークン死亡を検知したら再接続要求に落とす。 */
 async function markSlackDead(orgId: string): Promise<void> {
-  await prisma.providerConnection.updateMany({
+  await tenantDb(orgId).providerConnection.updateMany({
     where: { orgId, provider: 'slack' },
     data: { status: 'NEEDS_RECONNECT', lastCheckedAt: new Date() },
   });
@@ -102,7 +102,7 @@ async function googleEnvelope<T extends object>(
   }
   if (result.authDead) {
     // getGoogleAccessToken 側でも落とすが、実行時 401（スコープ剥奪等）はここで検知される
-    await prisma.providerConnection.updateMany({
+    await tenantDb(ctx.orgId).providerConnection.updateMany({
       where: { orgId: ctx.orgId, provider: 'google' },
       data: { status: 'NEEDS_RECONNECT', lastCheckedAt: new Date() },
     });

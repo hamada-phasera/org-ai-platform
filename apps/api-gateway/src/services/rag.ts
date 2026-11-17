@@ -8,10 +8,11 @@
  *
  * 埋め込みが無効（EMBEDDING_API_KEY 未設定）なら全関数が安全に no-op / null を返す。
  * vector 列は Prisma 非対応のため、読み書きはすべて $queryRaw / $executeRaw。
+ * raw SQL はテナントクライアントでも書き換えられないので、文には必ず "orgId" の条件を書く（アーキテクチャテスト A2）。
  */
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
-import { prisma } from '../utils/prisma';
+import { tenantDb } from '../tenancy/tenant-db';
 import { extractText } from '../utils/fileExtractor';
 import { embedTexts, embedQuery, isEmbeddingEnabled, EMBEDDING_DIM } from './embeddings';
 
@@ -62,14 +63,15 @@ export async function indexFile(
   const vectors = await embedTexts(chunks, 'document');
   if (!vectors || vectors.length !== chunks.length) return;
 
+  const db = tenantDb(orgId);
   // 再アップロード等での重複を避けるため、このファイルの既存チャンクを削除してから入れ直す
   // 組織の条件も付ける（raw SQL はテナントクライアントの外なので、ここで必ず絞る）
-  await prisma.$executeRaw`DELETE FROM "FileChunk" WHERE "fileId" = ${fileId} AND "orgId" = ${orgId}`;
+  await db.$executeRaw`DELETE FROM "FileChunk" WHERE "fileId" = ${fileId} AND "orgId" = ${orgId}`;
 
   for (let idx = 0; idx < chunks.length; idx++) {
     const vec = vectors[idx];
     if (vec.length !== EMBEDDING_DIM) continue;
-    await prisma.$executeRaw`
+    await db.$executeRaw`
       INSERT INTO "FileChunk" ("id", "orgId", "fileId", "chunkIndex", "content", "embedding")
       VALUES (${randomUUID()}, ${orgId}, ${fileId}, ${idx}, ${chunks[idx]}, ${toVectorLiteral(vec)}::vector)
     `;
@@ -93,11 +95,12 @@ export async function indexMessages(
 
   const vectors = await embedTexts(valid.map((v) => v.text), 'document');
   if (!vectors || vectors.length !== valid.length) return;
+  const db = tenantDb(orgId);
 
   for (let i = 0; i < valid.length; i++) {
     const vec = vectors[i];
     if (vec.length !== EMBEDDING_DIM) continue;
-    await prisma.$executeRaw`
+    await db.$executeRaw`
       INSERT INTO "MessageEmbedding" ("id", "orgId", "messageId", "sessionId", "role", "content", "embedding")
       VALUES (${randomUUID()}, ${orgId}, ${valid[i].messageId}, ${sessionId}, ${valid[i].role}, ${valid[i].text}, ${toVectorLiteral(vec)}::vector)
       ON CONFLICT ("messageId") DO NOTHING
@@ -126,13 +129,14 @@ export async function retrieveContext(opts: {
   const qvec = await embedQuery(opts.query);
   if (!qvec || qvec.length !== EMBEDDING_DIM) return null;
   const qlit = toVectorLiteral(qvec);
+  const db = tenantDb(opts.orgId);
 
   const fileFilter =
     opts.fileIds && opts.fileIds.length > 0
       ? Prisma.sql`AND fc."fileId" IN (${Prisma.join(opts.fileIds)})`
       : Prisma.empty;
 
-  const fileRows = await prisma.$queryRaw<Array<{ content: string; fileId: string; score: number }>>(Prisma.sql`
+  const fileRows = await db.$queryRaw<Array<{ content: string; fileId: string; score: number }>>(Prisma.sql`
     SELECT fc."content", fc."fileId", 1 - (fc."embedding" <=> ${qlit}::vector) AS score
     FROM "FileChunk" fc
     WHERE fc."orgId" = ${opts.orgId} AND fc."embedding" IS NOT NULL ${fileFilter}
@@ -144,7 +148,7 @@ export async function retrieveContext(opts: {
     ? Prisma.sql`AND me."sessionId" <> ${opts.excludeSessionId}`
     : Prisma.empty;
 
-  const msgRows = await prisma.$queryRaw<Array<{ content: string; role: string; score: number }>>(Prisma.sql`
+  const msgRows = await db.$queryRaw<Array<{ content: string; role: string; score: number }>>(Prisma.sql`
     SELECT me."content", me."role", 1 - (me."embedding" <=> ${qlit}::vector) AS score
     FROM "MessageEmbedding" me
     WHERE me."orgId" = ${opts.orgId} AND me."embedding" IS NOT NULL ${sessionFilter}
@@ -165,7 +169,7 @@ export async function retrieveContext(opts: {
 
   const fileIds = [...new Set(files.map((f) => f.fileId))];
   const fileMeta = fileIds.length
-    ? await prisma.uploadedFile.findMany({
+    ? await db.uploadedFile.findMany({
         where: { id: { in: fileIds }, orgId: opts.orgId },
         select: { id: true, originalName: true },
       })

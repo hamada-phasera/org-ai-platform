@@ -30,7 +30,14 @@ class FakeRouter:
 
 
 @pytest.fixture
-def fake(monkeypatch: pytest.MonkeyPatch) -> FakeRouter:
+def logged(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    monkeypatch.setattr(planner, "schedule_llm_log", lambda **kw: records.append(kw))
+    return records
+
+
+@pytest.fixture
+def fake(monkeypatch: pytest.MonkeyPatch, logged: list[dict[str, Any]]) -> FakeRouter:
     r = FakeRouter("{}")
     monkeypatch.setattr(planner, "llm_router", r)
     return r
@@ -93,6 +100,16 @@ class TestPlanCapability:
         res = await planner.plan_capability("m", "o", "PRO", CAPS)
         assert res["reasoning"] == "LLM 出力の JSON パース失敗: " + "x" * 120
 
+    async def test_with_model_returns_actual_model(self, fake: FakeRouter) -> None:
+        fake.reply = json.dumps({"capability_name": "send_email", "args": {}})
+        _res, model = await planner.plan_capability_with_model("m", "o", "PRO", CAPS)
+        assert model == "m"
+
+    async def test_with_model_is_none_without_reply(self, fake: FakeRouter) -> None:
+        assert (await planner.plan_capability_with_model("m", "o", "PRO", []))[1] is None
+        fake.reply = RuntimeError("boom")
+        assert (await planner.plan_capability_with_model("m", "o", "PRO", CAPS))[1] is None
+
 
 class TestScreenAgent:
     async def test_uses_screen_task(self, fake: FakeRouter) -> None:
@@ -115,6 +132,25 @@ class TestScreenAgent:
     async def test_strict_types(self, fake: FakeRouter, payload: dict[str, Any], expected: dict[str, Any]) -> None:
         fake.reply = json.dumps(payload)
         assert await planner.screen_agent("d", "o", "MAX") == expected
+
+    async def test_logs_masked_call(self, fake: FakeRouter, logged: list[dict[str, Any]]) -> None:
+        fake.reply = json.dumps({"repeatable": True, "confidence": 0.9})
+        await planner.screen_agent("毎週 a@example.com に送る", "o", "MAX")
+        assert len(logged) == 1
+        rec = logged[0]
+        assert rec["org_id"] == "o"
+        assert rec["model"] == "m"
+        assert "a@example.com" not in rec["input_text"]
+        assert "[PII_EMAIL]" in rec["input_text"]
+        assert rec["pii_detected"] is True
+        assert rec["pii_types"] == ["EMAIL"]
+        # LLM に送る本文もマスク後
+        assert "a@example.com" not in fake.calls[0]["messages"][1].content
+
+    async def test_failure_is_not_logged(self, fake: FakeRouter, logged: list[dict[str, Any]]) -> None:
+        fake.reply = RuntimeError("x")
+        await planner.screen_agent("d", "o", "MAX")
+        assert logged == []
 
     async def test_failure_is_false(self, fake: FakeRouter) -> None:
         fake.reply = RuntimeError("x")

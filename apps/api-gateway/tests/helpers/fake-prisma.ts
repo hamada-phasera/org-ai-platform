@@ -26,7 +26,12 @@ const RELATIONS: Record<string, [string, string]> = {
 const DEFAULTS: Record<string, Row> = {
   membership: { status: 'ACTIVE', role: 'MEMBER' },
   user: { status: 'ACTIVE', role: 'MEMBER' },
-  organization: { plan: 'STARTER', storageUsedBytes: BigInt(0), storageAddonUnits: 0, subscriptionStatus: null },
+  organization: {
+    plan: 'STARTER', storageUsedBytes: BigInt(0), storageAddonUnits: 0, subscriptionStatus: null,
+    // 課金の列（nullable は null、Boolean は false）。未設定の列は select で [] になってしまうため明示する
+    billingEmail: null, stripeCustomerId: null, stripeSubscriptionId: null, billingInterval: null,
+    currentPeriodEnd: null, trialEndsAt: null, cancelAtPeriodEnd: false, createdBy: null,
+  },
 };
 
 const OPS = new Set(['equals', 'in', 'notIn', 'not', 'lt', 'lte', 'gt', 'gte', 'contains', 'startsWith', 'endsWith', 'mode', 'has', 'some', 'every', 'none', 'isEmpty']);

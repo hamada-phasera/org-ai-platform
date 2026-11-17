@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { LineWebhookEvent } from '../inbox/line-types';
 
 process.env.JWT_SECRET = 'test-jwt-secret-that-is-at-least-32-chars';
@@ -26,7 +26,9 @@ vi.mock('../secret-box', () => ({
   sealSecret: vi.fn(),
 }));
 
-const { processLineEvents, stripMentions } = await import('../inbox/line-inbox');
+const { processLineEvents, stripMentions, RECEIPT_SKIPPED_TEXT, DRAFT_SKIPPED_ERROR } = await import(
+  '../inbox/line-inbox'
+);
 
 const CONNECTION = { id: 'conn1', orgId: 'org1', accessTokenEnc: 'enc' };
 
@@ -77,7 +79,8 @@ describe('processLineEvents', () => {
       status: 'RECEIVED',
     });
     expect(data.receivedAt).toEqual(new Date(1757300000000));
-    expect(generateInboxDraftMock).toHaveBeenCalledWith('m1');
+    // 下書き生成には接続の組織に絞ったテナントクライアントを渡す（チャンク 10）
+    expect(generateInboxDraftMock).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org1' }), 'm1');
   });
 
   it('group テキストでもメンション無し → 取り込まない', async () => {
@@ -184,8 +187,90 @@ describe('processLineEvents', () => {
     prismaMock.channelConnection.update.mockRejectedValue(new Error('db down'));
     await processLineEvents(CONNECTION, [groupTextEvent()]);
     expect(prismaMock.channelConnection.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'conn1' } }),
+      // テナントクライアント経由なので接続の組織が where に入る
+      expect.objectContaining({ where: { id: 'conn1', orgId: 'org1' } }),
     );
+    expect(prismaMock.inboundMessage.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('閲覧のみ（期限切れ・解約済み）の組織の LINE 受信（saas-review #1）', () => {
+  const KEYS = ['STRIPE_SECRET_KEY', 'STRIPE_PRICE_STARTER_MONTHLY', 'STRIPE_WEBHOOK_SECRET'] as const;
+  const saved: Record<string, string | undefined> = {};
+  beforeEach(() => {
+    for (const k of KEYS) saved[k] = process.env[k];
+    process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+    process.env.STRIPE_PRICE_STARTER_MONTHLY = 'price_s_m';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_dummy';
+    // 登録時トライアルが昨日切れた、未契約の組織
+    prismaMock.organization.findUnique.mockResolvedValue({
+      plan: 'STARTER',
+      subscriptionStatus: null,
+      trialEndsAt: new Date(Date.now() - 86_400_000),
+    });
+  });
+  afterEach(() => {
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it('テキストは受信を保存するが、下書き生成（AI）は呼ばない', async () => {
+    await processLineEvents(CONNECTION, [groupTextEvent()]);
+
+    expect(prismaMock.inboundMessage.create).toHaveBeenCalledTimes(1);
+    expect(prismaMock.inboundMessage.create.mock.calls[0][0].data).toMatchObject({
+      text: '見積もりをください',
+      // RECEIVED だと受信箱が「生成中」のまま滞留するので、最初から下書き無しの状態にする
+      status: 'DRAFT_FAILED',
+      draftError: DRAFT_SKIPPED_ERROR,
+    });
+    expect(generateInboxDraftMock).not.toHaveBeenCalled();
+  });
+
+  it('1:1 の画像は受信を保存するが、領収書の読み取り（/vision/receipt）は呼ばない', async () => {
+    const userImage = groupTextEvent({
+      webhookEventId: 'evt-img-ro',
+      source: { type: 'user', userId: 'U9' },
+      message: { id: 'msg-ro', type: 'image' },
+    });
+    await processLineEvents(CONNECTION, [userImage]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(prismaMock.inboundMessage.create.mock.calls[0][0].data).toMatchObject({
+      messageType: 'image',
+      status: 'CAPTURED',
+      text: RECEIPT_SKIPPED_TEXT,
+    });
+    expect(captureReceiptMock).not.toHaveBeenCalled();
+  });
+
+  it('解約済み（canceled）でも同じ', async () => {
+    prismaMock.organization.findUnique.mockResolvedValue({
+      plan: 'PRO',
+      subscriptionStatus: 'canceled',
+      trialEndsAt: null,
+    });
+    await processLineEvents(CONNECTION, [groupTextEvent()]);
+    expect(prismaMock.inboundMessage.create).toHaveBeenCalledTimes(1);
+    expect(generateInboxDraftMock).not.toHaveBeenCalled();
+  });
+
+  it('トライアル中は従来どおり下書きを作る', async () => {
+    prismaMock.organization.findUnique.mockResolvedValue({
+      plan: 'STARTER',
+      subscriptionStatus: null,
+      trialEndsAt: new Date(Date.now() + 86_400_000),
+    });
+    await processLineEvents(CONNECTION, [groupTextEvent()]);
+    expect(prismaMock.inboundMessage.create.mock.calls[0][0].data.status).toBe('RECEIVED');
+    expect(generateInboxDraftMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('契約の確認が失敗しても取り込みは止めない（fail-open）', async () => {
+    prismaMock.organization.findUnique.mockRejectedValueOnce(new Error('db blip'));
+    await processLineEvents(CONNECTION, [groupTextEvent()]);
     expect(prismaMock.inboundMessage.create).toHaveBeenCalledTimes(1);
   });
 });

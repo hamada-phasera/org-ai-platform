@@ -95,7 +95,7 @@ model Organization {
   /// UploadedFile の SUM は復旧時の再計算にだけ使う
   /// （毎回 SUM すると一覧のたびに全表走査になる）
   storageUsedBytes    BigInt               @default(0)
-  /// 追加購入したストレージの単位数（1単位 = 1GB）。課金開始後に増やせる
+  /// 追加購入したストレージの単位数（1単位 = 10GB）。課金開始後に増やせる
   /// ⚠️ 直接書き換えない。Stripe のサブスクリプションの数量から写す
   storageAddonUnits   Int                  @default(0)
   /// Stripe のサブスクリプションID。解約後も最後のものを残す（遅れて届く古いイベントの判定に使う）
@@ -221,6 +221,24 @@ model RiskEvent {
   @@index([orgId, createdAt])
 }
 
+/// 管理操作の監査記録（招待・役割変更・無効化・組織の作成と改名・契約操作・連携の接続と切断）。
+/// AILog / RiskEvent は AI の入出力だけなので、人の操作はここに残す。書くのは services/audit.ts だけ。
+/// ⚠️ meta に秘密の値（トークン・パスワード・鍵）を入れない（audit.ts が名前で落とす）。
+model AuditEvent {
+  id         String   @id @default(cuid())
+  orgId      String
+  /// 操作した人（User.id）。システム経路なら null
+  actorId    String?
+  /// 'member.role_change' など。一覧は services/audit.ts の AUDIT_ACTIONS
+  action     String
+  targetType String?
+  targetId   String?
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  @@index([orgId, createdAt])
+}
+
 model UploadedFile {
   id           String       @id @default(cuid())
   orgId        String
@@ -235,6 +253,10 @@ model UploadedFile {
   sizeBytes    Int
   createdAt    DateTime     @default(now())
   chunks       FileChunk[]
+
+  /// 20260913000000_add_storage_driver が作った索引。schema に書いていないと migrate dev が DROP を生成する
+  /// （tests/integration/migrate.int.test.ts がずれを検査する）
+  @@index([orgId])
 }
 
 /// RAG: アップロードファイルをチャンク分割し埋め込みベクトルを保持する。

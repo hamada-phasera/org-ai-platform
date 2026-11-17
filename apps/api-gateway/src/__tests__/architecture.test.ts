@@ -24,7 +24,7 @@ const PRISMA_IMPORT = /from '(?:\.\.?\/)+utils\/prisma'/;
  */
 export const RAW_PRISMA_ALLOWLIST: Record<string, string> = {
   // ── 入口・テナントの仕組みそのもの ──
-  'index.ts': '/ready の SELECT 1',
+  'app.ts': '/ready の SELECT 1',
   'middleware/auth.ts': '所属の確認（テナントが決まる前）',
   'tenancy/tenant-db.ts': 'テナントクライアントの実体',
   'tenancy/membership-cache.ts': '所属の確認（テナントが決まる前）',
@@ -38,23 +38,15 @@ export const RAW_PRISMA_ALLOWLIST: Record<string, string> = {
   'services/organizations.ts': '組織の作成・作成上限・作成者ごとのトライアル（組織をまたいで数える）',
   'services/billing/sync.ts': 'Stripe の写し込み（組織自体を更新する）',
   'services/lifecycle.ts': 'シャットダウン時の後始末（状態を FAILED にするだけ）',
-  'services/schedule-dispatcher.ts': '定期実行の claim と候補スキャン（claim 後は runAsTenant + tenantDb）',
-  'services/step-runner.ts': '取り残された実行の回収と、Task の組織での実行（Phase 1.5 で tenantDb へ）',
-  // ── 受け取った orgId で必ず where/data を書いているサービス（Phase 1.5 で tenantDb へ移す） ──
-  'services/task-executor.ts': 'Task を引数で受け取り、その id/orgId で更新する',
-  'services/capability-resolver.ts': 'orgId を引数で受け取る（where に orgId）',
-  'services/capability-executor.ts': 'orgId を引数で受け取る（where に orgId）',
-  'services/adapters/index.ts': 'ctx.orgId で ProviderConnection を引く',
-  'services/google-auth.ts': 'orgId で ProviderConnection を引く',
-  'services/integration-sync.ts': 'orgId で RequiredCredential を同期する',
-  'services/rag.ts': 'pgvector の raw SQL（"orgId" = ${orgId}）',
-  'services/inbox/line-inbox.ts': 'connection.orgId で取り込む（runAsTenant の中）',
-  'services/inbox/draft-generator.ts': 'InboundMessage の orgId で下書きを書く',
-  'services/inbox/receipt-capture.ts': 'InboundMessage の orgId で原価の下書きを作る',
+  'services/schedule-dispatcher.ts': '定期実行の claim と候補スキャンだけ（claim 後と失敗の記録は runAsTenant + tenantDb）',
+  'services/step-runner.ts':
+    '取り残された RUNNING の回収（組織をまたぐ）と、orgId 無しで呼ばれた再開の Task の逆引きだけ。以降は tenantDb',
+  // チャンク 10 で tenantDb に移したもの（task-executor・capability-resolver/executor・adapters・google-auth・
+  // integration-sync・rag・inbox の 3 つ）はここに戻さない。組織が決まっているなら tenantDb(orgId) を使う
 };
 
 /** raw SQL を書いてよいファイル。どれも "orgId" か "Organization" を条件に含むこと。 */
-const RAW_SQL_ALLOWLIST = ['index.ts', 'tenancy/tenant-db.ts', 'routes/files.ts', 'services/rag.ts'];
+const RAW_SQL_ALLOWLIST = ['app.ts', 'tenancy/tenant-db.ts', 'routes/files.ts', 'services/rag.ts'];
 
 describe('A1: 素の prisma を import するのは allowlist のファイルだけ', () => {
   const importers = files.filter((f) => PRISMA_IMPORT.test(f.src)).map((f) => f.rel).sort();
@@ -122,5 +114,21 @@ describe('A4: ルートは JWT の role / orgId を直接読まない', () => {
       (f) => f.rel.startsWith('routes/') && /(payload|request\.user)(\s+as\s+[^)]*\))?\.role\s*[!=]==/.test(f.src),
     );
     expect(bad.map((f) => f.rel)).toEqual([]);
+  });
+});
+
+describe('A5: process.env を読むのは config/env.ts だけ（CLAUDE.md「環境変数の読み口は1か所」）', () => {
+  it('src/ のほかのファイルは process.env に触れない', () => {
+    const offenders = files
+      .filter((f) => f.rel !== 'config/env.ts')
+      // コメント中の言及は数えない（行頭の // と * の行を落とす）
+      .filter((f) =>
+        f.src
+          .split('\n')
+          .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+          .some((line) => /\bprocess\.env\b/.test(line)),
+      )
+      .map((f) => f.rel);
+    expect(offenders).toEqual([]);
   });
 });

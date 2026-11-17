@@ -175,6 +175,7 @@ describe('POST /api/members/invitations/accept', () => {
       invitation: { updateMany: vi.fn(async () => ({ count: 1 })), update: vi.fn(async () => ({})) },
       user: { create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'u-new', ...data })) },
       membership: { create: vi.fn(async (_args: { data: Record<string, unknown> }) => ({})) },
+      auditEvent: { create: vi.fn(async (_args: { data: Record<string, unknown> }) => ({})) },
     };
     prismaMock.$transaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
 
@@ -193,6 +194,8 @@ describe('POST /api/members/invitations/accept', () => {
     const membership = tx.membership.create.mock.calls[0][0].data;
     expect(membership.orgId).toBe('org-1');
     expect(membership.role).toBe('MEMBER');
+    // 参加は招待の組織の監査に残る
+    expect(tx.auditEvent.create.mock.calls[0][0].data).toMatchObject({ orgId: 'org-1', action: 'member.join', actorId: 'u-new' });
     await app.close();
   });
 
@@ -362,6 +365,7 @@ describe('既存ユーザーの招待受諾（UC2 / 設計書 §10.3）', () => 
     const tx = {
       invitation: { updateMany: vi.fn(async () => ({ count: 1 })) },
       membership: { create: vi.fn(async (_args: { data: Record<string, unknown> }) => ({})) },
+      auditEvent: { create: vi.fn(async (_args: { data: Record<string, unknown> }) => ({})) },
     };
     prismaMock.$transaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
     prismaMock.membership.findMany.mockResolvedValue([]);

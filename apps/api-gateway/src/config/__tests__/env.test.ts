@@ -30,7 +30,6 @@ describe('config: 既定値（移行前と同じ）', () => {
     ['inviteTtlDays', 7],
     ['apiGatewayUrl', 'http://localhost:4000'],
     ['aiEngineUrl', 'http://localhost:8000'],
-    ['aiEngineUrlComposeDefault', 'http://ai-engine:8000'],
     ['n8nUrl', 'http://localhost:5678'],
     ['n8nChatCloudUrl', ENV_DEFAULTS.N8N_CHAT_CLOUD_URL],
     ['n8nApiKey', ''],
@@ -130,5 +129,31 @@ describe('config: 値の読み方', () => {
     process.env.NODE_ENV = 'production';
     expect(config.isProduction).toBe(true);
     expect(config.nodeEnv).toBe('production');
+  });
+
+  it('billingConfigured はキー・梅の月額 price・webhook の署名鍵の 3 つがそろったときだけ true', () => {
+    expect(config.billingConfigured).toBe(false);
+    process.env.STRIPE_SECRET_KEY = 'sk_test_x';
+    expect(config.billingConfigured).toBe(false);
+    process.env.STRIPE_PRICE_STARTER_MONTHLY = '  ';
+    expect(config.billingConfigured).toBe(false);
+    process.env.STRIPE_PRICE_STARTER_MONTHLY = 'price_s_m';
+    // 署名鍵が無いと支払っても組織に写らない（saas-review #2）
+    expect(config.billingConfigured).toBe(false);
+    process.env.STRIPE_WEBHOOK_SECRET = '  ';
+    expect(config.billingConfigured).toBe(false);
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_x';
+    expect(config.billingConfigured).toBe(true);
+  });
+
+  it('billingTrialDays は下限 1（0・負・数でないは既定の 30。saas-review #12）', () => {
+    for (const v of ['0', '-3', 'abc', '']) {
+      process.env.BILLING_TRIAL_DAYS = v;
+      expect(config.billingTrialDays).toBe(30);
+    }
+    process.env.BILLING_TRIAL_DAYS = '1';
+    expect(config.billingTrialDays).toBe(1);
+    process.env.BILLING_TRIAL_DAYS = '14.7';
+    expect(config.billingTrialDays).toBe(14);
   });
 });

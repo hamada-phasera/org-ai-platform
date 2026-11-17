@@ -26,7 +26,17 @@ export const TENANT_MODELS = [
   'Capability',
   'CapabilityGap',
   'ExecutionLog',
+  'AuditEvent',
 ] as const;
+
+/**
+ * RLS Phase 2a でポリシーを付ける表（packages/db-schema/rls/phase2a.sql と同じ並び）。
+ * アプリ層の強制が効かない表: ai-engine が生 SQL で書く AILog / RiskEvent と、pgvector の列を raw SQL で読み書きする
+ * FileChunk / MessageEmbedding。`RLS_MODE=on` のとき、テナントクライアントはこの表の操作と raw SQL の前に
+ * 同じトランザクションで set_config('app.org_id', orgId, true) を呼ぶ（tenant-db.ts）。
+ */
+export const RLS_MODELS = ['AILog', 'RiskEvent', 'FileChunk', 'MessageEmbedding'] as const satisfies readonly TenantModelName[];
+type TenantModelName = (typeof TENANT_MODELS)[number];
 
 /**
  * orgId を持たず、親を通して所属するモデル。テナントクライアントは**書き換えない**。

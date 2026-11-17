@@ -11,6 +11,7 @@ import { runAsTenant } from '../tenancy/context';
 import { tenantDb, type TenantDb } from '../tenancy/tenant-db';
 import { dispatchQueuedTask, dispatchAgentTask } from './task-executor';
 import { runAgentTask } from './step-runner';
+import { orgEntitlement } from './org-entitlement';
 import { config } from '../config/env';
 import { createLogger } from '../utils/logger';
 
@@ -41,21 +42,21 @@ export function matchesSchedule(
  * ここで必ず握り、ログと Task の FAILED 記録まで best-effort で行う。
  * start() が同期 throw しても Promise 化して受けられるよう Promise.resolve().then() を挟む。
  */
-function fireAndForget(taskId: string, label: string, start: () => Promise<void> | void): void {
+function fireAndForget(db: TenantDb, taskId: string, label: string, start: () => Promise<void> | void): void {
   void Promise.resolve()
     .then(start)
-    .catch((e) => markDispatchFailed(taskId, label, e));
+    .catch((e) => markDispatchFailed(db, taskId, label, e));
 }
 
 /** 発火に失敗した Task を FAILED + TaskLog(ERROR) に落とす。この更新自体の失敗も握りつぶす。 */
-async function markDispatchFailed(taskId: string, label: string, error: unknown): Promise<void> {
+async function markDispatchFailed(db: TenantDb, taskId: string, label: string, error: unknown): Promise<void> {
   scheduleLog.error(`${label} failed (task=${taskId}):`, error);
   try {
-    await prisma.task.update({
+    await db.task.update({
       where: { id: taskId },
       data: { status: 'FAILED', lastError: String(error) },
     });
-    await prisma.taskLog.create({
+    await db.taskLog.create({
       data: { taskId, message: `定期実行の起動に失敗: ${String(error)}`, level: 'ERROR' },
     });
   } catch (e) {
@@ -66,7 +67,7 @@ async function markDispatchFailed(taskId: string, label: string, error: unknown)
 
 export type EnqueueResult =
   | { enqueued: true; taskId: string }
-  | { enqueued: false; reason: 'already_ran' | 'not_found' | 'agent_gone' };
+  | { enqueued: false; reason: 'already_ran' | 'not_found' | 'agent_gone' | 'read_only' };
 
 /**
  * 定期タスク 1 件を（まだ当該時間帯に走っていなければ）Task 化して発火する。
@@ -77,6 +78,20 @@ export async function claimAndEnqueueScheduledTask(
   scheduledTaskId: string,
   now: Date = new Date(),
 ): Promise<EnqueueResult> {
+  /* 閲覧のみ（期限切れ・解約済み）の組織は発火しない。claim より前に見るので lastRunAt も進めない
+     （契約し直せば、その時間帯のうちに次の tick で走る）。docs/plan/saas-review.md #1 */
+  const head = await prisma.scheduledTask.findUnique({ where: { id: scheduledTaskId }, select: { orgId: true } });
+  if (!head) return { enqueued: false, reason: 'not_found' };
+  if (head.orgId) {
+    const decision = await orgEntitlement(tenantDb(head.orgId), now);
+    if (decision.access === 'read_only') {
+      scheduleLog.info(
+        `契約が無いため定期実行を skip (scheduledTask=${scheduledTaskId}, org=${head.orgId}, reason=${decision.reason})`,
+      );
+      return { enqueued: false, reason: 'read_only' };
+    }
+  }
+
   const hourStart = startOfCurrentHourUtc(now);
   const claimed = await prisma.scheduledTask.updateMany({
     where: {
@@ -130,7 +145,7 @@ async function enqueueClaimed(db: TenantDb, st: ScheduledTaskRow): Promise<Enque
     });
     const steps = (agent.steps as unknown as AgentStepDef[] | null) ?? [];
     if (steps.length > 0) {
-      fireAndForget(task.id, 'runAgentTask', () =>
+      fireAndForget(db, task.id, 'runAgentTask', () =>
         runAgentTask(
           { id: task.id, orgId: task.orgId, input: task.input },
           {
@@ -145,7 +160,7 @@ async function enqueueClaimed(db: TenantDb, st: ScheduledTaskRow): Promise<Enque
     } else {
       // steps 無しエージェント: instructions を効かせた単発実行
       // （従来は dispatchQueuedTask に流れて instructions が無視されていたギャップの修正）
-      fireAndForget(task.id, 'dispatchAgentTask', () =>
+      fireAndForget(db, task.id, 'dispatchAgentTask', () =>
         dispatchAgentTask(
           { id: task.id, orgId: task.orgId, title: task.title, input: task.input, taskType: 'agent' },
           {
@@ -175,7 +190,7 @@ async function enqueueClaimed(db: TenantDb, st: ScheduledTaskRow): Promise<Enque
   await db.taskLog.create({
     data: { taskId: task.id, message: `定期実行から起動 (scheduledTaskId=${st.id})`, level: 'INFO' },
   });
-  fireAndForget(task.id, 'dispatchQueuedTask', () => dispatchQueuedTask(task));
+  fireAndForget(db, task.id, 'dispatchQueuedTask', () => dispatchQueuedTask(task));
   return { enqueued: true, taskId: task.id };
 }
 

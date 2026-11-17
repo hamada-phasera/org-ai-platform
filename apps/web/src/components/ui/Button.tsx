@@ -27,6 +27,13 @@ const sizeClass: Record<Size, string> = {
 const iconSize: Record<Size, number> = { xs: 11, sm: 13, md: 14, lg: 16 };
 
 /**
+ * スマホ（lg 未満）では押せる面を 44px 以上にする（DESIGN.md §5）。見た目の大きさは size のまま、
+ * 高さの下限だけを上げる。アイコンだけのボタンは幅も 44px。
+ */
+const TOUCH = 'max-lg:min-h-11';
+const TOUCH_ICON_ONLY = 'max-lg:min-w-11';
+
+/**
  * Button — ボタンの正本（旧 GlassButton）。
  *
  * v3: primary はブランドのブルーバイオレット塗り（--action）。塗り面積は小さく保つ。
@@ -92,7 +99,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <motion.button
         ref={ref}
-        className={`relative inline-flex items-center justify-center ${sizeClass[size]} ${variantBase.className} ${fullWidth ? 'w-full' : ''} transition-all duration-base ease-standard disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden ${className}`}
+        className={`relative inline-flex items-center justify-center ${sizeClass[size]} ${variantBase.className} ${TOUCH} ${children ? '' : TOUCH_ICON_ONLY} ${fullWidth ? 'w-full' : ''} transition-all duration-base ease-standard disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden ${className}`}
         style={{ ...variantBase.style, ...style }}
         whileHover={!isDisabled ? { scale: 1.02 } : undefined}
         whileTap={!isDisabled ? { scale: 0.97 } : undefined}

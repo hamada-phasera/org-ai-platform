@@ -32,6 +32,7 @@ import { sealSecret } from '../services/secret-box';
 import { syncRequiredCredentialStatus } from '../services/integration-sync';
 import { config } from '../config/env';
 import { sendError } from '../utils/http-error';
+import { recordAudit } from '../services/audit';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -290,6 +291,13 @@ export async function oauthGoogleRoutes(app: FastifyInstance): Promise<void> {
       },
     });
     await syncRequiredCredentialStatus(payload.orgId, 'google', 'CONNECTED');
+    await recordAudit(db, {
+      action: 'integration.connect',
+      actorId: payload.sub,
+      targetType: 'provider',
+      targetId: 'google',
+      meta: { provider: 'google', account: link.email },
+    });
 
     return reply.send({ success: true, data: { provider: 'google', displayName: link.email } });
   });

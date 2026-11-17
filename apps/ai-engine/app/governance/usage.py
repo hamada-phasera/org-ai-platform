@@ -55,9 +55,11 @@ async def monthly_calls(org_id: str) -> int | None:
         #    SQLAlchemy と DB 設定が要るようになり、ルーティングのテストが動かなくなる
         from sqlalchemy import text  # noqa: PLC0415
 
-        from app.db import AsyncSessionLocal  # noqa: PLC0415
+        import app.db as app_db  # noqa: PLC0415
 
-        async with AsyncSessionLocal() as db:
+        async with app_db.AsyncSessionLocal() as db:
+            # RLS_MODE=on: flow_app では組織を設定しないと AILog が 0 行に見え、上限の判定が効かなくなる
+            await app_db.set_tenant(db, org_id)
             row = await db.execute(
                 text(
                     'SELECT count(*) FROM "AILog" WHERE "orgId" = :org '

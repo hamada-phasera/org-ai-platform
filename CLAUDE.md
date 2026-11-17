@@ -52,13 +52,15 @@ org-ai-platform/
 - 環境変数は .env ファイルで管理する
 - 環境変数の読み口は1か所: gateway は `src/config/env.ts`（`envSchema` に追加し既定値は `ENV_DEFAULTS` だけに書く。
   読むときは `config.*`）、ai-engine は `app/config.py`（`settings.*`）。`process.env` / `os.environ` を直接読まない。
-  変数を足したら `.env.example` にも載せる
+  変数を足したら `.env.example` にも載せる（`render.yaml`・compose・Node の版との突き合わせは `npm run check:deploy`、`npm test` に含む）
 - gateway のエラー応答は `utils/http-error.ts` の `sendError(reply, status, code, message)` で返す
 - gateway のログは `utils/logger.ts` の `createLogger('scope')`（`console.*` 直書き禁止）。ai-engine は
   `logging.getLogger(__name__)`（`print` 禁止）。秘密の値はログにもレスポンスにも出さない
 - 変更前後にルートで `npm run lint` / `npm run typecheck` / `npm test` / `npm run build`、
   Python は `npm run lint:ai` / `npm run typecheck:ai` / `npm run test:ai`（`apps/ai-engine/.venv` 前提）、
   Go は `npm run test:go`。CI（`.github/workflows/ci.yml`）も同じことを回す
+- DB・マイグレーション・raw SQL を触ったら `npm run test:int`（実 Postgres + pgvector。`TEST_DATABASE_URL` の DB 名は `flow_` 始まり。
+  無ければスキップ。CI の integration ジョブが pgvector/pgvector:pg16 で回す）
 - テストコードも型チェック対象（gateway / shared-types は `tsconfig.test.json`）。DB・外部 API はモックし、シークレット無しで通すこと
 - 構成とデータフローは `docs/ARCHITECTURE.md`、整理で見送った項目・既知の問題は `docs/maintenance/cleanup-hold-list.md`
 
@@ -111,7 +113,10 @@ STRIPE_PRICE_STORAGE_ADDON= / STRIPE_TAX_RATE_ID= / BILLING_TRIAL_DAYS=30 / APP_
 - 認証の無い経路（定期実行・LINE webhook・step-runner）は、組織が決まったら `runAsTenant({ orgId, source })` で包む。
   ai-engine への呼び出しは `aiEngineHeaders()` が `X-Org-Id` を付け、ai-engine が body の `org_id` と照合する（`ORG_HEADER_MODE`）。
 - 組織分離テスト: `apps/api-gateway/tests/tenancy/tenant-isolation.test.ts`。ルートを足したら IDOR / 一覧の表に足す。
-- RLS ポリシーはまだ入れない（ADR-4。Phase 2 で専用ロールを作ってから）。
+- RLS は Phase 2a まで用意済みで**既定 off**（`RLS_MODE`。設計書 §17）。`packages/db-schema/rls/phase2a.sql`（migrations 外・手で流す）が
+  AILog / RiskEvent / FileChunk / MessageEmbedding に `flow_app` 向けのポリシーを付ける。on にするのはロール作成（O-5）の後で、
+  gateway・ai-engine の `RLS_MODE=on` と接続ユーザーの `flow_app` への切り替えを**同時に**行う。`SET` は使わず `set_config(…, true)` だけ。
+  4 表を触る新しい経路は tenantDb（gateway）か `set_tenant`（ai-engine `app/db.py`）を通すこと。
 
 ## 自動化の実行モデル (2026-09 スプリント)
 
@@ -170,13 +175,21 @@ STRIPE_PRICE_STORAGE_ADDON= / STRIPE_TAX_RATE_ID= / BILLING_TRIAL_DAYS=30 / APP_
 - **組織への写し込みは webhook が正本**。イベントは順不同で届くので、本文の状態を書かずに
   毎回サブスクリプションを取り直して写す（`services/billing/sync.ts`）。処理済みの印は**成功してから**書く。
 - 権利があるのは trialing / active / past_due。それ以外は梅の上限に戻す（データは消さない）。
+  incomplete 系は未契約と同じ、解約後も `trialEndsAt` の残りは使える。判定は shared-types の `readOnlyReasonOf` 1 か所（gateway と web で共有）。
 - **解約後は「閲覧のみ」**。書き込み（POST/PUT/PATCH/DELETE）を 402 で止め、閲覧と書き出しは通す
   （`services/entitlement.ts`）。決済と認証の経路は止めない＝再開できなくなるため。
-  ⚠️ `subscriptionStatus` が null は「まだ決済を繋いでいない」＝課金開始前の利用者なので止めない。
+  認証の無い経路（定期実行・n8n の enqueue と一覧・LINE の下書き/領収書）は入口で `orgEntitlement`（`services/org-entitlement.ts`）を見て
+  AI を動かさない（LINE の受信メッセージの保存は続ける）。
+  ⚠️ `subscriptionStatus` が null は「まだ決済を繋いでいない」。トライアル期限が無い（既存組織）なら止めない。
 - **AI の月間上限は超えても止めない**。8割で警告し、超えたら軽いモデルへ落として続ける
   （ai-engine `governance/usage.py`。判定は LLMRouter 1か所なので n8n 経由にも効く）。
   現場で「今日から使えません」は業務が止まり、そのまま解約になる。
-- トライアルは組織ごとに1回（`trialEndsAt` が一度でも入ったら使用済み）。
+- **登録と同時にカード不要のトライアル**（`trialEndsAt = 作成時刻 + BILLING_TRIAL_DAYS`、上限は梅）。
+  期限後も未契約なら「閲覧のみ」（402 `SUBSCRIPTION_REQUIRED`）。判定は `entitlementOf`（`services/entitlement.ts`）1か所。
+  ⚠️ `trialEndsAt` が null の既存組織と、決済未設定（キーか梅の月額 price が無い）の環境は止めない。
+- トライアルは作成者ごとに1回。自分で作った2つ目以降の組織は作成時点で期限切れ（契約するまで閲覧のみ）。
+- 登録時トライアル中の Checkout は残り期間を `trial_end` で引き継ぐ（48 時間未満ならその日から課金。一度契約した組織には付けない）。
+  「決済設定済み」はキー・梅の月額 price・`STRIPE_WEBHOOK_SECRET` の 3 つ（`config.billingConfigured`。署名鍵が無ければ Checkout も 503）。テストモードの用意は `npm run stripe:bootstrap`（docs/billing.md）。
 - SDK は入れない（LINE・Supabase と同じ）。シークレットと Stripe のエラー文言は利用者に返さない。
 
 ## 設定が入っているかの確認
@@ -186,6 +199,19 @@ STRIPE_PRICE_STORAGE_ADDON= / STRIPE_TAX_RATE_ID= / BILLING_TRIAL_DAYS=30 / APP_
   （値が間違っていても「入ってはいる」ので、有無だけでは確認にならない）。
 - ⚠️ 秘密の値は返さない。状態と直し方だけ。メンバーには見せない（未設定という情報自体が攻撃の手がかり）。
 - ai-engine の確認は空の本文を投げるだけで LLM は呼ばない（本文の検証で弾かれる）。
+
+## スマホ・公開ページ・入口の守り（2026-11 SaaS 化。docs/plan/saas-readiness-plan.md §2）
+
+- **スマホで開ける画面は `shell/navConfig.ts` の表 1 つ**（各行の `mobile`）。開けるのは TOP・チャット・受信・成果物・
+  エージェント一覧と実行・経理・設定（契約までスマホで完結）。エージェント詳細・ガバナンス・タスク・営業・分析・SNS は
+  パソコン（`DesktopOnly`）。ルートを足したら `navConfig.test.ts` の表にも足す（D6）。
+- **PWA は manifest とアイコンだけ。service worker は入れない**（古い画面とトークンが残る事故を避ける。D7）。
+- **レート制限は `@fastify/rate-limit` のメモリ保持**（gateway 1 台の前提。複数台にするなら保持先を替える。D8）。
+  IP は `TRUST_PROXY_HOPS` 段だけ信じる。除外は `isRateLimitExempt` の 1 か所（docs/security.md）。
+- **法務の 3 頁（`/legal/terms` `/legal/privacy` `/legal/tokushoho`）は認証の外**。見出しと項目だけで、
+  文面と事業者情報は `pages/legal/content.ts` の `value: null`（画面に「未記入」）をオーナーが埋める。ここで文面を作らない。
+- **デプロイ手順は `docs/DEPLOY.md` の 1 本**（`DEPLOYMENT_RUNBOOK.md` は案内だけ）。render.yaml に `sync: false` の
+  キーを足したら DEPLOY.md にも書く（`npm run check:deploy` が検査）。
 
 ## エージェント機能 (業務効率化エージェント)
 

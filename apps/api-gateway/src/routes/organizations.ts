@@ -7,6 +7,7 @@ import { listActiveMemberships, loadUserProfile, signAccessToken } from '../serv
 import { collectSetupStatus } from '../services/setup-status';
 import { PLAN_LIMITS, storageQuotaBytes, usageState, type Plan } from '@org-ai/shared-types';
 import { sendError } from '../utils/http-error';
+import { recordAudit } from '../services/audit';
 
 const createOrgSchema = z.object({ name: z.string().trim().min(1).max(120) });
 
@@ -107,6 +108,14 @@ export async function organizationRoutes(app: FastifyInstance): Promise<void> {
       where: { id: payload.orgId },
       data: result.data,
       select: { id: true, name: true, plan: true, billingEmail: true, createdAt: true },
+    });
+    // 何を変えたか（項目名と新しい値）だけ。請求先メールは誰に請求が行くかなので残す
+    await recordAudit(db, {
+      action: 'org.update',
+      actorId: payload.sub,
+      targetType: 'organization',
+      targetId: payload.orgId,
+      meta: { ...result.data },
     });
     return reply.send({ success: true, data: updated });
   });

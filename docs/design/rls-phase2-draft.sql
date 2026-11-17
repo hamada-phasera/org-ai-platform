@@ -1,4 +1,6 @@
--- ⚠️ 草案（Phase 2 用）。**migrations には入れていない。本番で流さないこと。**
+-- ⚠️ 草案（Phase 2b 用）。**migrations には入れていない。本番で流さないこと。**
+-- ⚠️ Phase 2a（下の §1〜§3: ロール・app_current_org()・4 表のポリシー）は packages/db-schema/rls/phase2a.sql に
+--    実装として移した（素通しポリシーと検査付き）。2a を流すならそちらを使う。ここに残すのは §4 の 2b の下書きだけ。
 -- docs/design/multi-tenancy.md ADR-4
 --
 -- 前提（これが揃うまでポリシーは効かない）:

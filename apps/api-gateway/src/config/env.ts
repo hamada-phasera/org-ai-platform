@@ -17,6 +17,8 @@ const optional = z.string().optional();
 export const envSchema = z.object({
   NODE_ENV: optional,
   PORT: optional,
+  /** 前に立つプロキシの段数（Render は 1）。レート制限の IP を X-Forwarded-For から取る */
+  TRUST_PROXY_HOPS: optional,
 
   // 認証
   JWT_SECRET: optional,
@@ -49,6 +51,9 @@ export const envSchema = z.object({
   N8N_TIMEOUT_MS: optional,
   N8N_CALLBACK_ORG_REQUIRED: optional,
 
+  // RLS Phase 2a（docs/design/multi-tenancy.md §RLS Phase 2a）。off | on
+  RLS_MODE: optional,
+
   // 連携
   CHANNEL_CREDENTIAL_ENC_KEY: optional,
   GOOGLE_OAUTH_CLIENT_ID: optional,
@@ -70,6 +75,8 @@ export const envSchema = z.object({
   EMBEDDING_MODEL: optional,
   EMBEDDING_DIM: optional,
   GEMINI_API_KEY: optional,
+  /** ai-engine と同じ値。gateway は「セットアップ状況」の表示にだけ使う */
+  GEMINI_PAID_TIER: optional,
 
   // 運用
   METRICS_URL: optional,
@@ -101,23 +108,21 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): Env {
 /** 既定値。ここ以外に既定値を書かないこと。 */
 export const ENV_DEFAULTS = {
   PORT: '4000',
+  TRUST_PROXY_HOPS: 1,
   JWT_EXPIRES_IN: '24h',
   INVITE_TTL_DAYS: 7,
   FRONTEND_URL: 'http://localhost:3000',
   ALLOWED_ORIGIN_HOSTS: 'org-ai-platform.vercel.app',
   VERCEL_PREVIEW_SUFFIX: '-hamahiro1668s-projects.vercel.app',
   API_GATEWAY_URL: 'http://localhost:4000',
+  /** 呼び出し元すべてで同じ。docker-compose では compose 側で http://ai-engine:8000 を渡す */
   AI_ENGINE_URL: 'http://localhost:8000',
-  /**
-   * ⚠️ chat / deliverables だけは docker-compose のサービス名を既定にしている（歴史的経緯）。
-   *    他の呼び出し元は localhost。挙動を変えないため両方を残してある。
-   */
-  AI_ENGINE_URL_COMPOSE: 'http://ai-engine:8000',
   N8N_URL: 'http://localhost:5678',
   /** chat.ts のワークフロー一覧/実行だけが使う既定（N8N_URL は見ない）。 */
   N8N_CHAT_CLOUD_URL: 'https://hamahiro.app.n8n.cloud',
   N8N_WEBHOOK_AUTH_TOKEN: 'org-ai-n8n-secret-token',
   N8N_TIMEOUT_MS: 30_000,
+  RLS_MODE: 'off',
   SUPABASE_STORAGE_BUCKET: 'org-files',
   ADMIN_SLACK_CHANNEL: '#org-ai-admin',
   CAPABILITY_CONFIDENCE_THRESHOLD: 0.7,
@@ -128,6 +133,8 @@ export const ENV_DEFAULTS = {
   EMBEDDING_DIM: 1024,
   METRICS_URL: 'http://localhost:8080',
   SHUTDOWN_DRAIN_MS: 20_000,
+  /** 登録時トライアル（カード不要）と Checkout のトライアルの日数 */
+  BILLING_TRIAL_DAYS: 30,
 } as const;
 
 /** 'false' のときだけ無効。未設定・その他の値は有効（従来の `(X ?? 'true') === 'false'` と同じ）。 */
@@ -137,7 +144,7 @@ function enabledUnlessFalse(value: string | undefined): boolean {
 
 /**
  * 型付きの設定値。すべて getter なので、参照した時点の process.env を反映する。
- * 呼び出し元ごとに既定値が違っていたもの（AI_ENGINE_URL 等）は別の名前で持つ。
+ * 呼び出し元ごとに既定値が違うもの（n8n の chat 用 URL）は別の名前で持つ。
  */
 export const config = {
   get nodeEnv(): string | undefined {
@@ -148,6 +155,15 @@ export const config = {
   },
   get port(): number {
     return parseInt(readEnv().PORT ?? ENV_DEFAULTS.PORT);
+  },
+  /**
+   * Fastify の trustProxy に渡す段数。0 なら転送ヘッダを信じない。数でない・負の値は既定（1）。
+   * ⚠️ true（全部信じる）にはしない。利用者が X-Forwarded-For を書いてレート制限をすり抜けられるため。
+   */
+  get trustProxyHops(): number {
+    const raw = readEnv().TRUST_PROXY_HOPS;
+    const n = Number(raw);
+    return raw !== undefined && raw.trim() !== '' && Number.isInteger(n) && n >= 0 ? n : ENV_DEFAULTS.TRUST_PROXY_HOPS;
   },
 
   // ── 認証 ──
@@ -204,10 +220,6 @@ export const config = {
   get aiEngineUrl(): string {
     return readEnv().AI_ENGINE_URL ?? ENV_DEFAULTS.AI_ENGINE_URL;
   },
-  /** chat / deliverables 用（既定が docker-compose のサービス名）。ENV_DEFAULTS の注記を参照。 */
-  get aiEngineUrlComposeDefault(): string {
-    return readEnv().AI_ENGINE_URL ?? ENV_DEFAULTS.AI_ENGINE_URL_COMPOSE;
-  },
   get internalApiToken(): string | undefined {
     return readEnv().INTERNAL_API_TOKEN;
   },
@@ -235,6 +247,15 @@ export const config = {
    */
   get n8nCallbackOrgRequired(): boolean {
     return readEnv().N8N_CALLBACK_ORG_REQUIRED === 'true';
+  },
+  /**
+   * RLS Phase 2a。'on'（前後空白・大文字小文字は無視）のときだけ、AILog / RiskEvent / FileChunk / MessageEmbedding と
+   * raw SQL を 1 トランザクションに包み、先頭で set_config('app.org_id', orgId, true) を呼ぶ（tenancy/tenant-db.ts）。
+   * それ以外の値・未設定は off（従来どおり）。on にするのは packages/db-schema/rls/phase2a.sql を流して
+   * 接続ユーザーを flow_app に替えてから。
+   */
+  get rlsMode(): 'off' | 'on' {
+    return (readEnv().RLS_MODE ?? ENV_DEFAULTS.RLS_MODE).trim().toLowerCase() === 'on' ? 'on' : 'off';
   },
   /** N8N_WEBHOOK_AUTH_TOKEN が未設定（＝公開されている既定値のまま）か。 */
   get n8nWebhookAuthTokenIsDefault(): boolean {
@@ -300,6 +321,10 @@ export const config = {
   get geminiApiKey(): string | undefined {
     return readEnv().GEMINI_API_KEY;
   },
+  /** 1 / true / yes（ai-engine の settings.gemini_paid_tier と同じ判定）。無料枠は入力が Google の製品改善に使われる。 */
+  get geminiPaidTier(): boolean {
+    return ['1', 'true', 'yes'].includes(readEnv().GEMINI_PAID_TIER?.trim().toLowerCase() ?? '');
+  },
 
   // ── 運用 ──
   /** 空文字も未設定扱い（従来の `||`）。末尾スラッシュは除く。 */
@@ -311,5 +336,33 @@ export const config = {
   },
   get internalSchedulerEnabled(): boolean {
     return enabledUnlessFalse(readEnv().INTERNAL_SCHEDULER_ENABLED);
+  },
+
+  // ── 決済 ──
+  /**
+   * 決済が設定されているか。STRIPE_SECRET_KEY・梅の月額 price（STRIPE_PRICE_STARTER_MONTHLY）・
+   * webhook の署名鍵（STRIPE_WEBHOOK_SECRET）の 3 つがそろったときだけ。
+   * 未設定の環境ではトライアル切れでも止めない。⚠️ キーだけで price が無いと、期限切れの組織が閲覧のみになるのに
+   * 契約もできない詰みになるため、price も見る（計画書 §7 オーケストレーター追記）。署名鍵が無いと支払っても
+   * 組織に写らない（写し込みは webhook だけ）ので、これも見る（saas-review #2）。
+   */
+  get billingConfigured(): boolean {
+    const env = readEnv();
+    return (
+      !!env.STRIPE_SECRET_KEY?.trim() &&
+      !!env.STRIPE_PRICE_STARTER_MONTHLY?.trim() &&
+      !!env.STRIPE_WEBHOOK_SECRET?.trim()
+    );
+  },
+  /**
+   * 登録時トライアルの日数。数でない・1 未満は既定に戻す。
+   * ⚠️ 0 を許すと登録した瞬間から閲覧のみ（初回の指示も保存できない）になるので、下限は 1（saas-review #12）。
+   */
+  get billingTrialDays(): number {
+    const raw = readEnv().BILLING_TRIAL_DAYS;
+    const n = Number(raw ?? ENV_DEFAULTS.BILLING_TRIAL_DAYS);
+    return raw !== undefined && raw.trim() !== '' && Number.isFinite(n) && n >= 1
+      ? Math.floor(n)
+      : ENV_DEFAULTS.BILLING_TRIAL_DAYS;
   },
 };

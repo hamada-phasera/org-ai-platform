@@ -196,7 +196,8 @@ END $$;
 >
 > **マルチテナント（2026-11）**: テナント分離はアプリ層の `tenantDb(orgId)`（gateway `src/tenancy/`）で強制している。
 > RLS ポリシーによる多層防御は Phase 2 で、`NOBYPASSRLS` の専用ロールを作ってから入れる
-> （docs/design/multi-tenancy.md ADR-4、草案は docs/design/rls-phase2-draft.sql。**まだ流さないこと**）。
+> （docs/design/multi-tenancy.md ADR-4 / §17）。Phase 2a は `packages/db-schema/rls/phase2a.sql`（既定 off の `RLS_MODE` と組で使う。
+> ロール作成の後に手で流す）。2b の草案は docs/design/rls-phase2-draft.sql（**まだ流さないこと**）。
 
 > n8n を `n8n` スキーマに隔離してあるのも効いている。Data API が公開するのは既定で `public`
 > だけなので、n8n のテーブルは最初から露出しない。

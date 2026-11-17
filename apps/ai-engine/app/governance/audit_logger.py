@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from app.db import AsyncSessionLocal
+from app.db import AsyncSessionLocal, set_tenant
 from app.tenancy import org_matches_context
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,8 @@ async def log_llm_call(
 
     try:
         async with AsyncSessionLocal() as db:
+            # RLS_MODE=on: AILog / RiskEvent の INSERT と同じトランザクションで組織を設定する
+            await set_tenant(db, org_id)
             await db.execute(
                 text("""
                 INSERT INTO "AILog" (id, "orgId", department, provider, model,

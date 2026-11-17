@@ -5,6 +5,9 @@ import { prisma } from '../utils/prisma';
 import { tenantDbFrom, type TenantTx } from '../tenancy/tenant-db';
 import { DEFAULT_CAPABILITIES } from './default-capabilities';
 import { invalidateMembership } from '../tenancy/membership-cache';
+import { appTrialEndFrom } from './entitlement';
+import { config } from '../config/env';
+import { recordAuditInTx } from './audit';
 
 /**
  * 1ユーザーが作成できる組織の数（設計書 Q10 仮採用: 10）。招待での所属は数えない。
@@ -43,6 +46,7 @@ export async function seedDefaultCapabilities(db: TenantTx): Promise<void> {
 
 /**
  * 組織を作り、作成者を OWNER として所属させ、既定のノードを入れる（1トランザクション）。
+ * 登録時トライアル（trialEndsAt）もここで決める（最初の1つだけ BILLING_TRIAL_DAYS 日）。
  * User.orgId（最後に選んだ組織）と User.role（移行期間中の写し）も新しい組織に向ける。
  */
 export async function createOrganizationFor(
@@ -50,9 +54,27 @@ export async function createOrganizationFor(
   name: string,
 ): Promise<{ id: string; name: string; plan: string }> {
   const org = await prisma.$transaction(async (tx) => {
-    const org = await tx.organization.create({ data: { name, plan: 'STARTER', createdBy: userId } });
+    const now = new Date();
+    /* 作成者の行を先に更新して行ロックを取る（同時に 2 回押されても、2 本目は 1 本目のコミットを待ってから数える）。
+       これが無いと「数えてから作る」の間に割り込まれ、両方にトライアルが付きうる（saas-review #8）。 */
+    await tx.user.update({ where: { id: userId }, data: { updatedAt: now } });
+    /* トライアルは作成者ごとに1回（D4）。すでに自分で組織を作っている人の2つ目以降は、
+       作成時点で期限切れ（決済が設定済みなら契約するまで閲覧のみ）。招待で入った組織は数えない。 */
+    const alreadyCreated = await tx.organization.count({ where: { createdBy: userId } });
+    const trialEndsAt = alreadyCreated > 0 ? now : appTrialEndFrom(now, config.billingTrialDays);
+    const org = await tx.organization.create({
+      data: { name, plan: 'STARTER', createdBy: userId, trialEndsAt },
+    });
     await tx.membership.create({ data: { userId, orgId: org.id, role: 'OWNER' } });
-    await seedDefaultCapabilities(tenantDbFrom(tx, org.id));
+    const db = tenantDbFrom(tx, org.id);
+    await seedDefaultCapabilities(db);
+    await recordAuditInTx(db, {
+      action: 'org.create',
+      actorId: userId,
+      targetType: 'organization',
+      targetId: org.id,
+      meta: { name },
+    });
     await tx.user.update({ where: { id: userId }, data: { orgId: org.id, role: 'OWNER' } });
     return org;
   });
