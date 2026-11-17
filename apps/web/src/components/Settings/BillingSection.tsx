@@ -7,6 +7,8 @@ import { api } from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 import { Badge, Button, Card, SkeletonList } from '../ui';
 import { LiquidTabs } from '../motion/LiquidTabs';
+import { isReadOnly } from '../../utils/planNotice';
+import { useNow } from '../../hooks/useNow';
 
 /**
  * プランとお支払い。
@@ -38,9 +40,14 @@ function errorMessage(e: unknown, fallback: string): string {
   return err.response?.data?.error?.message ?? fallback;
 }
 
-function statusOf(b: BillingOverview): { tone: Tone; text: string } {
+function statusOf(b: BillingOverview, now: number): { tone: Tone; text: string } {
   switch (b.subscriptionStatus) {
     case null:
+      // 登録時トライアル（カード不要）。期限が過ぎて決済が設定済みなら閲覧のみ
+      if (b.appTrial?.active) {
+        return { tone: 'accent', text: `無料期間中（残り${b.appTrial.daysLeft}日・${dateLabel(b.appTrial.endsAt)}まで）` };
+      }
+      if (isReadOnly(b, now)) return { tone: 'warning', text: '無料期間は終了しました' };
       return { tone: 'info', text: 'まだご契約はありません' };
     case 'trialing':
       return { tone: 'accent', text: `無料トライアル中（${dateLabel(b.trialEndsAt)}まで）` };
@@ -85,6 +92,7 @@ export function BillingSection() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draftUnits, setDraftUnits] = useState<number | null>(null);
+  const now = useNow();
   // Checkout から ?checkout=success|cancel で戻ってくる
   const [notice, setNotice] = useState<'success' | 'cancel' | null>(() => {
     const v = new URLSearchParams(window.location.search).get('checkout');
@@ -163,7 +171,8 @@ export function BillingSection() {
   if (!billing) return null;
 
   const entitled = isEntitled(billing.subscriptionStatus);
-  const current = statusOf(billing);
+  const readOnly = isReadOnly(billing, now);
+  const current = statusOf(billing, now);
   const priceOf = (plan: Plan, interval: BillingInterval) =>
     billing.prices.find((p) => p.plan === plan && p.interval === interval)?.amount ?? null;
   const addon = billing.storageAddon;
@@ -213,7 +222,7 @@ export function BillingSection() {
         {billing.configured && !isOwner && (
           <p className="mt-3 text-xs text-muted">プランのお申し込み・変更はオーナーのみ行えます。</p>
         )}
-        {billing.subscriptionStatus && !entitled && (
+        {readOnly && (
           <p className="mt-3 text-xs text-warning">
             現在は閲覧のみです。台帳・ファイル・過去のやり取りはそのまま見られますが、新しい実行と保存はできません。
             プランを再開すると元に戻ります。
@@ -310,6 +319,12 @@ export function BillingSection() {
           {billing.trialAvailable && !entitled && (
             <p className="mt-3 text-xs text-muted">
               無料期間中はいつでも解約でき、料金は発生しません。無料期間が終わると選んだプランの料金がかかります。
+            </p>
+          )}
+          {/* ⚠️ 残り期間の Checkout への引き継ぎ（D3）はチャンク 3。それまでは契約日から課金されるので、そう書く */}
+          {!billing.trialAvailable && !entitled && billing.appTrial?.active && (
+            <p className="mt-3 text-xs text-muted">
+              無料期間は残り{billing.appTrial.daysLeft}日です。ご契約の日から料金がかかります。
             </p>
           )}
         </Card>

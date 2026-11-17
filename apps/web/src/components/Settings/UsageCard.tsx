@@ -1,11 +1,13 @@
 import { Activity, HardDrive } from 'lucide-react';
 import type { OrganizationUsage } from '@org-ai/shared-types';
 import { STORAGE_ADDON_UNIT_BYTES, STORAGE_WARN_RATIO, formatBytes, usageState } from '@org-ai/shared-types';
-import { Card } from '../ui';
+import { Button, Card } from '../ui';
 
 interface UsageCardProps {
   usage: OrganizationUsage;
   modelLabel: string;
+  /** 上限に近い・超えたときに出す「プラン」（契約画面へ）。渡さなければ出さない */
+  onPlan?: () => void;
 }
 
 type Tone = 'normal' | 'warn' | 'over';
@@ -25,7 +27,7 @@ function Meter({ ratio, tone }: { ratio: number; tone: Tone }) {
 
 const TONE_TEXT: Record<Tone, string> = { normal: 'text-muted', warn: 'text-warning', over: 'text-danger' };
 
-export default function UsageCard({ usage, modelLabel }: UsageCardProps) {
+export default function UsageCard({ usage, modelLabel, onPlan }: UsageCardProps) {
   const { aiCallsThisMonth, planLimit, resetAt } = usage;
   const ratio = planLimit > 0 ? Math.min(aiCallsThisMonth / planLimit, 1) : 0;
   const percent = Math.round(ratio * 100);
@@ -94,6 +96,14 @@ export default function UsageCard({ usage, modelLabel }: UsageCardProps) {
           </div>
           <Meter ratio={storageRatio} tone={storageTone} />
           <p className={`text-xs ${TONE_TEXT[storageTone]}`}>{storageNote}</p>
+        </div>
+      )}
+
+      {onPlan && (callTone !== 'normal' || storageTone !== 'normal') && (
+        <div className="mt-5 flex justify-end">
+          <Button size="xs" variant="secondary" onClick={onPlan}>
+            プラン
+          </Button>
         </div>
       )}
     </Card>

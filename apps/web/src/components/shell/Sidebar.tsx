@@ -61,7 +61,7 @@ export function Sidebar() {
   });
 
   const { data: usage } = useQuery<OrgUsage | null>({
-    queryKey: ['org-usage'],
+    queryKey: ['organization-usage'],
     queryFn: async () => {
       const res = await api.get<{ success: boolean; data: OrgUsage }>('/organizations/me/usage');
       return res.data.data;

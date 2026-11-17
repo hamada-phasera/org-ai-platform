@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   LogOut,
@@ -9,7 +9,7 @@ import {
   Sparkles,
   AlertCircle,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import type { User, UploadedFile, Plan, OrganizationUsage, PlanTier } from '@org-ai/shared-types';
@@ -45,21 +45,27 @@ const PLAN_BADGE: Record<Plan, { label: string; className: string }> = {
   MAX: { label: 'Max', className: 'bg-warning/10 border border-warning/30 text-warning' },
 };
 
+type SettingsView = 'general' | 'members' | 'integrations' | 'billing';
+
+function viewFromSearch(search: string): SettingsView | null {
+  const tab = new URLSearchParams(search).get('tab');
+  // OAuth コールバックは ?tab=integrations、Stripe の Checkout・ポータルは ?tab=billing で戻ってくる
+  return tab === 'integrations' || tab === 'members' || tab === 'billing' ? tab : null;
+}
+
 export default function SettingsPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const logout = useAuthStore((s) => s.logout);
   const storedUser = useAuthStore((s) => s.user);
   // OAuth コールバックは ?tab=integrations で戻ってくるので、初期表示をクエリで決める
-  const [view, setView] = useState<'general' | 'members' | 'integrations' | 'billing'>(() => {
-    const tab = new URLSearchParams(window.location.search).get('tab');
-    // OAuth コールバックは ?tab=integrations で戻ってくる
-    if (tab === 'integrations') return 'integrations';
-    if (tab === 'members') return 'members';
-    // Stripe の Checkout・ポータルは ?tab=billing で戻ってくる
-    if (tab === 'billing') return 'billing';
-    return 'general';
-  });
+  const location = useLocation();
+  const [view, setView] = useState<SettingsView>(() => viewFromSearch(window.location.search) ?? 'general');
+  // 帯やエラーの「プラン」リンク（/settings?tab=billing）は、設定を開いたままでも押される
+  useEffect(() => {
+    const next = viewFromSearch(location.search);
+    if (next) setView(next);
+  }, [location.search, location.key]);
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<{ fileName: string; content: string } | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
@@ -147,7 +153,7 @@ export default function SettingsPage() {
       />
 
       <div className="mb-5">
-        <LiquidTabs<'general' | 'members' | 'integrations' | 'billing'>
+        <LiquidTabs<SettingsView>
           id="settings-tab"
           size="sm"
           label="設定の切り替え"
@@ -206,7 +212,7 @@ export default function SettingsPage() {
         </dl>
       </Card>
 
-      {usage && <UsageCard usage={usage} modelLabel={modelLabel} />}
+      {usage && <UsageCard usage={usage} modelLabel={modelLabel} onPlan={() => setView('billing')} />}
 
       {/* 設定が入っているかは、入れた本人にも見えないと確かめようがない */}
       {user?.role === 'OWNER' && <SetupStatusCard />}

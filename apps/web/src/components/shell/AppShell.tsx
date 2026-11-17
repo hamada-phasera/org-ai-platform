@@ -6,6 +6,7 @@ import { LiquidTabs } from '../motion/LiquidTabs';
 import { Sidebar } from './Sidebar';
 import { MobileNav } from './MobileNav';
 import { DesktopOnly } from './DesktopOnly';
+import { PlanNotice } from './PlanNotice';
 import { isMobileRoute } from './navConfig';
 import { useMotion, usePrefersReducedMotion } from '../motion/springs';
 
@@ -45,6 +46,9 @@ export function AppShell() {
             onChange={(v) => setDept(v === 'ALL' ? null : v)}
           />
         </header>
+
+        {/* 契約状態・上限の帯。スマホで開かない画面（DesktopOnly）の上にも出す */}
+        <PlanNotice />
 
         <main className="relative min-h-0 flex-1 overflow-y-auto pb-14 lg:pb-0">
           {/* スマホで開かない画面はここで一括して誘導に差し替える。

@@ -18,6 +18,7 @@ import { AgentCtaCard, type AgentDraft } from '../components/Chat/AgentCtaCard';
 import { NodeCtaCard, type NodeDraft } from '../components/Chat/NodeCtaCard';
 import { looksLikeApiSpec } from '../utils/apiSpecDetect';
 import { isChatPhase, type ChatPhase } from '../utils/chatProgress';
+import { BILLING_PATH, needsPlanLink } from '../utils/planNotice';
 import { ChatProgress } from '../components/Chat/ChatProgress';
 import { DeliverableBar, type DeliverableKind } from '../components/Chat/DeliverableBar';
 import { RunPreviewRow } from '../components/exec-kernel/RunPreviewRow';
@@ -94,6 +95,8 @@ export default function ChatPage() {
   const [uploading, setUploading] = useState(false);
   // アップロードの失敗（容量超過・サイズ超過など）。以前は握りつぶしていて「添付したのに付いていない」になっていた
   const [uploadError, setUploadError] = useState<string | null>(null);
+  // 容量超過・サイズ超過・閲覧のみのときは、エラーに契約画面へのリンクを付ける
+  const [uploadErrorPlanLink, setUploadErrorPlanLink] = useState(false);
 
   /* 今月の利用量。⚠️ 上限を超えても止めない（軽いモデルで応答が続く）ので、
      黙って品質が変わらないよう、ここで理由を出す。 */
@@ -562,8 +565,9 @@ export default function ChatPage() {
         }
       } catch (e: unknown) {
         // サーバの文言には上限値が入っている（「1ファイルの上限は 10MB です。」など）ので、そのまま出す
-        const err = e as { response?: { data?: { error?: { message?: string } } } };
+        const err = e as { response?: { data?: { error?: { code?: string; message?: string } } } };
         setUploadError(`${file.name}：${err.response?.data?.error?.message ?? 'アップロードに失敗しました'}`);
+        setUploadErrorPlanLink(needsPlanLink(err.response?.data?.error?.code));
       }
     }
     setUploading(false);
@@ -1163,6 +1167,11 @@ export default function ChatPage() {
                 {uploadError && (
                   <div className="mb-2 flex items-center gap-2 rounded-md border border-danger/30 bg-danger/10 px-3 py-1.5">
                     <p className="min-w-0 flex-1 text-xs text-danger">{uploadError}</p>
+                    {uploadErrorPlanLink && (
+                      <Link to={BILLING_PATH} className="shrink-0 text-xs font-semibold text-accent hover:underline">
+                        プラン
+                      </Link>
+                    )}
                     <button
                       type="button"
                       onClick={() => setUploadError(null)}
