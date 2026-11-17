@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
-import { createTestDatabase, hasTestDatabase, setEnv, truncateAll, type TestDatabase } from './setup';
+import { applyRlsPhase2a, createTestDatabase, hasTestDatabase, setEnv, truncateAll, type TestDatabase } from './setup';
 import { buildIntegrationApp, registerCompany, upload, type Registered } from './app';
 
 // raw SQL が他組織の行を返さない・触らないこと（計画書チャンク 9 の受け入れ条件 3）。
@@ -12,11 +12,13 @@ import { buildIntegrationApp, registerCompany, upload, type Registered } from '.
 // ここでは実 Postgres + pgvector で、文が実際に組織で絞れていることを確かめる。
 // 埋め込みは偽物（全文同じベクトル＝類似度 1）。外部の埋め込み API は呼ばない。
 
+// RLS_MODE=on の回（計画書チャンク 11）は phase2a.sql を当て、gateway の接続を flow_app に替える。準備・確認は所有者のまま
 let db: TestDatabase | undefined;
+let appPrisma: PrismaClient | undefined;
 vi.mock('../../src/utils/prisma', () => ({
   get prisma(): PrismaClient {
     if (!db) throw new Error('統合テストの DB が未作成です');
-    return db.prisma;
+    return appPrisma ?? db.prisma;
   },
 }));
 
@@ -30,7 +32,7 @@ vi.mock('../../src/services/embeddings', () => ({
 }));
 vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'offline in tests' }), { status: 503 })));
 
-describe.skipIf(!hasTestDatabase)('raw SQL の組織分離（実 Postgres + pgvector）', () => {
+describe.skipIf(!hasTestDatabase).each(['off', 'on'] as const)('raw SQL の組織分離（実 Postgres + pgvector・RLS_MODE=%s）', (rlsMode) => {
   let app: FastifyInstance;
   let restoreEnv: () => void;
   let filesDir: string;
@@ -45,8 +47,10 @@ describe.skipIf(!hasTestDatabase)('raw SQL の組織分離（実 Postgres + pgve
       STRIPE_SECRET_KEY: undefined,
       SUPABASE_URL: undefined,
       SUPABASE_SERVICE_ROLE_KEY: undefined,
+      RLS_MODE: rlsMode,
     });
     db = await createTestDatabase();
+    if (rlsMode === 'on') appPrisma = (await applyRlsPhase2a(db)).app;
     app = await buildIntegrationApp();
     rag = await import('../../src/services/rag');
   });
@@ -55,7 +59,10 @@ describe.skipIf(!hasTestDatabase)('raw SQL の組織分離（実 Postgres + pgve
     await app?.close();
     const { drain, jobs } = await import('../../src/services/lifecycle-core');
     await drain(jobs, { budgetMs: 5_000, pollMs: 20, now: Date.now, sleep: (ms) => new Promise((r) => setTimeout(r, ms)) });
+    await appPrisma?.$disconnect();
+    appPrisma = undefined;
     await db?.drop();
+    db = undefined;
     restoreEnv?.();
     vi.unstubAllGlobals();
     rmSync(filesDir, { recursive: true, force: true });

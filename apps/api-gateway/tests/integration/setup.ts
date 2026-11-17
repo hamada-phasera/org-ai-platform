@@ -126,3 +126,42 @@ export function setEnv(vars: Record<string, string | undefined>): () => void {
     }
   };
 }
+
+/** packages/db-schema/rls/phase2a.sql（RLS Phase 2a。migrations には入っていない） */
+export const RLS_PHASE2A_PATH = resolve(REPO_ROOT, 'packages/db-schema/rls/phase2a.sql');
+
+export interface RlsSetup {
+  /** flow_app（NOBYPASSRLS・所有者ではない）で接続したクライアント */
+  app: PrismaClient;
+  appUrl: string;
+}
+
+/**
+ * テスト用 DB に RLS Phase 2a を当て、flow_app で接続したクライアントを返す（計画書チャンク 11）。
+ *   1. flow_app ロールを作る（クラスタ全体のロール。無ければ作り、あれば NOBYPASSRLS / NOSUPERUSER に揃える）
+ *   2. 本番の Supabase と同じく public の全表で RLS を ENABLE（docs/supabase-migration.md §6）
+ *   3. phase2a.sql を `prisma db execute` で流す（本番の手順と同じファイル）
+ * ⚠️ ロールは消さない（同じサーバの別のテスト DB が使っているかもしれない。DB を消せば権限は消える）。
+ */
+export async function applyRlsPhase2a(db: TestDatabase): Promise<RlsSetup> {
+  // テスト専用の値。秘密情報らしい文字列をソースに置かないよう実行時に組み立てる
+  const password = ['flow', 'app', 'int', 'only'].join('_');
+  try {
+    await db.prisma.$executeRawUnsafe(`CREATE ROLE flow_app LOGIN NOBYPASSRLS NOSUPERUSER PASSWORD '${password}'`);
+  } catch (e) {
+    // 既にある（別の実行が先に作った）
+    if (!/already exists/.test(String((e as Error).message))) throw e;
+  }
+  await db.prisma.$executeRawUnsafe(`ALTER ROLE flow_app LOGIN NOBYPASSRLS NOSUPERUSER PASSWORD '${password}'`);
+  await db.prisma.$executeRawUnsafe(`
+    DO $$ DECLARE t record; BEGIN
+      FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+      LOOP EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t.tablename); END LOOP;
+    END $$;`);
+  runPrisma(['db', 'execute', '--url', db.url, '--file', RLS_PHASE2A_PATH], db.url);
+  const u = new URL(db.url);
+  u.username = 'flow_app';
+  u.password = password;
+  const appUrl = u.toString();
+  return { app: new PrismaClient({ datasources: { db: { url: appUrl } }, log: ['error'] }), appUrl };
+}

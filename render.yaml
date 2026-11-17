@@ -128,6 +128,9 @@ services:
       # n8n コールバックの body に orgId を必須にするか。ワークフローを作り直して警告ログが 0 件になったら true
       - key: N8N_CALLBACK_ORG_REQUIRED
         value: "false"
+      # RLS Phase 2a（off | on）。ai-engine と同じ値。on は phase2a.sql と flow_app ロールの後（O-5）
+      - key: RLS_MODE
+        value: "off"
       # LINE 受信箱: チャネル資格情報 (channel secret / access token) の暗号化鍵。
       # 32 バイトを 64 桁 hex または base64 で指定。未設定時は JWT_SECRET から導出
       # （JWT_SECRET をローテすると既存の接続が復号不能になるため独立設定を推奨）。
@@ -176,6 +179,9 @@ services:
       # X-Org-Id と body の org_id の照合（off | warn | enforce）。warn のログが 0 件になったら enforce
       - key: ORG_HEADER_MODE
         value: warn
+      # RLS Phase 2a（off | on）。gateway と同じ値。on は phase2a.sql と flow_app ロールの後（O-5）
+      - key: RLS_MODE
+        value: "off"
 
   - type: web
     # ⚠️ 実際に稼働しているサービス名は org-ai-n8n-web。ここが `org-ai-n8n` のままだと

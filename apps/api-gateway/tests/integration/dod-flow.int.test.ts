@@ -6,7 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
 import { PLAN_LIMITS, storageQuotaBytes } from '@org-ai/shared-types';
 import { FakeStripe, signedWebhook } from '../helpers/fake-stripe';
-import { createTestDatabase, hasTestDatabase, setEnv, type TestDatabase } from './setup';
+import { applyRlsPhase2a, createTestDatabase, hasTestDatabase, setEnv, type TestDatabase } from './setup';
 import { buildIntegrationApp, registerCompany, upload } from './app';
 
 // DoD の通しテスト（計画書チャンク 9 の受け入れ条件 2）。実 Postgres + 本物のルートで、
@@ -14,13 +14,17 @@ import { buildIntegrationApp, registerCompany, upload } from './app';
 //   → A が容量上限まで入れると次が拒否 → A が竹を契約（偽 webhook）→ 同じファイルが入る
 //   → A の AILog を上限まで積むと /me/usage が over
 //   → A のトライアルを過去にして未契約に戻すと書き込み 402（閲覧と決済の経路は通る）
+// RLS_MODE=on の回（計画書チャンク 11 の受け入れ条件 4）は、phase2a.sql を当てて gateway の接続を flow_app に替える。
+// テストの準備・確認（db.prisma）は所有者のまま（RLS を素通り）。
 // ⚠️ Stripe はメモリ内の偽物（tests/helpers/fake-stripe.ts）。Stripe 以外の宛先（ai-engine・埋め込み）は 503 で返る。
 
 let db: TestDatabase | undefined;
+/** RLS_MODE=on の回だけ: gateway が使う flow_app の接続 */
+let appPrisma: PrismaClient | undefined;
 vi.mock('../../src/utils/prisma', () => ({
   get prisma(): PrismaClient {
     if (!db) throw new Error('統合テストの DB が未作成です');
-    return db.prisma;
+    return appPrisma ?? db.prisma;
   },
 }));
 
@@ -33,7 +37,7 @@ const stripe = new FakeStripe({
 const WEBHOOK_SECRET = ['whsec', 'flow-int-only'].join('_');
 const MB = 1024 * 1024;
 
-describe.skipIf(!hasTestDatabase)('DoD の通し（実 Postgres・偽 Stripe）', () => {
+describe.skipIf(!hasTestDatabase).each(['off', 'on'] as const)('DoD の通し（実 Postgres・偽 Stripe・RLS_MODE=%s）', (rlsMode) => {
   let app: FastifyInstance;
   let restoreEnv: () => void;
   let filesDir: string;
@@ -52,9 +56,11 @@ describe.skipIf(!hasTestDatabase)('DoD の通し（実 Postgres・偽 Stripe）'
       SUPABASE_SERVICE_ROLE_KEY: undefined,
       EMBEDDING_API_KEY: undefined,
       GEMINI_API_KEY: undefined,
+      RLS_MODE: rlsMode,
     });
     vi.stubGlobal('fetch', stripe.fetch);
     db = await createTestDatabase();
+    if (rlsMode === 'on') appPrisma = (await applyRlsPhase2a(db)).app;
     app = await buildIntegrationApp();
   });
 
@@ -63,7 +69,10 @@ describe.skipIf(!hasTestDatabase)('DoD の通し（実 Postgres・偽 Stripe）'
     // 応答の後に走る索引づくりを待ってから DB を消す
     const { drain, jobs } = await import('../../src/services/lifecycle-core');
     await drain(jobs, { budgetMs: 5_000, pollMs: 20, now: Date.now, sleep: (ms) => new Promise((r) => setTimeout(r, ms)) });
+    await appPrisma?.$disconnect();
+    appPrisma = undefined;
     await db?.drop();
+    db = undefined;
     restoreEnv?.();
     vi.unstubAllGlobals();
     rmSync(filesDir, { recursive: true, force: true });

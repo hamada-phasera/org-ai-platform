@@ -51,6 +51,9 @@ export const envSchema = z.object({
   N8N_TIMEOUT_MS: optional,
   N8N_CALLBACK_ORG_REQUIRED: optional,
 
+  // RLS Phase 2a（docs/design/multi-tenancy.md §RLS Phase 2a）。off | on
+  RLS_MODE: optional,
+
   // 連携
   CHANNEL_CREDENTIAL_ENC_KEY: optional,
   GOOGLE_OAUTH_CLIENT_ID: optional,
@@ -119,6 +122,7 @@ export const ENV_DEFAULTS = {
   N8N_CHAT_CLOUD_URL: 'https://hamahiro.app.n8n.cloud',
   N8N_WEBHOOK_AUTH_TOKEN: 'org-ai-n8n-secret-token',
   N8N_TIMEOUT_MS: 30_000,
+  RLS_MODE: 'off',
   SUPABASE_STORAGE_BUCKET: 'org-files',
   ADMIN_SLACK_CHANNEL: '#org-ai-admin',
   CAPABILITY_CONFIDENCE_THRESHOLD: 0.7,
@@ -243,6 +247,15 @@ export const config = {
    */
   get n8nCallbackOrgRequired(): boolean {
     return readEnv().N8N_CALLBACK_ORG_REQUIRED === 'true';
+  },
+  /**
+   * RLS Phase 2a。'on'（前後空白・大文字小文字は無視）のときだけ、AILog / RiskEvent / FileChunk / MessageEmbedding と
+   * raw SQL を 1 トランザクションに包み、先頭で set_config('app.org_id', orgId, true) を呼ぶ（tenancy/tenant-db.ts）。
+   * それ以外の値・未設定は off（従来どおり）。on にするのは packages/db-schema/rls/phase2a.sql を流して
+   * 接続ユーザーを flow_app に替えてから。
+   */
+  get rlsMode(): 'off' | 'on' {
+    return (readEnv().RLS_MODE ?? ENV_DEFAULTS.RLS_MODE).trim().toLowerCase() === 'on' ? 'on' : 'off';
   },
   /** N8N_WEBHOOK_AUTH_TOKEN が未設定（＝公開されている既定値のまま）か。 */
   get n8nWebhookAuthTokenIsDefault(): boolean {
