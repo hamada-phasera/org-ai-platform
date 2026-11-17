@@ -253,6 +253,10 @@ model UploadedFile {
   sizeBytes    Int
   createdAt    DateTime     @default(now())
   chunks       FileChunk[]
+
+  /// 20260913000000_add_storage_driver が作った索引。schema に書いていないと migrate dev が DROP を生成する
+  /// （tests/integration/migrate.int.test.ts がずれを検査する）
+  @@index([orgId])
 }
 
 /// RAG: アップロードファイルをチャンク分割し埋め込みベクトルを保持する。
