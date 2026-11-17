@@ -85,7 +85,7 @@
 | 分離テスト（IDOR・一覧） | 済 | `apps/api-gateway/tests/tenancy/tenant-isolation.test.ts`（偽 Prisma） |
 | ai-engine の `X-Org-Id` 照合 | 済 | `apps/ai-engine/app/tenancy.py`、`ORG_HEADER_MODE`（既定 warn） |
 | services の `tenantDb` 化 | **未** | 素の prisma を使う: `task-executor.ts` `capability-resolver.ts` `capability-executor.ts` `step-runner.ts` `rag.ts` `adapters/index.ts` `google-auth.ts` `integration-sync.ts` `inbox/{draft-generator,line-inbox,receipt-capture}.ts` |
-| RLS ポリシー | **未** | 草案のみ `docs/design/rls-phase2-draft.sql`。接続ロールの分離が前提 |
+| RLS ポリシー | 一部（チャンク 11） | Phase 2a を `packages/db-schema/rls/phase2a.sql` と `RLS_MODE`（既定 off）で用意。本番の有効化はロール作成（O-5）の後。2b は草案のまま |
 | 実 Postgres での検証 | **未** | raw SQL（`routes/files.ts`、`services/rag.ts`）は文字列検査だけ |
 | n8n コールバックの orgId 必須化 | 一部 | `N8N_CALLBACK_ORG_REQUIRED` 既定 false。今回は変えない |
 
@@ -427,6 +427,12 @@
 | チャンク 10 の受け渡し方 | 公開関数の引数は原則変えず（orgId を受けて内部で `tenantDb(orgId)`）、呼び出し側の変更を最小にした。`generateInboxDraft` だけは `TenantDb` を受ける（ルートが `authOf(request).db` をそのまま渡せ、LINE 取り込みは接続の組織のクライアントを渡す）。step-runner は内部で 1 本の `db` を引き回す |
 | チャンク 10 で残した素の prisma | `step-runner` は取り残しの回収（組織をまたぐ）と、orgId 無しで呼ばれた `resumeAgentTask` の Task の逆引きだけ（承認 API は orgId を渡すので本番経路では使わない。既存テストが orgId 無しで呼ぶため経路は残した）。`schedule-dispatcher` は claim と候補スキャンだけで、発火失敗の FAILED 記録は tenantDb に移した |
 | チャンク 10 の既存テストの書き換え | `line-inbox.test.ts` の 2 か所: `generateInboxDraft` の呼び出しに第 1 引数（接続の組織のクライアント）が付いた／`channelConnection.update` の where に orgId が入った。どちらも意図は同じで、組織で絞ったことをより強く確かめる形 |
+| チャンク 11 の包む範囲 | `RLS_MODE=on` で包むのは `RLS_MODELS`（4 表）の操作と raw SQL（`$queryRaw` / `$executeRaw`。どの表かは読まずに全部）だけ。他の表は 2a では素通しポリシーなので往復を増やさない。素のクライアントは batch transaction、`db.$transaction(fn)` は開始直後に 1 回、外から渡した tx（`tenantDbFrom(tx, orgId)`）は本体の直前に 1 回 |
+| チャンク 11 の素通しポリシー | Supabase は全表で RLS を ENABLE 済みなので、ポリシーの無い表は `flow_app` から 0 行になりアプリが壊れる。`phase2a.sql` で RLS が有効な残りの表に `phase2a_passthrough`（`TO flow_app`・`USING (true)`）を付けた。統合テストも全表 ENABLE（Supabase と同じ）の上で流す |
+| チャンク 11 の on/off の値 | `RLS_MODE` は `on` だけが on（前後空白・大文字小文字は無視）。それ以外の値は off（未知の値で止めない。off は従来どおりで安全側）。gateway と ai-engine に同じ値。render.yaml に両方 `"off"` を明示 |
+| チャンク 11 の DoD を on で | `dod-flow.int.test.ts` と `raw-sql.int.test.ts` を `describe.each(['off','on'])` にし、on の回は gateway の接続だけ `flow_app` に替える（準備・確認は所有者）。ロール `flow_app` はクラスタ全体のものなので作って残す（消さない。DB を消せば権限は消える） |
+| チャンク 11 の計測 | 文の数で固定（off 1 / on 4）し、時間は手元の値を設計書 §17.1 に書いた（RTT ≒ 0 で +0.15〜0.2 ms）。本番は +3 往復 / 操作の見積もりで、Render 上の実測は有効化の前に取る |
+| チャンク 11 の ai-engine | `set_tenant` は RLS_MODE=on かつ接続先が PostgreSQL のときだけ（SQLite には set_config が無い）。`audit_logger` と `usage.monthly_calls` の同じセッションの最初の文で呼ぶ |
 
 > オーケストレーター追記（チャンク 3 で対応）: 「決済設定済み」の判定は `STRIPE_SECRET_KEY` だけでなく、梅の月額価格 ID（`STRIPE_PRICE_STARTER_MONTHLY`）もあるときに限る。キーだけ入れて価格が無いと、期限切れ組織が閲覧のみになり契約もできない詰みになるため。
 

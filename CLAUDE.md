@@ -113,7 +113,10 @@ STRIPE_PRICE_STORAGE_ADDON= / STRIPE_TAX_RATE_ID= / BILLING_TRIAL_DAYS=30 / APP_
 - 認証の無い経路（定期実行・LINE webhook・step-runner）は、組織が決まったら `runAsTenant({ orgId, source })` で包む。
   ai-engine への呼び出しは `aiEngineHeaders()` が `X-Org-Id` を付け、ai-engine が body の `org_id` と照合する（`ORG_HEADER_MODE`）。
 - 組織分離テスト: `apps/api-gateway/tests/tenancy/tenant-isolation.test.ts`。ルートを足したら IDOR / 一覧の表に足す。
-- RLS ポリシーはまだ入れない（ADR-4。Phase 2 で専用ロールを作ってから）。
+- RLS は Phase 2a まで用意済みで**既定 off**（`RLS_MODE`。設計書 §17）。`packages/db-schema/rls/phase2a.sql`（migrations 外・手で流す）が
+  AILog / RiskEvent / FileChunk / MessageEmbedding に `flow_app` 向けのポリシーを付ける。on にするのはロール作成（O-5）の後で、
+  gateway・ai-engine の `RLS_MODE=on` と接続ユーザーの `flow_app` への切り替えを**同時に**行う。`SET` は使わず `set_config(…, true)` だけ。
+  4 表を触る新しい経路は tenantDb（gateway）か `set_tenant`（ai-engine `app/db.py`）を通すこと。
 
 ## 自動化の実行モデル (2026-09 スプリント)
 

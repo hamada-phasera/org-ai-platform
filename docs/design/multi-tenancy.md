@@ -946,3 +946,38 @@ FROM "Membership" m
 WHERE m."userId" = u."id" AND m."orgId" = u."orgId" AND m."status" = 'DISABLED';
 ```
 
+
+## 17. RLS Phase 2a（実装済み・opt-in。計画書チャンク 11）
+
+ADR-4 の Phase 2 のうち、アプリ層の強制が効かない 4 表（AILog / RiskEvent / FileChunk / MessageEmbedding）だけに DB 側の柵を用意した。
+**既定は off**。本番で有効にするのはオーナーがロールを作ってから（計画書 O-5）。
+
+| 項目 | 内容 |
+|---|---|
+| SQL | `packages/db-schema/rls/phase2a.sql`（**migrations には入れない**。手で流す。何度流しても同じ）。`GRANT` → `app_current_org()` → 4 表に `tenant_isolation`（`TO flow_app`、`USING` と `WITH CHECK` が `"orgId" = app_current_org()`）→ RLS が有効な残りの表に `phase2a_passthrough`（`flow_app` に素通し）→ `flow_app` が BYPASSRLS / SUPERUSER なら例外で止める |
+| 素通しを置く理由 | Supabase では Data API の蓋として全表で RLS を ENABLE 済み（`docs/supabase-migration.md` §6）。ポリシーの無い表は `flow_app` から 0 行になり、アプリが壊れる。2a では 4 表以外の分離は tenantDb が担う。⚠️ 流した後に migrate で増えた表は素通しが無いので、表を足したらもう一度流す |
+| 切り替え | `RLS_MODE=on` を gateway（`config.rlsMode`）と ai-engine（`settings.rls_mode`）の両方に入れ、同時に `DATABASE_URL` の接続ユーザーを `flow_app` に替える。migrate・`usage-metrics-svc`（AILog を全組織で集計する）・手作業の調査は所有者か `flow_system`（BYPASSRLS）のまま |
+| gateway | `tenancy/tenant-db.ts`。`RLS_MODELS` の操作と raw SQL（`$queryRaw` / `$executeRaw`）を `set_config('app.org_id', orgId, true)` と同じトランザクションで流す。素のクライアント → batch transaction、`db.$transaction(fn)` → 開始直後に 1 回、外から渡した tx（`tenantDbFrom(tx, orgId)`）→ 本体の直前に 1 回。4 表以外は包まない |
+| ai-engine | `app/db.py` の `set_tenant(session, org_id)`。`audit_logger.log_llm_call`（AILog・RiskEvent の INSERT）と `usage.monthly_calls`（AILog の数え上げ）の先頭で、同じセッションの最初の文として呼ぶ。SQLite と off では何もしない |
+| SET を使わない | `set_config(…, true)`（is_local）だけ。コミットで消えるのでプールの接続に残らない（統合テストで `connection_limit=1` の接続を使って確認） |
+| on にせず flow_app に替えたとき | 4 表が 0 行に見える（fail-closed）。AI の月間上限が数えられなくなり（fail-open で止めはしない）、ガバナンス画面が空になる。**必ず on と接続の切り替えを同時に** |
+| 外部キーの連鎖 | `UploadedFile` の削除で `FileChunk` が消える連鎖は、参照整合の処理が所有者の権限で走るので RLS を受けない（統合テストで確認） |
+
+### 17.1 往復の計測
+
+`tests/integration/rls.int.test.ts` の (5)。Prisma の query イベントで文の数を数え、`flow_app` で `db.aILog.count()` を 200 回流した平均。
+
+| | 文の数 / 操作 | 手元（同じ箱の Postgres 16、RTT ≒ 0） |
+|---|---|---|
+| off | 1（本体） | 0.23〜0.39 ms |
+| on | 4（BEGIN / set_config / 本体 / COMMIT） | 0.37〜0.57 ms |
+
+- 手元では +0.15〜0.2 ms。ほぼ「文の数 × サーバ側の処理」だけで、ネットワークの往復は乗っていない。
+- **本番の見積もり**: Prisma は batch transaction の 4 文を順に送るので、増えるのは **3 往復 / 操作**。Render（オレゴン）↔ Supabase us-west-2 の RTT を r とすると +3r（r = 1〜2 ms なら +3〜6 ms）。対象は 4 表と raw SQL だけ（ガバナンス画面・`/me/usage`・RAG の索引と検索）で、チャットの 1 ターンあたり RAG の検索 2 回分が乗る。⚠️ 本番の RTT は未計測（有効化の前に Render 上で同じテストの数字を取る）。
+- interactive transaction の中は開始時の 1 回だけなので、まとめて書く経路（RAG の索引の INSERT の繰り返しなど）を `$transaction(fn)` に寄せれば増加は 1 往復で済む。今回は挙動を変えないため寄せていない。
+
+### 17.2 やっていないこと（Phase 2b 以降）
+
+- 本番での有効化と Supabase のロール作成（O-5）。
+- 残りのテナント表へのポリシー（`docs/design/rls-phase2-draft.sql` の §4。子モデルは orgId 列が要る＝Q7）。
+- `flow_system` 用の 2 本目の接続文字列（2a ではシステム経路が 4 表を素の prisma で触らないので不要。2b で要る）。
