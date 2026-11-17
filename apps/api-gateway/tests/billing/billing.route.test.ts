@@ -43,7 +43,7 @@ vi.mock('../../src/services/billing/stripe-client', () => ({
 const applySubscription = vi.fn();
 vi.mock('../../src/services/billing/sync', () => ({ applySubscription: (...a: unknown[]) => applySubscription(...a) }));
 
-const { billingRoutes, resetBillingPriceCache } = await import('../../src/routes/billing');
+const { billingRoutes, resetBillingPriceCache, CHECKOUT_NOT_READY_MESSAGE } = await import('../../src/routes/billing');
 
 async function build(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -53,12 +53,13 @@ async function build(): Promise<FastifyInstance> {
 }
 
 const ENV_KEYS = [
-  'STRIPE_SECRET_KEY', 'STRIPE_PRICE_STARTER_MONTHLY', 'STRIPE_PRICE_PRO_MONTHLY', 'STRIPE_PRICE_PRO_YEARLY',
+  'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_PRICE_STARTER_MONTHLY', 'STRIPE_PRICE_PRO_MONTHLY', 'STRIPE_PRICE_PRO_YEARLY',
   'STRIPE_PRICE_STORAGE_ADDON', 'STRIPE_TAX_RATE_ID', 'APP_BASE_URL', 'BILLING_TRIAL_DAYS',
 ];
 
 function configure(): void {
   process.env.STRIPE_SECRET_KEY = ['sk', 'test', 'unit'].join('_');
+  process.env.STRIPE_WEBHOOK_SECRET = ['whsec', 'unit'].join('_');
   process.env.STRIPE_PRICE_STARTER_MONTHLY = 'price_s_m';
   process.env.STRIPE_PRICE_PRO_MONTHLY = 'price_p_m';
   process.env.STRIPE_PRICE_PRO_YEARLY = 'price_p_y';
@@ -172,6 +173,21 @@ describe('POST /api/billing/checkout', () => {
     const app = await build();
     const res = await app.inject({ method: 'POST', url: '/api/billing/checkout', payload: { plan: 'PRO', interval: 'month' } });
     expect(res.statusCode).toBe(503);
+    await app.close();
+  });
+
+  it('webhook の署名鍵が無ければ 503（支払っても組織に写らないため申し込ませない。saas-review #2）', async () => {
+    configure();
+    delete process.env.STRIPE_WEBHOOK_SECRET;
+    const app = await build();
+    const res = await app.inject({ method: 'POST', url: '/api/billing/checkout', payload: { plan: 'PRO', interval: 'month' } });
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error).toEqual({ code: 'BILLING_NOT_CONFIGURED', message: CHECKOUT_NOT_READY_MESSAGE });
+    // 秘密の名前・値は返さない
+    expect(res.body).not.toContain('STRIPE');
+    expect(res.body).not.toContain('whsec');
+    expect(stripeMock.createCustomer).not.toHaveBeenCalled();
+    expect(stripeMock.createCheckoutSession).not.toHaveBeenCalled();
     await app.close();
   });
 

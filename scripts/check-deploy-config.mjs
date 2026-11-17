@@ -144,6 +144,11 @@ export function checkDeployConfig(root = REPO_ROOT) {
     for (const k of ['ALLOWED_ORIGIN_HOSTS', 'N8N_CALLBACK_ORG_REQUIRED', 'N8N_WEBHOOK_AUTH_TOKEN', 'JWT_SECRET', 'INTERNAL_API_TOKEN']) {
       if (gw && !keysOf(gw).includes(k)) fail(`render.yaml: gateway に ${k} が無い`);
     }
+    // 「決済設定済み」（config.billingConfigured）の 3 つ。1 つでも宣言が漏れると、Render で入れ忘れても気づけない
+    // （署名鍵が無いと支払っても組織に写らない。saas-review #2）
+    for (const k of ['STRIPE_SECRET_KEY', 'STRIPE_PRICE_STARTER_MONTHLY', 'STRIPE_WEBHOOK_SECRET']) {
+      if (gw && !keysOf(gw).includes(k)) fail(`render.yaml: gateway に ${k} が無い（決済設定済みの判定に要る）`);
+    }
     for (const k of ['ORG_HEADER_MODE', 'INTERNAL_API_TOKEN', 'DATABASE_URL']) {
       if (ai && !keysOf(ai).includes(k)) fail(`render.yaml: ai-engine に ${k} が無い`);
     }

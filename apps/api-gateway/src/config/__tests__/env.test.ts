@@ -131,13 +131,18 @@ describe('config: 値の読み方', () => {
     expect(config.nodeEnv).toBe('production');
   });
 
-  it('billingConfigured はキーと梅の月額 price の両方があるときだけ true', () => {
+  it('billingConfigured はキー・梅の月額 price・webhook の署名鍵の 3 つがそろったときだけ true', () => {
     expect(config.billingConfigured).toBe(false);
     process.env.STRIPE_SECRET_KEY = 'sk_test_x';
     expect(config.billingConfigured).toBe(false);
     process.env.STRIPE_PRICE_STARTER_MONTHLY = '  ';
     expect(config.billingConfigured).toBe(false);
     process.env.STRIPE_PRICE_STARTER_MONTHLY = 'price_s_m';
+    // 署名鍵が無いと支払っても組織に写らない（saas-review #2）
+    expect(config.billingConfigured).toBe(false);
+    process.env.STRIPE_WEBHOOK_SECRET = '  ';
+    expect(config.billingConfigured).toBe(false);
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_x';
     expect(config.billingConfigured).toBe(true);
   });
 });

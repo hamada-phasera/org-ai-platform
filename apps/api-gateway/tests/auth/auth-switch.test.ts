@@ -217,8 +217,10 @@ describe('POST /api/organizations（組織の作成）', () => {
 
     const original = process.env.STRIPE_SECRET_KEY;
     const originalPrice = process.env.STRIPE_PRICE_STARTER_MONTHLY;
+    const originalWebhook = process.env.STRIPE_WEBHOOK_SECRET;
     process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
     process.env.STRIPE_PRICE_STARTER_MONTHLY = 'price_s_m';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_dummy';
     try {
       const h = { authorization: `Bearer ${res.json().data.token}` };
       const w = await app.inject({ method: 'POST', url: '/api/tasks', headers: h, payload: { title: 'x' } });
@@ -231,6 +233,8 @@ describe('POST /api/organizations（組織の作成）', () => {
       else process.env.STRIPE_SECRET_KEY = original;
       if (originalPrice === undefined) delete process.env.STRIPE_PRICE_STARTER_MONTHLY;
       else process.env.STRIPE_PRICE_STARTER_MONTHLY = originalPrice;
+      if (originalWebhook === undefined) delete process.env.STRIPE_WEBHOOK_SECRET;
+      else process.env.STRIPE_WEBHOOK_SECRET = originalWebhook;
     }
   });
 

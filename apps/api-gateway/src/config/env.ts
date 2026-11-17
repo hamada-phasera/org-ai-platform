@@ -340,13 +340,19 @@ export const config = {
 
   // ── 決済 ──
   /**
-   * 決済が設定されているか。STRIPE_SECRET_KEY と梅の月額 price（STRIPE_PRICE_STARTER_MONTHLY）の両方があるときだけ。
+   * 決済が設定されているか。STRIPE_SECRET_KEY・梅の月額 price（STRIPE_PRICE_STARTER_MONTHLY）・
+   * webhook の署名鍵（STRIPE_WEBHOOK_SECRET）の 3 つがそろったときだけ。
    * 未設定の環境ではトライアル切れでも止めない。⚠️ キーだけで price が無いと、期限切れの組織が閲覧のみになるのに
-   * 契約もできない詰みになるため、price も見る（計画書 §7 オーケストレーター追記）。
+   * 契約もできない詰みになるため、price も見る（計画書 §7 オーケストレーター追記）。署名鍵が無いと支払っても
+   * 組織に写らない（写し込みは webhook だけ）ので、これも見る（saas-review #2）。
    */
   get billingConfigured(): boolean {
     const env = readEnv();
-    return !!env.STRIPE_SECRET_KEY?.trim() && !!env.STRIPE_PRICE_STARTER_MONTHLY?.trim();
+    return (
+      !!env.STRIPE_SECRET_KEY?.trim() &&
+      !!env.STRIPE_PRICE_STARTER_MONTHLY?.trim() &&
+      !!env.STRIPE_WEBHOOK_SECRET?.trim()
+    );
   },
   /** トライアルの日数。数でない・負の値は既定に戻す。 */
   get billingTrialDays(): number {

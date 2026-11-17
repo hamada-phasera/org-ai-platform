@@ -89,6 +89,10 @@ test('render.yaml の gateway に読まれないキー・必要なキーの欠�
   const missing = checkWith('render.yaml', (s) => s.replace(/      - key: ALLOWED_ORIGIN_HOSTS\n        value: .*\n/, ''));
   assert.ok(missing.some((e) => e.includes('ALLOWED_ORIGIN_HOSTS')), missing.join('\n'));
 
+  // 決済設定済みの 3 つのうち webhook の署名鍵（saas-review #2）
+  const whMissing = checkWith('render.yaml', (s) => s.replace(/      - key: STRIPE_WEBHOOK_SECRET\n        sync: false\n/, ''));
+  assert.ok(whMissing.some((e) => e.includes('STRIPE_WEBHOOK_SECRET')), whMissing.join('\n'));
+
   const aiMissing = checkWith('render.yaml', (s) => s.replace(/      - key: ORG_HEADER_MODE\n        value: .*\n/, ''));
   assert.ok(aiMissing.some((e) => e.includes('ORG_HEADER_MODE')), aiMissing.join('\n'));
 

@@ -195,14 +195,16 @@ describe('requireAuth の契約チェック', () => {
 describe('requireAuth の登録時トライアル', () => {
   const ORIGINAL_KEY = process.env.STRIPE_SECRET_KEY;
   const ORIGINAL_PRICE = process.env.STRIPE_PRICE_STARTER_MONTHLY;
+  const ORIGINAL_WEBHOOK = process.env.STRIPE_WEBHOOK_SECRET;
   const REGISTERED = new Date('2026-11-17T00:00:00Z');
   const TRIAL_END = new Date(REGISTERED.getTime() + 30 * DAY);
   const after = (days: number) => new Date(REGISTERED.getTime() + days * DAY);
 
   beforeEach(() => {
     process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
-    // 決済設定済み = キーと梅の月額 price の両方（計画書 §7 追記）
+    // 決済設定済み = キー・梅の月額 price・webhook の署名鍵の 3 つ（計画書 §7 追記、saas-review #2）
     process.env.STRIPE_PRICE_STARTER_MONTHLY = 'price_s_m';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_dummy';
     vi.useFakeTimers({ toFake: ['Date'] });
   });
   afterEach(() => {
@@ -211,6 +213,8 @@ describe('requireAuth の登録時トライアル', () => {
     else process.env.STRIPE_SECRET_KEY = ORIGINAL_KEY;
     if (ORIGINAL_PRICE === undefined) delete process.env.STRIPE_PRICE_STARTER_MONTHLY;
     else process.env.STRIPE_PRICE_STARTER_MONTHLY = ORIGINAL_PRICE;
+    if (ORIGINAL_WEBHOOK === undefined) delete process.env.STRIPE_WEBHOOK_SECRET;
+    else process.env.STRIPE_WEBHOOK_SECRET = ORIGINAL_WEBHOOK;
   });
 
   const call = async (app: FastifyInstance, method: 'GET' | 'POST', url: string) =>
@@ -262,6 +266,15 @@ describe('requireAuth の登録時トライアル', () => {
 
   it('キーだけ入って梅の月額 price が無いなら 31 日後も止めない（閉じ込めない：契約もできないため）', async () => {
     delete process.env.STRIPE_PRICE_STARTER_MONTHLY;
+    vi.setSystemTime(after(31));
+    withStatus(null, TRIAL_END);
+    const app = await build();
+    expect((await call(app, 'POST', '/api/tasks')).statusCode).toBe(200);
+    await app.close();
+  });
+
+  it('webhook の署名鍵が無いなら 31 日後も止めない（支払っても組織に写らない＝契約で再開できないため。saas-review #2）', async () => {
+    delete process.env.STRIPE_WEBHOOK_SECRET;
     vi.setSystemTime(after(31));
     withStatus(null, TRIAL_END);
     const app = await build();

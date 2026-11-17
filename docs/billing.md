@@ -24,8 +24,10 @@
   拒否するので、残りが 49 時間（1 時間の余裕）未満ならその日から課金する。判定は `billing-core.ts` の `checkoutTrialEnd`。
   画面の文言は overview の `checkoutTrialEndsAt` に従う。⚠️ 一度でも契約した組織（解約後の再契約など）には引き継がない。
 - ⚠️ 止めないもの: `trialEndsAt = null` の既存組織（登録時トライアルより前に作られた組織）と、
-  決済が未設定の環境の全組織。再開の手段が無い状態で止めないため。「決済設定済み」は `STRIPE_SECRET_KEY` と
-  `STRIPE_PRICE_STARTER_MONTHLY` の**両方**があるとき（`config.billingConfigured`）。キーだけだと契約できないのに止まる。
+  決済が未設定の環境の全組織。再開の手段が無い状態で止めないため。「決済設定済み」は `STRIPE_SECRET_KEY`・
+  `STRIPE_PRICE_STARTER_MONTHLY`・`STRIPE_WEBHOOK_SECRET` の **3 つ**がそろったとき（`config.billingConfigured`）。
+  キーだけだと契約できないのに止まり、署名鍵が無いと支払っても組織に写らない（写し込みは webhook だけ）。
+  署名鍵が無ければ `/api/billing/checkout` も 503 `BILLING_NOT_CONFIGURED`（固定文言）で申し込ませない。
 - **解約・未払いのあとは「閲覧のみ」**。新しい実行と保存は 402 で止まり、台帳・ファイル・
   過去のやり取りの閲覧と書き出しは続けられる。データは消さない。
 - **認証の無い経路も止める**。定期実行（gateway 内 tick と n8n の `enqueue-scheduled-task`）は claim の前に組織を見て
@@ -105,6 +107,7 @@ STRIPE_SECRET_KEY=sk_test_... npm run stripe:bootstrap -- --apply \
 
 `.env.example` の「決済 (Stripe)」を参照。`STRIPE_SECRET_KEY` か `STRIPE_PRICE_STARTER_MONTHLY` が無ければ決済は未設定として扱い、
 設定 > プラン は「準備中」を表示するだけで、他の機能には影響しない（トライアル切れでも止めない）。
+`STRIPE_WEBHOOK_SECRET` だけが無いときは、価格は表示されるが申し込みは 503 で、期限切れの組織も止めない。
 Render への入れ方は `docs/DEPLOY.md` の 3・4 章。
 
 ## 公開の前に（法務の頁）

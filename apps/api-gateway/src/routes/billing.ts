@@ -141,6 +141,9 @@ function checkoutTrialEndIso(status: string | null, trialEndsAt: Date | null): s
 const notConfigured = (reply: FastifyReply) =>
   sendError(reply, 503, 'BILLING_NOT_CONFIGURED', '決済はまだ準備中です。');
 
+/** 申し込みを受け付けられない設定不足（webhook の署名鍵が無い）。秘密の値・キー名は利用者に返さない */
+export const CHECKOUT_NOT_READY_MESSAGE = '決済の設定が完了していないため、お申し込みを受け付けられません。管理者にご連絡ください。';
+
 /** ⚠️ Stripe のエラー文言は利用者へ返さない（決済の文脈が混じる）。ログにだけ残す */
 const upstreamFailed = (reply: FastifyReply, e: unknown) => {
   billingLog.error('Stripe の呼び出しに失敗:', errorMessage(e));
@@ -170,6 +173,12 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
     const { orgId, email, db, sub } = authOf(request);
     const config = billingConfigFromEnv();
     if (!config) return notConfigured(reply);
+    /* ⚠️ webhook の署名鍵が無いと、支払っても組織に写らない（写し込みは webhook だけ）。
+       支払ったのに閲覧のみのまま、を作らないため、申し込みの入口で止める（saas-review #2） */
+    if (!config.webhookSecret) {
+      billingLog.error('STRIPE_WEBHOOK_SECRET が未設定のため Checkout を作りません');
+      return sendError(reply, 503, 'BILLING_NOT_CONFIGURED', CHECKOUT_NOT_READY_MESSAGE);
+    }
 
     const parsed = checkoutSchema.safeParse(request.body);
     if (!parsed.success) {
