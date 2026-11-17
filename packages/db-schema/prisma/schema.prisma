@@ -221,6 +221,24 @@ model RiskEvent {
   @@index([orgId, createdAt])
 }
 
+/// 管理操作の監査記録（招待・役割変更・無効化・組織の作成と改名・契約操作・連携の接続と切断）。
+/// AILog / RiskEvent は AI の入出力だけなので、人の操作はここに残す。書くのは services/audit.ts だけ。
+/// ⚠️ meta に秘密の値（トークン・パスワード・鍵）を入れない（audit.ts が名前で落とす）。
+model AuditEvent {
+  id         String   @id @default(cuid())
+  orgId      String
+  /// 操作した人（User.id）。システム経路なら null
+  actorId    String?
+  /// 'member.role_change' など。一覧は services/audit.ts の AUDIT_ACTIONS
+  action     String
+  targetType String?
+  targetId   String?
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  @@index([orgId, createdAt])
+}
+
 model UploadedFile {
   id           String       @id @default(cuid())
   orgId        String

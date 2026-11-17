@@ -35,6 +35,7 @@ import {
 import { StripeClient } from '../services/billing/stripe-client';
 import { applySubscription } from '../services/billing/sync';
 import { sendError } from '../utils/http-error';
+import { recordAudit } from '../services/audit';
 import { createLogger, errorMessage } from '../utils/logger';
 
 const billingLog = createLogger('billing');
@@ -166,7 +167,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
 
   // 新規契約（Stripe Checkout の URL を返す）
   app.post('/checkout', { preHandler: requireOwner }, async (request, reply) => {
-    const { orgId, email, db } = authOf(request);
+    const { orgId, email, db, sub } = authOf(request);
     const config = billingConfigFromEnv();
     if (!config) return notConfigured(reply);
 
@@ -220,6 +221,14 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
         }),
       );
       if (!session.url) return upstreamFailed(reply, new Error('Checkout の URL が返りませんでした'));
+      // 契約の成立は webhook で分かる。ここで残すのは「誰が申し込みを始めたか」
+      await recordAudit(db, {
+        action: 'billing.checkout_start',
+        actorId: sub,
+        targetType: 'organization',
+        targetId: org.id,
+        meta: { plan: parsed.data.plan, interval: parsed.data.interval },
+      });
       return reply.send({ success: true, data: { url: session.url } });
     } catch (e) {
       return upstreamFailed(reply, e);
@@ -251,7 +260,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
   // ⚠️ ポータルに任せない。追加ストレージを買った契約は明細が2本になり、ポータルのプラン変更が使えない。
   //    またポータルでは「下げた先の容量に今のファイルが収まるか」を確かめられない。
   app.post('/change-plan', { preHandler: requireOwner }, async (request, reply) => {
-    const { orgId, db } = authOf(request);
+    const { orgId, db, sub } = authOf(request);
     const config = billingConfigFromEnv();
     if (!config) return notConfigured(reply);
 
@@ -300,6 +309,13 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
           `plan:${current.id}:${base.id}:${base.price.id}:${priceId}`,
         );
         await applySubscription(org.id, updated, config);
+        await recordAudit(db, {
+          action: 'billing.plan_change',
+          actorId: sub,
+          targetType: 'organization',
+          targetId: org.id,
+          meta: { from: org.plan, plan, interval },
+        });
       }
     } catch (e) {
       return upstreamFailed(reply, e);
@@ -309,7 +325,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
 
   // 追加容量の口数を変える（1口 = 10GB / 月額）
   app.post('/storage-addon', { preHandler: requireOwner }, async (request, reply) => {
-    const { orgId, db } = authOf(request);
+    const { orgId, db, sub } = authOf(request);
     const config = billingConfigFromEnv();
     if (!config?.storageAddonPrice) return notConfigured(reply);
 
@@ -353,6 +369,15 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
           )
         : current;
       await applySubscription(org.id, updated, config);
+      if (items) {
+        await recordAudit(db, {
+          action: 'billing.storage_addon',
+          actorId: sub,
+          targetType: 'organization',
+          targetId: org.id,
+          meta: { from: org.storageAddonUnits, units },
+        });
+      }
     } catch (e) {
       return upstreamFailed(reply, e);
     }

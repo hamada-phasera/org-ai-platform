@@ -43,7 +43,8 @@ type TenantDelegateKey =
   | 'messageEmbedding'
   | 'capability'
   | 'capabilityGap'
-  | 'executionLog';
+  | 'executionLog'
+  | 'auditEvent';
 type ChildDelegateKey = 'message' | 'taskLog' | 'requiredCredential';
 
 /** テナントクライアント（トランザクションの中で使う形）。 */

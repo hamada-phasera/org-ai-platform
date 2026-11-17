@@ -37,12 +37,20 @@ import { prisma } from './utils/prisma';
 import { config, ENV_DEFAULTS } from './config/env';
 import { createLogger } from './utils/logger';
 import { registerTenantContext } from './tenancy/context';
+import { assertStartupConfig } from './config/startup-checks';
+import { registerRateLimit } from './middleware/rate-limit';
+import { healthRoutes } from './routes/health';
 
 const startupLog = createLogger('startup');
 
-const app = Fastify({ logger: true });
+/* Render の背後にいるので、利用者の IP は X-Forwarded-For から取る（レート制限の単位）。
+   ⚠️ 段数で指定する（true にすると利用者が書いたヘッダまで信じてしまう）。 */
+const app = Fastify({ logger: true, trustProxy: config.trustProxyHops });
 
 async function start(): Promise<void> {
+  // 起動してはいけない設定（JWT_SECRET が短い・本番で n8n トークンが既定値）はここで止める
+  assertStartupConfig();
+
   // 明示許可リスト (FRONTEND_URL, カンマ区切り) + localhost + 自分のフロントのみ許可。
   // 以前は *.vercel.app 全許可 + credentials:true で、任意の Vercel ユーザーのサイトから
   // 資格情報付きリクエストが可能だった（本番検証時の指摘）。
@@ -79,11 +87,8 @@ async function start(): Promise<void> {
     credentials: true,
   });
 
-  const jwtSecret = config.jwtSecret;
-  if (!jwtSecret || jwtSecret.length < 32) {
-    throw new Error('JWT_SECRET is required and must be at least 32 characters. Set it in your environment.');
-  }
-  await app.register(jwt, { secret: jwtSecret });
+  // 長さは assertStartupConfig で確認済み
+  await app.register(jwt, { secret: config.jwtSecret as string });
 
   // 1ファイルの上限はプランごとに違い、files.ts が request.file() の limits で個別に絞る。
   // ここは全プランの最大値。プランの上限を上げたときに直し忘れないよう、表から計算する
@@ -95,25 +100,10 @@ async function start(): Promise<void> {
   // テナントコンテキスト（request.tenant と AsyncLocalStorage）。ルートより先に配線する
   registerTenantContext(app);
 
-  app.get('/health', async () => ({
-    status: 'ok',
-    service: 'api-gateway',
-    version: '1.0.0',
-    timestamp: new Date().toISOString(),
-  }));
+  // レート制限。⚠️ ルートより先に登録する（後から足したルートにだけ効く）
+  await registerRateLimit(app);
 
-  app.get('/ready', async (_request, reply) => {
-    try {
-      await prisma.$queryRaw`SELECT 1`;
-      return { status: 'ok', db: 'connected', timestamp: new Date().toISOString() };
-    } catch (e) {
-      return reply.code(503).send({
-        status: 'error',
-        db: 'disconnected',
-        message: e instanceof Error ? e.message : String(e),
-      });
-    }
-  });
+  await app.register(healthRoutes, { pingDb: () => prisma.$queryRaw`SELECT 1` });
 
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(chatRoutes, { prefix: '/api/chat' });
@@ -144,7 +134,7 @@ async function start(): Promise<void> {
 
   const port = config.port;
   await app.listen({ port, host: '0.0.0.0' });
-  console.log(`API Gateway running on port ${port}`);
+  startupLog.info(`API Gateway running on port ${port}`);
 
   // デプロイ・再起動で RUNNING のまま取り残されたエージェント実行を回収する。
   // 放置すると受信ページにも一覧にも「実行中」のまま永久に残るため、起動直後に一度だけ掃除する。
@@ -165,6 +155,6 @@ async function start(): Promise<void> {
 }
 
 start().catch((err) => {
-  console.error(err);
+  startupLog.error('起動に失敗しました', err instanceof Error ? err.message : err);
   process.exit(1);
 });

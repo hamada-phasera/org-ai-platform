@@ -15,7 +15,7 @@ const { collectSetupStatus } = await import('../../src/services/setup-status');
 
 const TOKEN = ['unit', 'test', 'token'].join('-');
 const ENV_KEYS = [
-  'INTERNAL_API_TOKEN', 'AI_ENGINE_URL', 'EMBEDDING_API_KEY', 'GEMINI_API_KEY',
+  'INTERNAL_API_TOKEN', 'AI_ENGINE_URL', 'EMBEDDING_API_KEY', 'GEMINI_API_KEY', 'GEMINI_PAID_TIER',
   'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_TAX_RATE_ID', 'STRIPE_PRICE_STORAGE_ADDON',
   'STRIPE_PRICE_STARTER_MONTHLY', 'STRIPE_PRICE_STARTER_YEARLY', 'STRIPE_PRICE_PRO_MONTHLY',
   'STRIPE_PRICE_PRO_YEARLY', 'STRIPE_PRICE_MAX_MONTHLY', 'STRIPE_PRICE_MAX_YEARLY',
@@ -85,10 +85,18 @@ describe('AI エンジンの保護', () => {
     expect(s.detail).toContain('一致していません');
   });
 
-  it('接続できなければ unknown（設定の問題と断定しない）', async () => {
+  it('トークンを設定済みで接続できなければ unknown（設定の問題と断定しない）', async () => {
+    process.env.INTERNAL_API_TOKEN = TOKEN;
     fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
     const s = item(await collectSetupStatus(), 'aiEngine');
     expect(s.health).toBe('unknown');
+  });
+
+  it('トークン未設定は、接続できなくても「要対応」（未設定は確かめなくても分かる。チャンク 7）', async () => {
+    fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
+    const s = item(await collectSetupStatus(), 'aiEngine');
+    expect(s.health).toBe('error');
+    expect(s.detail).toContain('INTERNAL_API_TOKEN');
   });
 
   it('確認のために LLM を呼ばない（空の本文を1回だけ投げる）', async () => {
@@ -133,6 +141,21 @@ describe('決済', () => {
   it('全部そろえば ok', async () => {
     configureStripe(true);
     expect(item(await collectSetupStatus(), 'billing').health).toBe('ok');
+  });
+});
+
+describe('Gemini の利用区分', () => {
+  it('GEMINI_PAID_TIER 未設定・false は「要対応」（無料枠は入力が製品改善に使われる）', async () => {
+    expect(item(await collectSetupStatus(), 'geminiTier').health).toBe('error');
+    process.env.GEMINI_PAID_TIER = 'false';
+    const s = item(await collectSetupStatus(), 'geminiTier');
+    expect(s.health).toBe('error');
+    expect(s.action).toContain('GEMINI_PAID_TIER');
+  });
+
+  it.each(['true', 'TRUE', '1', 'yes'])('%s なら ok（ai-engine と同じ判定）', async (v) => {
+    process.env.GEMINI_PAID_TIER = v;
+    expect(item(await collectSetupStatus(), 'geminiTier').health).toBe('ok');
   });
 });
 

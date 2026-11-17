@@ -11,6 +11,10 @@ import { config } from '../config/env';
 import { sendError } from '../utils/http-error';
 import { listActiveMemberships, mirrorRoleToUser, rememberActiveOrg, signAccessToken } from '../services/memberships';
 import { invalidateMembership } from '../tenancy/membership-cache';
+import { tenantDbFrom } from '../tenancy/tenant-db';
+import { recordAudit, recordAuditInTx } from '../services/audit';
+import { INVITE_RATE_LIMIT } from '../middleware/rate-limit';
+import { emailSchema, normalizeEmail } from '../utils/email';
 
 /**
  * メンバーと招待。prefix: `/api/members`
@@ -29,7 +33,7 @@ import { invalidateMembership } from '../tenancy/membership-cache';
 const INVITE_TTL_DAYS = config.inviteTtlDays;
 
 const createInviteSchema = z.object({
-  email: z.string().email().max(200).optional(),
+  email: emailSchema.max(200).optional(),
   /** OWNER は招待では渡さない（オーナーの移譲は別の操作にする） */
   role: z.enum(['ADMIN', 'MEMBER']).default('MEMBER'),
 });
@@ -126,6 +130,15 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
       select: { id: true, email: true, role: true, expiresAt: true, createdAt: true },
     });
 
+    // ⚠️ 監査にも token は入れない
+    await recordAudit(db, {
+      action: 'member.invite',
+      actorId: payload.sub,
+      targetType: 'invitation',
+      targetId: invitation.id,
+      meta: { email: invitation.email, role: invitation.role },
+    });
+
     /* ⚠️ token はここでしか返らない。ログにも出さないこと。 */
     return reply.code(201).send({
       success: true,
@@ -135,7 +148,7 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
 
   /** 招待を取り消す。 */
   app.delete('/invitations/:invitationId', { preHandler: requireOwner }, async (request, reply) => {
-    const { orgId, db } = authOf(request);
+    const { orgId, db, sub } = authOf(request);
     const { invitationId } = request.params as { invitationId: string };
     const result = await db.invitation.updateMany({
       where: { id: invitationId, orgId, acceptedAt: null, revokedAt: null },
@@ -144,6 +157,7 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
     if (result.count === 0) {
       return sendError(reply, 404, 'NOT_FOUND', '招待が見つかりません');
     }
+    await recordAudit(db, { action: 'member.invite_revoke', actorId: sub, targetType: 'invitation', targetId: invitationId });
     return reply.send({ success: true, data: { id: invitationId } });
   });
 
@@ -152,7 +166,7 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
    * ⚠️ 返すのは組織名と役割だけ。メールアドレスや発行者は返さない
    *    （リンクを拾った第三者に組織の内情を教えない）。
    */
-  app.get('/invitations/preview/:token', async (request, reply) => {
+  app.get('/invitations/preview/:token', { config: { rateLimit: INVITE_RATE_LIMIT } }, async (request, reply) => {
     const { token } = request.params as { token: string };
     const invitation = await prisma.invitation.findUnique({
       where: { tokenHash: hashToken(token) },
@@ -175,7 +189,7 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
        ⚠️ これで「そのメールが登録済みか」が分かるが、リンク（トークン）を持つ人にしか見えないので許容する
        （設計書 Q2 仮採用）。メールアドレス自体は返さない。 */
     const requiresLogin = invitation.email
-      ? !!(await prisma.user.findUnique({ where: { email: invitation.email }, select: { id: true } }))
+      ? !!(await prisma.user.findUnique({ where: { email: normalizeEmail(invitation.email) }, select: { id: true } }))
       : false;
 
     return reply.send({
@@ -195,7 +209,7 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
    * ⚠️ orgId と role は **招待レコードから取る**。リクエストボディの値は一切信用しない。
    *    ここを body 由来にすると、任意の組織に任意の権限で入れる穴になる。
    */
-  app.post('/invitations/accept', async (request, reply) => {
+  app.post('/invitations/accept', { config: { rateLimit: INVITE_RATE_LIMIT } }, async (request, reply) => {
     const parsed = acceptSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', parsed.error.errors[0]?.message ?? '入力が不正です');
@@ -214,7 +228,9 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
       return sendError(reply, 400, 'VALIDATION_ERROR', 'この招待にはメールアドレスが設定されていません。管理者に再発行を依頼してください。');
     }
 
-    const existing = await prisma.user.findUnique({ where: { email: invitation.email }, select: { id: true } });
+    // 移行前の招待は大文字を含むことがあるので、照合・作成の前に揃える
+    const inviteEmail = normalizeEmail(invitation.email);
+    const existing = await prisma.user.findUnique({ where: { email: inviteEmail }, select: { id: true } });
     if (existing) {
       // 既に登録済みの人はアカウントを作らず、ログインして accept-existing で参加する
       return sendError(reply, 409, 'ACCOUNT_EXISTS', 'このメールアドレスは登録済みです。ログインしてから参加してください。');
@@ -236,7 +252,7 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
       const user = await tx.user.create({
         // User.role / User.orgId は移行期間中の写し（正本は Membership）
         data: {
-          email: invitation.email as string,
+          email: inviteEmail,
           passwordHash,
           name,
           role,
@@ -248,6 +264,13 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
         data: { userId: user.id, orgId: invitation.orgId, role, invitedBy: invitation.createdBy },
       });
       await tx.invitation.update({ where: { id: invitation.id }, data: { acceptedBy: user.id } });
+      await recordAuditInTx(tenantDbFrom(tx, invitation.orgId), {
+        action: 'member.join',
+        actorId: user.id,
+        targetType: 'user',
+        targetId: user.id,
+        meta: { role, invitationId: invitation.id },
+      });
       return user;
     });
 
@@ -289,6 +312,13 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
     }
     // 移行期間中の写し（User.orgId が同じ組織のときだけ）+ キャッシュの破棄
     await mirrorRoleToUser(userId, payload.orgId, parsed.data.role);
+    await recordAudit(db, {
+      action: 'member.role_change',
+      actorId: payload.sub,
+      targetType: 'user',
+      targetId: userId,
+      meta: { role: parsed.data.role },
+    });
     return reply.send({ success: true, data: { id: userId, role: parsed.data.role } });
   });
 
@@ -319,6 +349,13 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
     }
     // 外した人のトークンを、キャッシュの TTL を待たずに止める（同じプロセス内）
     invalidateMembership(userId, payload.orgId);
+    await recordAudit(db, {
+      action: 'member.status_change',
+      actorId: payload.sub,
+      targetType: 'user',
+      targetId: userId,
+      meta: { status: body.status },
+    });
     return reply.send({ success: true, data: { id: userId, status: body.status } });
   });
 
@@ -328,7 +365,7 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
    * （リンクを拾った別人が自分のアカウントで入るのを防ぐ）。
    * 参加したら新しい組織用のトークンを返す（そのまま切り替わる）。
    */
-  app.post('/invitations/accept-existing', { preHandler: requireUser }, async (request, reply) => {
+  app.post('/invitations/accept-existing', { preHandler: requireUser, config: { rateLimit: INVITE_RATE_LIMIT } }, async (request, reply) => {
     const { sub } = userOf(request);
     const parsed = acceptExistingSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -342,7 +379,7 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
     if (!me) {
       return sendError(reply, 401, 'AUTH_REQUIRED', '認証が必要です');
     }
-    if (!invitation.email || invitation.email.toLowerCase() !== me.email.toLowerCase()) {
+    if (!invitation.email || normalizeEmail(invitation.email) !== normalizeEmail(me.email)) {
       return sendError(reply, 403, 'INVITATION_EMAIL_MISMATCH', 'この招待は別のメールアドレス宛てです。招待されたアカウントでログインしてください。');
     }
     const already = await prisma.membership.findUnique({
@@ -370,6 +407,13 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
       if (claim.count === 0) return false;
       await tx.membership.create({
         data: { userId: me.id, orgId: invitation.orgId, role, invitedBy: invitation.createdBy },
+      });
+      await recordAuditInTx(tenantDbFrom(tx, invitation.orgId), {
+        action: 'member.join',
+        actorId: me.id,
+        targetType: 'user',
+        targetId: me.id,
+        meta: { role, invitationId: invitation.id },
       });
       return true;
     });

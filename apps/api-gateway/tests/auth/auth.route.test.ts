@@ -14,6 +14,7 @@ const prismaMock = {
   membership: { findMany: vi.fn(), create: vi.fn() },
   capability: { create: vi.fn(async (a: { data: Record<string, unknown> }) => ({ id: `cap-${String(a.data.name)}` })) },
   requiredCredential: { create: vi.fn() },
+  auditEvent: { create: vi.fn(async (_args: { data: Record<string, unknown> }) => ({})) },
   $transaction: vi.fn(),
 };
 vi.mock('../../src/utils/prisma', () => ({ prisma: prismaMock }));
@@ -107,6 +108,11 @@ describe('POST /api/auth/register', () => {
     for (const [args] of prismaMock.capability.create.mock.calls) expect(args.data.orgId).toBe('org-new');
     const payload = app.jwt.decode<{ orgId: string }>(res.json().data.token)!;
     expect(payload.orgId).toBe('org-new');
+    // 組織の作成は監査に残る（同じトランザクション・新しい組織に）
+    expect(prismaMock.auditEvent.create).toHaveBeenCalledTimes(1);
+    expect(prismaMock.auditEvent.create.mock.calls[0][0]).toMatchObject({
+      data: { orgId: 'org-new', actorId: 'u-new', action: 'org.create', targetId: 'org-new' },
+    });
     await app.close();
   });
 
@@ -184,6 +190,63 @@ describe('PATCH /api/organizations/me', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(prismaMock.organization.update.mock.calls[0][0].where.id).toBe('org-1');
+    await app.close();
+  });
+});
+
+// チャンク 7: メールは前後の空白を除いて小文字にしてから扱う
+describe('メールの正規化', () => {
+  function stubRegister() {
+    prismaMock.$transaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(prismaMock));
+    prismaMock.organization.create.mockResolvedValue({ id: 'org-new', name: '新会社', plan: 'STARTER' });
+    prismaMock.user.create.mockImplementation(async (a: { data: Record<string, unknown> }) => ({ id: 'u-new', ...a.data }));
+    prismaMock.membership.create.mockResolvedValue({});
+    prismaMock.organization.update.mockResolvedValue({});
+  }
+
+  it('A@X.jp で登録すると a@x.jp で保存し、重複確認も小文字で引く', async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    stubRegister();
+    const app = await build();
+    const res = await app.inject({
+      method: 'POST', url: '/api/auth/register',
+      payload: { name: 'N', email: '  A@X.jp ', password: 'password123', orgName: '新会社' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(prismaMock.user.findUnique.mock.calls[0][0]).toEqual({ where: { email: 'a@x.jp' } });
+    expect(prismaMock.user.create.mock.calls[0][0].data.email).toBe('a@x.jp');
+    expect(res.json().data.user.email).toBe('a@x.jp');
+    await app.close();
+  });
+
+  it('A@X.jp で登録した後、a@x.jp（と大文字混じり）でログインできる', async () => {
+    // DB には登録時に小文字で入っている
+    prismaMock.user.findUnique.mockImplementation(async (a: { where: { email?: string } }) =>
+      a.where.email === 'a@x.jp' ? userRow({ email: 'a@x.jp' }) : null);
+    const app = await build();
+    for (const email of ['a@x.jp', 'A@X.jp', ' a@X.JP ']) {
+      const res = await app.inject({
+        method: 'POST', url: '/api/auth/login', payload: { email, password: 'correct-password' },
+      });
+      expect(res.statusCode, email).toBe(200);
+    }
+    await app.close();
+  });
+
+  it('同じメールの再登録は大文字小文字が違っても 409', async () => {
+    prismaMock.user.findUnique.mockImplementation(async (a: { where: { email?: string } }) =>
+      a.where.email === 'a@x.jp' ? userRow({ email: 'a@x.jp' }) : null);
+    stubRegister();
+    const app = await build();
+    for (const email of ['a@x.jp', 'A@x.JP']) {
+      const res = await app.inject({
+        method: 'POST', url: '/api/auth/register',
+        payload: { name: 'N', email, password: 'password123', orgName: '新会社' },
+      });
+      expect(res.statusCode, email).toBe(409);
+      expect(res.json().error.code).toBe('AUTH_EMAIL_EXISTS');
+    }
+    expect(prismaMock.user.create).not.toHaveBeenCalled();
     await app.close();
   });
 });

@@ -17,6 +17,8 @@ const optional = z.string().optional();
 export const envSchema = z.object({
   NODE_ENV: optional,
   PORT: optional,
+  /** 前に立つプロキシの段数（Render は 1）。レート制限の IP を X-Forwarded-For から取る */
+  TRUST_PROXY_HOPS: optional,
 
   // 認証
   JWT_SECRET: optional,
@@ -70,6 +72,8 @@ export const envSchema = z.object({
   EMBEDDING_MODEL: optional,
   EMBEDDING_DIM: optional,
   GEMINI_API_KEY: optional,
+  /** ai-engine と同じ値。gateway は「セットアップ状況」の表示にだけ使う */
+  GEMINI_PAID_TIER: optional,
 
   // 運用
   METRICS_URL: optional,
@@ -101,6 +105,7 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): Env {
 /** 既定値。ここ以外に既定値を書かないこと。 */
 export const ENV_DEFAULTS = {
   PORT: '4000',
+  TRUST_PROXY_HOPS: 1,
   JWT_EXPIRES_IN: '24h',
   INVITE_TTL_DAYS: 7,
   FRONTEND_URL: 'http://localhost:3000',
@@ -150,6 +155,15 @@ export const config = {
   },
   get port(): number {
     return parseInt(readEnv().PORT ?? ENV_DEFAULTS.PORT);
+  },
+  /**
+   * Fastify の trustProxy に渡す段数。0 なら転送ヘッダを信じない。数でない・負の値は既定（1）。
+   * ⚠️ true（全部信じる）にはしない。利用者が X-Forwarded-For を書いてレート制限をすり抜けられるため。
+   */
+  get trustProxyHops(): number {
+    const raw = readEnv().TRUST_PROXY_HOPS;
+    const n = Number(raw);
+    return raw !== undefined && raw.trim() !== '' && Number.isInteger(n) && n >= 0 ? n : ENV_DEFAULTS.TRUST_PROXY_HOPS;
   },
 
   // ── 認証 ──
@@ -301,6 +315,10 @@ export const config = {
   },
   get geminiApiKey(): string | undefined {
     return readEnv().GEMINI_API_KEY;
+  },
+  /** 1 / true / yes（ai-engine の settings.gemini_paid_tier と同じ判定）。無料枠は入力が Google の製品改善に使われる。 */
+  get geminiPaidTier(): boolean {
+    return ['1', 'true', 'yes'].includes(readEnv().GEMINI_PAID_TIER?.trim().toLowerCase() ?? '');
   },
 
   // ── 運用 ──

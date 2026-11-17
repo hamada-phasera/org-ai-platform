@@ -26,6 +26,7 @@ export const TENANT_MODELS = [
   'Capability',
   'CapabilityGap',
   'ExecutionLog',
+  'AuditEvent',
 ] as const;
 
 /**

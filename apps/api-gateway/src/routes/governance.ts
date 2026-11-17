@@ -64,6 +64,46 @@ export async function governanceRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: updated });
   });
 
+  /**
+   * 管理操作の監査記録（新しい順）。管理者以上。
+   * 操作した人の名前は**この組織の所属から**引く（他組織の人の名前を引けない。外された人は名前が出ず id だけ）。
+   */
+  app.get('/audit', { preHandler: requireAdmin }, async (request, reply) => {
+    const { db, orgId } = authOf(request);
+    const query = request.query as { page?: string; limit?: string; action?: string };
+    const page = clampInt(query.page, 1, 1, 10_000);
+    const limit = clampInt(query.limit, 50, 1, 100);
+    const where = { orgId, ...(query.action ? { action: query.action } : {}) };
+
+    const [events, total] = await Promise.all([
+      db.auditEvent.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+      db.auditEvent.count({ where }),
+    ]);
+    const actorIds = [...new Set(events.map((e) => e.actorId).filter((x): x is string => !!x))];
+    const members = actorIds.length
+      ? await db.membership.findMany({
+          where: { orgId, userId: { in: actorIds } },
+          select: { userId: true, user: { select: { name: true } } },
+        })
+      : [];
+    const names = new Map(members.map((m) => [m.userId, m.user.name]));
+
+    return reply.send({
+      success: true,
+      data: events.map((e) => ({
+        id: e.id,
+        action: e.action,
+        actorId: e.actorId,
+        actorName: e.actorId ? (names.get(e.actorId) ?? null) : null,
+        targetType: e.targetType,
+        targetId: e.targetId,
+        meta: e.meta,
+        createdAt: e.createdAt,
+      })),
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    });
+  });
+
   app.get('/stats', { preHandler: requireAdmin }, async (request, reply) => {
     const payload = authOf(request);
     const { db } = payload;
@@ -94,4 +134,11 @@ export async function governanceRoutes(app: FastifyInstance): Promise<void> {
       data: { totalRequests, totalTokens, riskEvents: riskCounts, topDepartments, avgLatencyMs },
     });
   });
+}
+
+/** クエリの整数。数でない・範囲外は既定値か端に寄せる。 */
+function clampInt(raw: string | undefined, fallback: number, min: number, max: number): number {
+  const n = Number.parseInt(raw ?? '', 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
 }

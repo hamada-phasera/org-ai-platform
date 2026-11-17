@@ -11,6 +11,7 @@ import { authTest } from '../services/adapters/slack-client';
 import { revokeGoogleToken } from '../services/google-auth';
 import { syncRequiredCredentialStatus } from '../services/integration-sync';
 import { sendError } from '../utils/http-error';
+import { recordAudit } from '../services/audit';
 
 // xoxb 限定: xoxp（ユーザートークン）の誤貼付を入口で弾く
 const slackSchema = z.object({
@@ -112,6 +113,14 @@ export async function integrationsRoutes(app: FastifyInstance): Promise<void> {
       },
     });
     await syncRequiredCredentialStatus(payload.orgId, 'slack', 'CONNECTED');
+    // ⚠️ トークンは入れない。どのワークスペースに繋いだかだけ
+    await recordAudit(db, {
+      action: 'integration.connect',
+      actorId: payload.sub,
+      targetType: 'provider',
+      targetId: 'slack',
+      meta: { provider: 'slack', account: saved.displayName },
+    });
     return reply.code(201).send({ success: true, data: { ...sanitize(saved), warning } });
   });
 
@@ -135,6 +144,13 @@ export async function integrationsRoutes(app: FastifyInstance): Promise<void> {
     }
     await db.providerConnection.delete({ where: { id: conn.id } });
     await syncRequiredCredentialStatus(payload.orgId, provider as 'slack' | 'google', 'DISCONNECTED');
+    await recordAudit(db, {
+      action: 'integration.disconnect',
+      actorId: payload.sub,
+      targetType: 'provider',
+      targetId: provider,
+      meta: { provider, account: conn.displayName },
+    });
     return reply.send({ success: true, data: { provider } });
   });
 }

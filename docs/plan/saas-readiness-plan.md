@@ -407,6 +407,12 @@
 | チャンク 6 の 16px | 認証 4 画面だけでなく `Input` 部品に `max-lg:text-base` を内蔵（PC の見た目は不変）。スマホで使う素の入力欄（TOP の指示、チャットの入力）にも付けた |
 | チャンク 6 のアイコン | 仮アイコンは `apps/web/scripts/generate-icons.mjs`（依存ゼロ、#635bff に白の F）で生成してコミット。O-8 で同名・同寸法のファイルに差し替えるだけ。manifest は Vercel・nginx とも `application/manifest+json` で毎回再検証、`/icons/` は 1 日キャッシュ |
 | チャンク 6 の検査の置き場所 | 検査本体は `apps/web/scripts/check-pwa.mjs`（manifest の JSON・必須項目・アイコンの PNG 実寸・index.html のリンクと参照先・viewport-fit）。web の `build` の最後に `dist` に対して回し、ルートの `npm test`（`test:scripts`）でソースと新しい `dist` に対して回す |
+| チャンク 7 の trustProxy | `true`（全段を信じる）にせず段数 `TRUST_PROXY_HOPS`（既定 1 = Render の LB）。利用者が `X-Forwarded-For` の先頭を書いてもすり抜けられないことをテストで固定。全員 429 になったら段数のずれを疑う（`docs/security.md`） |
+| チャンク 7 の 429 の本文 | `@fastify/rate-limit` の仕組み上 `statusCode: 429` が本文に 1 つ余分に付く。`success` と `error.code` は統一フォーマットのまま。制限の除外は 1 か所（`isRateLimitExempt`）に置き、ルートに `rateLimit: false` は書かない |
+| チャンク 7 のメールの既存行 | 移行で小文字にするが、小文字にすると別の行と衝突する行は触らない（migrate を失敗させてデプロイを止めないため）。件数を数える SQL は `docs/security.md` |
+| チャンク 7 の監査の書き方 | 組織の作成と招待の受諾は同じトランザクションで書く。それ以外は操作の後に書き、失敗しても操作は成功させる（記録の不調で契約・招待を止めない）。meta は秘密らしいキー名の値を落とす |
+| チャンク 7 の監査の範囲 | 計画の項目に加え、招待の取り消し・招待の受諾（`member.join`）・LINE の接続と切断も記録する。プラン変更は Stripe を実際に更新したときだけ（同じ price なら記録しない） |
+| チャンク 7 のセットアップ状況 | `INTERNAL_API_TOKEN` 未設定は ai-engine に届かなくても「要対応」（以前は「確認できず」で隠れていた。既存テストを意図の変更として書き換えた）。`GEMINI_PAID_TIER` は gateway にも同じ値を入れる前提で「要対応」を出す（render.yaml は既に両方にある） |
 
 > オーケストレーター追記（チャンク 3 で対応）: 「決済設定済み」の判定は `STRIPE_SECRET_KEY` だけでなく、梅の月額価格 ID（`STRIPE_PRICE_STARTER_MONTHLY`）もあるときに限る。キーだけ入れて価格が無いと、期限切れ組織が閲覧のみになり契約もできない詰みになるため。
 

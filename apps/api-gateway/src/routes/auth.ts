@@ -16,10 +16,14 @@ import { seedDefaultCapabilities } from '../services/organizations';
 import { tenantDbFrom } from '../tenancy/tenant-db';
 import { appTrialEndFrom } from '../services/entitlement';
 import { config } from '../config/env';
+import { emailSchema } from '../utils/email';
+import { AUTH_RATE_LIMIT } from '../middleware/rate-limit';
+import { recordAuditInTx } from '../services/audit';
 
+// メールは前後の空白を除いて小文字にしてから扱う（A@X.jp と a@x.jp を同じ人にする）
 const registerSchema = z.object({
   name: z.string().min(1),
-  email: z.string().email(),
+  email: emailSchema,
   password: z.string().min(8),
   orgName: z.string().min(1),
 });
@@ -27,12 +31,13 @@ const registerSchema = z.object({
 const switchOrgSchema = z.object({ orgId: z.string().min(1).max(100) });
 
 const loginSchema = z.object({
-  email: z.string().email(),
+  email: emailSchema,
   password: z.string().min(1),
 });
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
-  app.post('/register', async (request, reply) => {
+  // ⚠️ 登録とログインは IP ごとに絞る（総当たり・大量登録の対策。middleware/rate-limit.ts）
+  app.post('/register', { config: { rateLimit: AUTH_RATE_LIMIT } }, async (request, reply) => {
     const result = registerSchema.safeParse(request.body);
     if (!result.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);
@@ -64,7 +69,15 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       await tx.membership.create({ data: { userId: user.id, orgId: org.id, role: 'OWNER' } });
       await tx.organization.update({ where: { id: org.id }, data: { createdBy: user.id } });
       // 新しい組織に既定のノードを入れる（以前は seed スクリプトを手で流すまで空だった。E8）
-      await seedDefaultCapabilities(tenantDbFrom(tx, org.id));
+      const db = tenantDbFrom(tx, org.id);
+      await seedDefaultCapabilities(db);
+      await recordAuditInTx(db, {
+        action: 'org.create',
+        actorId: user.id,
+        targetType: 'organization',
+        targetId: org.id,
+        meta: { name: orgName, via: 'register' },
+      });
       return { org, user };
     });
 
@@ -79,7 +92,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  app.post('/login', async (request, reply) => {
+  app.post('/login', { config: { rateLimit: AUTH_RATE_LIMIT } }, async (request, reply) => {
     const result = loginSchema.safeParse(request.body);
     if (!result.success) {
       return sendError(reply, 400, 'VALIDATION_ERROR', result.error.message);

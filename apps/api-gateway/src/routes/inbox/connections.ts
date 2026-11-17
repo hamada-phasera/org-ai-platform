@@ -11,6 +11,7 @@ import { getBotInfo } from '../../services/inbox/line-client';
 import { getChannelAdapter } from '../../services/inbox/adapter';
 import { config } from '../../config/env';
 import { sendError } from '../../utils/http-error';
+import { recordAudit } from '../../services/audit';
 
 const createSchema = z.object({
   channelSecret: z.string().min(1).max(200),
@@ -82,6 +83,13 @@ export async function inboxConnectionsRoutes(app: FastifyInstance): Promise<void
           accessTokenEnc: sealSecret(accessToken),
         },
       });
+      await recordAudit(db, {
+        action: 'integration.connect',
+        actorId: payload.sub,
+        targetType: 'channel',
+        targetId: created.id,
+        meta: { provider: 'line', account: created.displayName },
+      });
       return reply.code(201).send({ success: true, data: sanitizeConnection(created) });
     } catch (e) {
       if ((e as { code?: string }).code === 'P2002') {
@@ -143,6 +151,13 @@ export async function inboxConnectionsRoutes(app: FastifyInstance): Promise<void
       return sendError(reply, 404, 'NOT_FOUND', '接続が見つかりません');
     }
     await db.channelConnection.delete({ where: { id } });
+    await recordAudit(db, {
+      action: 'integration.disconnect',
+      actorId: payload.sub,
+      targetType: 'channel',
+      targetId: id,
+      meta: { provider: conn.provider, account: conn.displayName },
+    });
     return reply.send({ success: true, data: { id } });
   });
 }

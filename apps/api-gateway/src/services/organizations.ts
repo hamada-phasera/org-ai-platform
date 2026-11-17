@@ -7,6 +7,7 @@ import { DEFAULT_CAPABILITIES } from './default-capabilities';
 import { invalidateMembership } from '../tenancy/membership-cache';
 import { appTrialEndFrom } from './entitlement';
 import { config } from '../config/env';
+import { recordAuditInTx } from './audit';
 
 /**
  * 1ユーザーが作成できる組織の数（設計書 Q10 仮採用: 10）。招待での所属は数えない。
@@ -62,7 +63,15 @@ export async function createOrganizationFor(
       data: { name, plan: 'STARTER', createdBy: userId, trialEndsAt },
     });
     await tx.membership.create({ data: { userId, orgId: org.id, role: 'OWNER' } });
-    await seedDefaultCapabilities(tenantDbFrom(tx, org.id));
+    const db = tenantDbFrom(tx, org.id);
+    await seedDefaultCapabilities(db);
+    await recordAuditInTx(db, {
+      action: 'org.create',
+      actorId: userId,
+      targetType: 'organization',
+      targetId: org.id,
+      meta: { name },
+    });
     await tx.user.update({ where: { id: userId }, data: { orgId: org.id, role: 'OWNER' } });
     return org;
   });

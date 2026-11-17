@@ -103,6 +103,8 @@ function orgData(X: 'A' | 'B') {
       resolved: false, createdAt: now }],
     aILog: [{ id: `ailog-${X}`, orgId: org, department: 'GENERAL', provider: 'x', model: 'm', inputText: `prompt-${X}`,
       outputText: null, tokens: 1, latencyMs: 1, riskScore: 0, createdAt: now }],
+    auditEvent: [{ id: `audit-${X}`, orgId: org, actorId: `u-${X.toLowerCase()}`, action: 'member.role_change',
+      targetType: 'user', targetId: `u-${X.toLowerCase()}`, meta: { role: 'ADMIN', note: `audit-meta-${X}` }, createdAt: now }],
     uploadedFile: [{ id: `file-${X}`, orgId: org, uploadedBy: 'x', originalName: `f${X}.txt`, storagePath: `${org}/f`,
       storageDriver: 'local', mimeType: 'text/plain', sizeBytes: 10, createdAt: now }],
   };
@@ -251,6 +253,7 @@ const LIST_CASES: string[] = [
   '/api/governance/risks',
   '/api/governance/logs',
   '/api/governance/stats',
+  '/api/governance/audit',
   '/api/sns/posts/queue',
   '/api/sns/posts/calendar',
   '/api/organizations/me',
@@ -260,7 +263,7 @@ const LIST_CASES: string[] = [
 const B_MARKERS = [
   'org-B', 'task-B', 'sns-B', 'agent-B', 'project-B', 'vendor-B', 'cost-B', 'deal-B', 'cap-B', 'cap_B', 'gap-B', 'exec-B',
   'st-B', 'session-B', 'secret-B', 'conn-B', 'inbound-B', 'hello-B', 'pc-B', 'WSB', 'inv-B', 'invB@', 'risk-B',
-  'prompt-B', 'file-B', 'AgentB', '工事B', '業者B', '商談B', 'B社', 'u-b', 'b@example.com',
+  'prompt-B', 'file-B', 'audit-B', 'audit-meta-B', 'AgentB', '工事B', '業者B', '商談B', 'B社', 'u-b', 'b@example.com',
 ];
 
 describe('I-1: 他組織のリソースを id 指定しても 404（存在を漏らさない）、書き込みは0件', () => {
