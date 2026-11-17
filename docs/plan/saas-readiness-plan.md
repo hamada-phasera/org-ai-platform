@@ -424,6 +424,9 @@
 | チャンク 9 の npm test との関係 | 統合テストは `npm run test:int`（gateway の `vitest.integration.config.mts`）だけで回す。`vitest.config.mts` で `tests/integration/**` を除外し、`TEST_DATABASE_URL` が手元にあっても `npm test` は DB に触らない。CI の integration ジョブは `REQUIRE_TEST_DATABASE=1` で「全部スキップで緑」を失敗にする。設定ファイルは CommonJS のパッケージなので `.mts` |
 | チャンク 9 の容量上限の再現 | 1GB を実際に送らず、1 件目は実アップロード（カウンタが行と同じトランザクションで増えることを確認）→ カウンタを上限の 1MB 手前に進めて 2MB を拒否 → 竹で同じ 2MB が入る。分離は B のファイルの GET / DELETE が 404 と一覧で確かめる。通しの app は `index.ts`（起動してしまう）ではなく必要なルートだけを本物で組む |
 | チャンク 9 で見つけたずれ | `UploadedFile_orgId_idx`（20260913 のマイグレーション）が schema.prisma に無く、`migrate dev` すると DROP が生成される状態だった。schema に `@@index([orgId])` を足した（DB は変わらない＝マイグレーション不要）。pgvector の HNSW 索引 2 つは Prisma で書けないので、ずれ検査で許す表に理由付きで置いた |
+| チャンク 10 の受け渡し方 | 公開関数の引数は原則変えず（orgId を受けて内部で `tenantDb(orgId)`）、呼び出し側の変更を最小にした。`generateInboxDraft` だけは `TenantDb` を受ける（ルートが `authOf(request).db` をそのまま渡せ、LINE 取り込みは接続の組織のクライアントを渡す）。step-runner は内部で 1 本の `db` を引き回す |
+| チャンク 10 で残した素の prisma | `step-runner` は取り残しの回収（組織をまたぐ）と、orgId 無しで呼ばれた `resumeAgentTask` の Task の逆引きだけ（承認 API は orgId を渡すので本番経路では使わない。既存テストが orgId 無しで呼ぶため経路は残した）。`schedule-dispatcher` は claim と候補スキャンだけで、発火失敗の FAILED 記録は tenantDb に移した |
+| チャンク 10 の既存テストの書き換え | `line-inbox.test.ts` の 2 か所: `generateInboxDraft` の呼び出しに第 1 引数（接続の組織のクライアント）が付いた／`channelConnection.update` の where に orgId が入った。どちらも意図は同じで、組織で絞ったことをより強く確かめる形 |
 
 > オーケストレーター追記（チャンク 3 で対応）: 「決済設定済み」の判定は `STRIPE_SECRET_KEY` だけでなく、梅の月額価格 ID（`STRIPE_PRICE_STARTER_MONTHLY`）もあるときに限る。キーだけ入れて価格が無いと、期限切れ組織が閲覧のみになり契約もできない詰みになるため。
 

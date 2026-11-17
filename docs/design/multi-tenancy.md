@@ -854,6 +854,15 @@ async function switchOrg(orgId: string) {
 `inbox/*` などは素の prisma のまま（受け取った orgId を where/data に書いている）で、アーキテクチャテストの allowlist に
 理由付きで載せてある（**Phase 1.5 で tenantDb へ移す**）。
 
+**Phase 1.5（2026-11、SaaS 化計画のチャンク 10）で上の残りを tenantDb に移した**。`task-executor` / `capability-resolver` /
+`capability-executor` / `adapters/index` / `google-auth` / `integration-sync` / `rag` / `inbox/{line-inbox,draft-generator,receipt-capture}`
+の 10 ファイルは素の prisma を import しない（allowlist から削除）。公開関数の引数は原則そのまま（orgId を受けて内部で
+`tenantDb(orgId)`）で、`generateInboxDraft` だけはルートの `authOf(request).db` を渡せるよう `TenantDb` を受ける。
+素の prisma が残るのは組織が決まる前の処理だけ: `step-runner`（取り残しの回収と、orgId 無しで呼ばれた再開の逆引き）、
+`schedule-dispatcher`（claim と候補スキャン。失敗の記録は tenantDb）ほか、§11.2 の allowlist どおり。
+子モデル（TaskLog・RequiredCredential）はクライアントが書き換えないので、親を同じクライアントで引いてから触る（I2）のは従来どおり。
+services 経由の組織分離は `tests/tenancy/tenant-isolation.test.ts` の S-1〜S-3（エージェント実行・RAG・LINE 受信）で確かめる。
+
 **本番に出した後**: `ORG_HEADER_MODE=warn` のままで、ai-engine のログに「ヘッダ無し」が0件になったのを確認 → `enforce` に切り替える（環境変数だけで済む）。
 
 ---
