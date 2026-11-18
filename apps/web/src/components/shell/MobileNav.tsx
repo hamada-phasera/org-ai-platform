@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Menu, Monitor, X } from 'lucide-react';
-import { DESKTOP_MENU, MOBILE_MENU, MOBILE_TABS } from './navConfig';
+import { DESKTOP_MENU, MOBILE_MENU, MOBILE_TABS, showInMobileMenu } from './navConfig';
+import { usePagesList } from '../pages/pagesApi';
 import type { NavItem } from './navConfig';
 import { useMotion } from '../motion/springs';
 import { useQuery } from '@tanstack/react-query';
@@ -40,6 +41,9 @@ export function MobileNav() {
     staleTime: 5 * 60_000,
     enabled: menuOpen,
   });
+  // サイドバーと同じキー。業務ページが 0 件の組織にはメニューの「業務」を出さない
+  const { data: customPages } = usePagesList();
+  const hasCustomPages = (customPages?.length ?? 0) > 0;
 
   return (
     <>
@@ -76,7 +80,7 @@ export function MobileNav() {
               スマホで使える
             </p>
             <ul className="border-y border-border bg-elevated">
-              {MOBILE_MENU.map((item) => (
+              {MOBILE_MENU.map((item) => !showInMobileMenu(item, hasCustomPages) ? null : (
                 <li key={item.to} className="border-b border-hairline last:border-b-0">
                   <button
                     type="button"

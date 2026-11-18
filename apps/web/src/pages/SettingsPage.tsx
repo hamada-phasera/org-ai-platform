@@ -13,7 +13,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import type { User, UploadedFile, Plan, OrganizationUsage, PlanTier } from '@org-ai/shared-types';
-import { PLAN_LIMITS, formatBytes } from '@org-ai/shared-types';
+import { PLAN_LIMITS, formatBytes, hasRoleAtLeast } from '@org-ai/shared-types';
 import {
   Card,
   Surface,
@@ -28,6 +28,7 @@ import { LiquidTabs } from '../components/motion/LiquidTabs';
 import { MembersSection } from '../components/Settings/MembersSection';
 import { BillingSection } from '../components/Settings/BillingSection';
 import { SetupStatusCard } from '../components/Settings/SetupStatusCard';
+import { PagesSection } from '../components/Settings/PagesSection';
 
 interface OrganizationView {
   id: string;
@@ -45,12 +46,13 @@ const PLAN_BADGE: Record<Plan, { label: string; className: string }> = {
   MAX: { label: 'Max', className: 'bg-warning/10 border border-warning/30 text-warning' },
 };
 
-type SettingsView = 'general' | 'members' | 'integrations' | 'billing';
+type SettingsView = 'general' | 'members' | 'integrations' | 'billing' | 'pages';
 
 function viewFromSearch(search: string): SettingsView | null {
   const tab = new URLSearchParams(search).get('tab');
   // OAuth コールバックは ?tab=integrations、Stripe の Checkout・ポータルは ?tab=billing で戻ってくる
-  return tab === 'integrations' || tab === 'members' || tab === 'billing' ? tab : null;
+  // ?tab=pages（業務ページ）は管理者以上だけ。メンバーは基本に戻す（下の effectiveView）
+  return tab === 'integrations' || tab === 'members' || tab === 'billing' || tab === 'pages' ? tab : null;
 }
 
 export default function SettingsPage() {
@@ -135,6 +137,9 @@ export default function SettingsPage() {
   };
 
   const user = me ?? storedUser;
+  // 業務ページのタブは管理者以上（サーバも requireAdmin）。メンバーにはタブを出さない
+  const canManagePages = hasRoleAtLeast(storedUser?.role, 'ADMIN');
+  const effectiveView: SettingsView = view === 'pages' && !canManagePages ? 'general' : view;
   const planKey: Plan = organization?.plan ?? 'STARTER';
   const plan = PLAN_BADGE[planKey];
   const modelLabel = PLAN_LIMITS[planKey].modelLabel;
@@ -162,17 +167,20 @@ export default function SettingsPage() {
             { value: 'members', label: 'メンバー' },
             { value: 'integrations', label: '連携' },
             { value: 'billing', label: 'プラン' },
+            ...(canManagePages ? [{ value: 'pages' as const, label: '業務' }] : []),
           ]}
-          value={view}
+          value={effectiveView}
           onChange={setView}
         />
       </div>
 
-      {view === 'billing' ? (
+      {effectiveView === 'pages' ? (
+        <PagesSection />
+      ) : effectiveView === 'billing' ? (
         <BillingSection />
-      ) : view === 'members' ? (
+      ) : effectiveView === 'members' ? (
         <MembersSection />
-      ) : view === 'integrations' ? (
+      ) : effectiveView === 'integrations' ? (
         <IntegrationsSection />
       ) : (
         <>

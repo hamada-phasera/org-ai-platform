@@ -19,6 +19,7 @@ const ENV_KEYS = [
   'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_TAX_RATE_ID', 'STRIPE_PRICE_STORAGE_ADDON',
   'STRIPE_PRICE_STARTER_MONTHLY', 'STRIPE_PRICE_STARTER_YEARLY', 'STRIPE_PRICE_PRO_MONTHLY',
   'STRIPE_PRICE_PRO_YEARLY', 'STRIPE_PRICE_MAX_MONTHLY', 'STRIPE_PRICE_MAX_YEARLY',
+  'N8N_CLOUD_URL', 'N8N_URL', 'N8N_WEBHOOK_AUTH_TOKEN',
 ];
 
 const fetchMock = vi.fn();
@@ -167,6 +168,61 @@ describe('ファイル検索', () => {
   it('GEMINI_API_KEY でも有効になる', async () => {
     process.env.GEMINI_API_KEY = 'unit-test-key';
     expect(item(await collectSetupStatus(), 'embeddings').health).toBe('ok');
+  });
+});
+
+describe('業務ページの接続', () => {
+  const N8N_TOKEN = ['n8n', 'unit', 'token'].join('-');
+  const configure = () => {
+    process.env.N8N_CLOUD_URL = 'https://n8n.example.test/';
+    process.env.N8N_WEBHOOK_AUTH_TOKEN = N8N_TOKEN;
+  };
+  const healthCalls = () => fetchMock.mock.calls.filter(([url]) => String(url).includes('/healthz'));
+
+  it('n8n が未設定なら warn で、n8n には何も投げない', async () => {
+    const s = item(await collectSetupStatus(), 'pages');
+    expect(s.health).toBe('warn');
+    expect(s.detail).toContain('未接続');
+    expect(s.action).toContain('N8N_CLOUD_URL');
+    expect(healthCalls()).toHaveLength(0);
+  });
+
+  it('共有トークンが既定値のままなら要対応（接続は確かめない）', async () => {
+    process.env.N8N_CLOUD_URL = 'https://n8n.example.test';
+    const s = item(await collectSetupStatus(), 'pages');
+    expect(s.health).toBe('error');
+    expect(s.action).toContain('N8N_WEBHOOK_AUTH_TOKEN');
+    expect(healthCalls()).toHaveLength(0);
+  });
+
+  it('/healthz を GET 1 回だけ叩き（Webhook は叩かない・リダイレクトを追わない）、通れば ok', async () => {
+    configure();
+    fetchMock.mockImplementation(async (url: string) =>
+      new Response('{}', { status: String(url).includes('/healthz') ? 200 : 422 }),
+    );
+    const s = item(await collectSetupStatus(), 'pages');
+    expect(s.health).toBe('ok');
+    const calls = healthCalls();
+    expect(calls).toHaveLength(1);
+    expect(String(calls[0][0])).toBe('https://n8n.example.test/healthz');
+    expect(calls[0][1]).toMatchObject({ method: 'GET', redirect: 'error' });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/webhook/'))).toBe(false);
+  });
+
+  it.each([
+    ['非 2xx', () => fetchMock.mockImplementation(async () => new Response('', { status: 503 }))],
+    ['接続できない', () => fetchMock.mockRejectedValue(new Error('ECONNREFUSED'))],
+  ])('%s なら「確認できず」', async (_name, arrange) => {
+    configure();
+    arrange();
+    expect(item(await collectSetupStatus(), 'pages').health).toBe('unknown');
+  });
+
+  it('⚠️ n8n の URL もトークンも応答に出さない', async () => {
+    configure();
+    const body = JSON.stringify(await collectSetupStatus());
+    expect(body).not.toContain('n8n.example.test');
+    expect(body).not.toContain(N8N_TOKEN);
   });
 });
 

@@ -4,6 +4,7 @@ import {
   FileText,
   Home,
   Inbox,
+  LayoutGrid,
   ListChecks,
   MessageCircle,
   Settings,
@@ -61,6 +62,13 @@ export const WORK_PAGES: WorkPage[] = [
   { to: '/accounting', label: '工事別 原価管理', colorVar: 'var(--dept-accounting)', mobile: 'exact' },
 ];
 
+/**
+ * 組織ごとの業務ページ（docs/design/custom-pages.md §7.1）の入口。`/p` が一覧、`/p/:slug` が各ページ。
+ * サイドバーはこの行ではなく組織のページを 1 つずつ並べる。スマホはメニューに「業務」1 行だけ
+ * （下部タブは増やさない。K14）。ページが 0 件の組織ではメニューにも出さない（`mobileMenuFor`）。
+ */
+export const CUSTOM_PAGES_ENTRY: NavEntry = { to: '/p', label: '業務', icon: LayoutGrid, mobile: 'prefix' };
+
 export const ADMIN_NAV: NavEntry[] = [
   { to: '/governance', label: 'ガバナンス', icon: Shield, mobile: false },
   { to: '/settings', label: '設定', icon: Settings, mobile: 'exact' },
@@ -75,13 +83,18 @@ export const ADMIN_NAV: NavEntry[] = [
  */
 export type NavItem = NavEntry | WorkPage;
 
-export const NAV_ROUTES: readonly NavItem[] = [...MAIN_NAV, ...WORK_PAGES, ...ADMIN_NAV];
+export const NAV_ROUTES: readonly NavItem[] = [...MAIN_NAV, ...WORK_PAGES, CUSTOM_PAGES_ENTRY, ...ADMIN_NAV];
 
 /** スマホの下部タブ（メニューを除く 4 つ） */
 export const MOBILE_TABS: readonly NavEntry[] = MAIN_NAV.filter((e) => e.tab);
 
 /** メニューの「スマホで使える」 */
 export const MOBILE_MENU: readonly NavItem[] = NAV_ROUTES.filter((e) => e.mobile !== false);
+
+/** メニューの「スマホで使える」の行を出すか（業務ページが 0 件の組織には「業務」の行を出さない） */
+export function showInMobileMenu(item: NavItem, hasCustomPages: boolean): boolean {
+  return item !== CUSTOM_PAGES_ENTRY || hasCustomPages;
+}
 
 /** メニューの「パソコン向け」 */
 export const DESKTOP_MENU: readonly NavItem[] = NAV_ROUTES.filter((e) => e.mobile === false);

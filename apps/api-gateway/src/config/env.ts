@@ -238,7 +238,8 @@ export const config = {
   /** N8N_CLOUD_URL → N8N_URL → localhost の順（末尾スラッシュはそのまま）。 */
   get n8nUrl(): string {
     const env = readEnv();
-    return env.N8N_CLOUD_URL ?? env.N8N_URL ?? ENV_DEFAULTS.N8N_URL;
+    // 空文字（render に空のまま残った等）は未設定として飛ばす。n8nConfigured と同じ見方にそろえる（レビュー L6）
+    return env.N8N_CLOUD_URL?.trim() || env.N8N_URL?.trim() || ENV_DEFAULTS.N8N_URL;
   },
   /** chat.ts 用。N8N_URL は見ず、既定は n8n cloud。 */
   get n8nChatCloudUrl(): string {
@@ -384,14 +385,14 @@ export const config = {
       !!env.STRIPE_WEBHOOK_SECRET?.trim()
     );
   },
-  /**
-   * 登録時トライアルの日数。数でない・1 未満は既定に戻す。
-   * ⚠️ 0 を許すと登録した瞬間から閲覧のみ（初回の指示も保存できない）になるので、下限は 1（saas-review #12）。
-   */
   /** web の公開 URL（末尾の / を除く）。利用者の入力からは作らない */
   get appBaseUrl(): string {
     return (readEnv().APP_BASE_URL?.trim() || ENV_DEFAULTS.APP_BASE_URL).replace(/\/+$/, '');
   },
+  /**
+   * 登録時トライアルの日数。数でない・1 未満は既定に戻す。
+   * ⚠️ 0 を許すと登録した瞬間から閲覧のみ（初回の指示も保存できない）になるので、下限は 1（saas-review #12）。
+   */
   get billingTrialDays(): number {
     const raw = readEnv().BILLING_TRIAL_DAYS;
     const n = Number(raw ?? ENV_DEFAULTS.BILLING_TRIAL_DAYS);

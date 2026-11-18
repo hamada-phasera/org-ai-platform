@@ -2,13 +2,13 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { PAGE_SLUG_PATTERN, pageUpsertSchema } from '@org-ai/shared-types';
 import { runAsTenant, tenantDb, type TenantDb } from '../tenancy';
 import { config } from '../config/env';
-import { sendError } from '../utils/http-error';
+import { sendBodyTooLargeAsError, sendError } from '../utils/http-error';
 import { createLogger, errorMessage } from '../utils/logger';
 import { PAGE_REGISTER_RATE_LIMIT } from '../middleware/rate-limit';
 import { orgEntitlement } from '../services/org-entitlement';
 import { readOnlyMessageOf } from '../services/entitlement';
 import { planOf } from '../services/pages/access';
-import { PageServiceError, deletePage, describeIssues, upsertPage } from '../services/pages/upsert';
+import { PAGE_REGISTER_BODY_LIMIT, PageServiceError, deletePage, describeIssues, upsertPage } from '../services/pages/upsert';
 import { resolvePageToken, touchPageToken, type ResolvedPageToken } from '../services/pages/page-token';
 
 /**
@@ -67,6 +67,9 @@ async function withPageToken(
 }
 
 export async function n8nPageRoutes(app: FastifyInstance): Promise<void> {
+  // bodyLimit 超過を統一フォーマットの 413 で返す（構築者が n8n の実行結果で理由を読めるように。このプラグインの中だけ）
+  sendBodyTooLargeAsError(app, `登録する本文が大きすぎます（${PAGE_REGISTER_BODY_LIMIT / 1024}KB まで）。`);
+
   const routeConfig = { config: { rateLimit: PAGE_REGISTER_RATE_LIMIT } };
 
   /** その組織の n8n 製のページ一覧（n8n 側の差分確認用） */
@@ -82,7 +85,7 @@ export async function n8nPageRoutes(app: FastifyInstance): Promise<void> {
   );
 
   /** upsert（slug 単位で冪等。2 回目以降は changed: false） */
-  app.put('/:slug', { ...routeConfig, bodyLimit: 64 * 1024 }, async (request, reply) =>
+  app.put('/:slug', { ...routeConfig, bodyLimit: PAGE_REGISTER_BODY_LIMIT }, async (request, reply) =>
     withPageToken(request, reply, { write: true }, async (db, token) => {
       const slug = slugOf(request.params);
       if (!slug) return sendError(reply, 400, 'VALIDATION_ERROR', 'slug: 英小文字・数字・ハイフン（1〜40 文字）');

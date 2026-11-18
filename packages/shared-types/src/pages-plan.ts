@@ -49,13 +49,13 @@ export type PageSource = (typeof PAGE_SOURCES)[number];
 export const PAGE_MIN_ROLES: readonly UserRole[] = ['MEMBER', 'ADMIN', 'OWNER'];
 
 /** ページの送信の記録（PageActionLog.status） */
-export const PAGE_ACTION_LOG_STATUSES = ['OK', 'FAILED', 'TIMEOUT', 'INVALID_RESPONSE'] as const;
+export const PAGE_ACTION_LOG_STATUSES = ['PENDING', 'OK', 'FAILED', 'TIMEOUT', 'INVALID_RESPONSE'] as const;
 export type PageActionLogStatus = (typeof PAGE_ACTION_LOG_STATUSES)[number];
 
 /**
  * プランごとの業務ページの上限（設計書 §6）。金額は持たない。
  * - maxPages: 組織が持てるページ数。超えたら**新規作成だけ**断る（既存の更新・表示は通す。降格しても消さない）
- * - actionsPerMonth: 当月（JST の月初から）の送信（submit）の回数。超えたら**送信だけ**止める（表示は止めない）
+ * - actionsPerMonth: 当月（UTC の暦月＝日本時間では毎月 1 日 9:00 から。K27）の送信（submit）の回数。超えたら**送信だけ**止める（表示は止めない）
  *
  * ⚠️ AI の月間上限と違い、超えたら止める。n8n の実行には原価があり「軽いモデルへ落とす」逃げ道が無い（設計書 K7）。
  * トライアル中は梅（STARTER）の値。

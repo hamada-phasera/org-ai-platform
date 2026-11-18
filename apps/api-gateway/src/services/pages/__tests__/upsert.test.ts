@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { Prisma } from '@prisma/client';
 import { FakePrisma } from '../../../../tests/helpers/fake-prisma';
 import { orgRow, sampleUpsert } from '../../../../tests/pages/fixtures';
 
@@ -36,6 +37,31 @@ function withCustomPage(fake: FakePrisma, override: (real: Record<string, Fn>) =
 }
 
 describe('upsertPage', () => {
+  it('seed のページを管理者が手で上書きすると MANUAL になり、サンプルの応答（sampleData）は捨てる（L8）', async () => {
+    const { pageRow } = await import('../../../../tests/pages/fixtures');
+    const fake = new FakePrisma({
+      organization: [orgRow('org-A')],
+      customPage: [pageRow({ id: 'p-seed', orgId: 'org-A', slug: 'inquiries', source: 'SEED', sampleData: { list: { open: 1 } } })],
+      auditEvent: [],
+    });
+    const db = tenantDbFrom(fake, 'org-A');
+    await upsertPage(db, { slug: 'inquiries', input: input(), source: 'MANUAL', plan: 'PRO', actorId: 'u-admin' });
+    const row = fake.rows('customPage')[0]!;
+    expect(row.source).toBe('MANUAL');
+    expect(row.sampleData).toBe(Prisma.DbNull);
+  });
+
+  it('n8n の行の更新では sampleData に触れない', async () => {
+    const { pageRow } = await import('../../../../tests/pages/fixtures');
+    const fake = new FakePrisma({
+      organization: [orgRow('org-A')],
+      customPage: [pageRow({ id: 'p-n8n', orgId: 'org-A', slug: 'orders', source: 'N8N', sampleData: null })],
+      auditEvent: [],
+    });
+    await upsertPage(tenantDbFrom(fake, 'org-A'), { slug: 'orders', input: input(), source: 'N8N', plan: 'PRO', actorId: null });
+    expect(fake.rows('customPage')[0]!.sampleData).toBeNull();
+  });
+
   it('同じ slug の同時作成（P2002）は、先に入った行への更新としてやり直す', async () => {
     const fake = new FakePrisma({ organization: [orgRow('org-A')], customPage: [], auditEvent: [] });
     let raced = false;

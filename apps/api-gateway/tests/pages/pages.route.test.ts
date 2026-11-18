@@ -385,6 +385,23 @@ describe('登録トークン（/api/pages/tokens）', () => {
     expect((await app.inject({ method: 'POST', url: '/api/pages/tokens', headers: OWNER(), payload: { label: '三' } })).statusCode).toBe(201);
   });
 
+  it('同時の発行で数えた後に枠が埋まっても、3 本目は消して 409（二度押し。L3）', async () => {
+    for (const label of ['一', '二']) {
+      expect((await app.inject({ method: 'POST', url: '/api/pages/tokens', headers: OWNER(), payload: { label } })).statusCode).toBe(201);
+    }
+    // 「数えた時点ではまだ 1 本だった」状態を作る（count だけ古い値を返す）
+    const target = fake as unknown as { delegate: (m: string) => Record<string, (a?: unknown) => Promise<unknown>> };
+    const original = target.delegate.bind(fake);
+    target.delegate = (model: string) => (model === 'pageToken' ? { ...original(model), count: async () => 1 } : original(model));
+    const third = await app.inject({ method: 'POST', url: '/api/pages/tokens', headers: OWNER(), payload: { label: '三' } });
+    expect(third.statusCode).toBe(409);
+    expect(third.json().error.code).toBe('PAGE_TOKEN_LIMIT');
+    expect(third.body).not.toContain('flowpg_');
+    expect(fake.rows('pageToken').filter((t) => t.revokedAt === null || t.revokedAt === undefined)).toHaveLength(2);
+    expect(fake.rows('pageToken').map((t) => t.label)).toEqual(['一', '二']);
+    expect(audits('page_token.issue')).toHaveLength(2);
+  });
+
   it('管理者・メンバーは発行も一覧も失効もできない（403）', async () => {
     for (const who of [ADMIN, MEMBER]) {
       expect((await app.inject({ method: 'GET', url: '/api/pages/tokens', headers: who() })).statusCode).toBe(403);

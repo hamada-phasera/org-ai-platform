@@ -225,10 +225,16 @@ describe('PUT /api/webhooks/n8n/pages/:slug', () => {
     expect((await put('tokens', sampleUpsert())).statusCode).toBe(400);
   });
 
-  it('64KB を超える本文は 413', async () => {
+  it('64KB を超える本文は 413 PAYLOAD_TOO_LARGE（統一の形・日本語。Fastify の既定の本文を返さない）', async () => {
     const huge = sampleUpsert({ title: 'x', definition: { ...sampleUpsert().definition, pad: 'x'.repeat(70 * 1024) } });
     const res = await put('orders', huge);
     expect(res.statusCode).toBe(413);
+    expect(res.json()).toEqual({
+      success: false,
+      error: { code: 'PAYLOAD_TOO_LARGE', message: '登録する本文が大きすぎます（64KB まで）。' },
+    });
+    expect(res.body).not.toContain('FST_ERR');
+    expect(pagesOf('org-A')).toHaveLength(2);
   });
 });
 

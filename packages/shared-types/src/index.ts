@@ -336,7 +336,7 @@ export interface OrganizationUsage {
 export type SetupHealth = 'ok' | 'warn' | 'error' | 'unknown';
 
 export interface SetupItem {
-  key: 'storage' | 'aiEngine' | 'billing' | 'embeddings' | 'geminiTier';
+  key: 'storage' | 'aiEngine' | 'billing' | 'embeddings' | 'geminiTier' | 'pages';
   label: string;
   health: SetupHealth;
   detail: string;

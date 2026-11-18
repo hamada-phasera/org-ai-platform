@@ -15,11 +15,11 @@ import {
 import { authOf } from '../tenancy';
 import { requireAdmin, requireAuth, requireOwner } from '../middleware/auth';
 import { config } from '../config/env';
-import { sendError } from '../utils/http-error';
+import { sendBodyTooLargeAsError, sendError } from '../utils/http-error';
 import { createLogger } from '../utils/logger';
 import { recordAudit } from '../services/audit';
 import { canManagePage, canViewPage, pageUsageOf, planOf } from '../services/pages/access';
-import { PageServiceError, deletePage, describeIssues, upsertPage } from '../services/pages/upsert';
+import { ADMIN_EDITABLE_FIELDS, PAGE_REGISTER_BODY_LIMIT, PageServiceError, deletePage, describeIssues, upsertPage } from '../services/pages/upsert';
 import { issuePageToken, listPageTokens, revokePageToken } from '../services/pages/page-token';
 import { PAGE_SUBMIT_BODY_LIMIT, runPageQuery, runPageSubmit, type ActionOutcome } from '../services/pages/action-runner';
 import { isSamplePage } from '../services/pages/sample';
@@ -100,6 +100,9 @@ function byOrder<T extends { sortOrder: number; createdAt: Date }>(rows: T[]): T
 }
 
 export async function pageRoutes(app: FastifyInstance): Promise<void> {
+  // bodyLimit 超過（送信 96KB・手動 upsert 64KB）を統一フォーマットの 413 で返す（このプラグインの中だけ）
+  sendBodyTooLargeAsError(app, '送信する内容が大きすぎます。入力を短くしてください。');
+
   /** ナビ用の一覧。MEMBER には公開済みかつ minRole を満たすものだけ、ADMIN 以上には下書きも */
   app.get('/', { preHandler: requireAuth }, async (request, reply) => {
     const { db, role } = authOf(request);
@@ -236,7 +239,7 @@ export async function pageRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  /** submit を実行。body `{ input, requestId, origin: { blockIndex, itemIndex? } }`（16KB まで。超えたら 413） */
+  /** submit を実行。body `{ input, requestId, origin: { blockIndex, itemIndex? } }`（96KB まで。超えたら 413 PAYLOAD_TOO_LARGE） */
   app.post(
     '/:slug/actions/:actionId',
     { preHandler: requireAuth, bodyLimit: PAGE_SUBMIT_BODY_LIMIT, config: { rateLimit: PAGE_ACTION_RATE_LIMIT } },
@@ -260,15 +263,24 @@ export async function pageRoutes(app: FastifyInstance): Promise<void> {
 
     const page = await db.customPage.findUnique({
       where: { orgId_slug: { orgId: db.orgId, slug } },
-      select: { id: true, status: true, minRole: true, title: true, icon: true, sortOrder: true, version: true },
+      select: {
+        id: true, status: true, minRole: true, title: true, icon: true, sortOrder: true, version: true, adminEditedFields: true,
+      },
     });
     if (!page || !canManagePage(page, role)) return sendError(reply, 404, 'NOT_FOUND', NOT_FOUND_MESSAGE);
 
+    const { adminEditedFields, ...current } = page;
     const changes = Object.fromEntries(
-      Object.entries(parsed.data).filter(([k, v]) => v !== undefined && v !== (page as Record<string, unknown>)[k]),
+      Object.entries(parsed.data).filter(([k, v]) => v !== undefined && v !== (current as Record<string, unknown>)[k]),
     );
     if (Object.keys(changes).length > 0) {
-      await db.customPage.updateMany({ where: { id: page.id }, data: { ...changes, updatedBy: sub } });
+      // タイトル・アイコンを画面で変えたら記録し、n8n の再登録で戻さない（§5.3・K51）
+      const edited = ADMIN_EDITABLE_FIELDS.filter((f) => f in changes || adminEditedFields.includes(f));
+      const editedChanged = edited.length !== adminEditedFields.length;
+      await db.customPage.updateMany({
+        where: { id: page.id },
+        data: { ...changes, ...(editedChanged ? { adminEditedFields: edited } : {}), updatedBy: sub },
+      });
       const meta = { slug, version: page.version, changed: Object.keys(changes) };
       if (changes.status !== undefined) {
         await recordAudit(db, {
@@ -283,7 +295,7 @@ export async function pageRoutes(app: FastifyInstance): Promise<void> {
         await recordAudit(db, { action: 'page.upsert', actorId: sub, targetType: 'custom_page', targetId: page.id, meta });
       }
     }
-    const next = { ...page, ...changes };
+    const next = { ...current, ...changes };
     return reply.send({
       success: true,
       data: {
@@ -300,7 +312,7 @@ export async function pageRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /** 定義の手動 upsert（source = MANUAL。v1 は API だけ。画面は作らない＝設計書 K18） */
-  app.put('/:slug', { preHandler: requireAdmin, bodyLimit: 64 * 1024 }, async (request, reply) => {
+  app.put('/:slug', { preHandler: requireAdmin, bodyLimit: PAGE_REGISTER_BODY_LIMIT }, async (request, reply) => {
     const { db, role, sub } = authOf(request);
     const slug = slugOf(request.params);
     if (!slug) return sendError(reply, 400, 'VALIDATION_ERROR', 'slug は英小文字・数字・ハイフン（1〜40 文字）');

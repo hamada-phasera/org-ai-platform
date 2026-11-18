@@ -58,7 +58,7 @@ export function pageRow(over: Record<string, unknown>): Record<string, unknown> 
   return {
     title: 'ページ', icon: 'file-text', sortOrder: 0, status: 'PUBLISHED', minRole: 'MEMBER', source: 'N8N',
     version: 1, schemaVersion: 1, definition: SAMPLE_DEFINITION, definitionHash: 'h', sampleData: null,
-    createdBy: null, updatedBy: null, createdAt: now, updatedAt: now,
+    adminEditedFields: [], createdBy: null, updatedBy: null, createdAt: now, updatedAt: now,
     ...over,
   };
 }
