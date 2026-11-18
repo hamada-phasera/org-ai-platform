@@ -7,7 +7,7 @@ import { orgRow, sampleUpsert } from '../../../../tests/pages/fixtures';
 
 vi.mock('../../../utils/prisma', () => ({ prisma: {} }));
 const { tenantDbFrom } = await import('../../../tenancy');
-const { upsertPage, definitionHashOf, describeIssues } = await import('../upsert');
+const { upsertPage, deletePage, definitionHashOf, describeIssues } = await import('../upsert');
 const { pageUpsertSchema } = await import('@org-ai/shared-types');
 
 const input = (over: Record<string, unknown> = {}) => pageUpsertSchema.parse(sampleUpsert(over));
@@ -60,6 +60,26 @@ describe('upsertPage', () => {
     });
     await upsertPage(tenantDbFrom(fake, 'org-A'), { slug: 'orders', input: input(), source: 'N8N', plan: 'PRO', actorId: null });
     expect(fake.rows('customPage')[0]!.sampleData).toBeNull();
+  });
+
+  it('フローの結果ページ（source=FLOW）は n8n から更新も削除もできない（409 PAGE_SOURCE_CONFLICT。canvas-home §5.5）', async () => {
+    const { pageRow } = await import('../../../../tests/pages/fixtures');
+    const fake = new FakePrisma({
+      organization: [orgRow('org-A')],
+      customPage: [pageRow({ id: 'p-flow', orgId: 'org-A', slug: 'proposal', source: 'FLOW', flowId: 'flow-1' })],
+      auditEvent: [],
+    });
+    const db = tenantDbFrom(fake, 'org-A');
+    const before = fake.snapshot();
+    await expect(upsertPage(db, { slug: 'proposal', input: input(), source: 'N8N', plan: 'PRO', actorId: null })).rejects.toMatchObject({
+      status: 409,
+      code: 'PAGE_SOURCE_CONFLICT',
+    });
+    await expect(deletePage(db, { slug: 'proposal', source: 'N8N', actorId: null })).rejects.toMatchObject({
+      status: 409,
+      code: 'PAGE_SOURCE_CONFLICT',
+    });
+    expect(fake.snapshot()).toEqual(before);
   });
 
   it('同じ slug の同時作成（P2002）は、先に入った行への更新としてやり直す', async () => {

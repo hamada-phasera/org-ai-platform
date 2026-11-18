@@ -44,7 +44,7 @@ export function isPageIcon(value: unknown): value is PageIcon {
 /** ページの状態・作成元・閲覧に要る役割（DB は String 列。値域はここで縛る。設計書 K17） */
 export const PAGE_STATUSES = ['DRAFT', 'PUBLISHED'] as const;
 export type PageStatus = (typeof PAGE_STATUSES)[number];
-export const PAGE_SOURCES = ['N8N', 'MANUAL', 'SEED'] as const;
+export const PAGE_SOURCES = ['N8N', 'MANUAL', 'SEED', 'FLOW'] as const;
 export type PageSource = (typeof PAGE_SOURCES)[number];
 export const PAGE_MIN_ROLES: readonly UserRole[] = ['MEMBER', 'ADMIN', 'OWNER'];
 

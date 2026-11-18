@@ -2,7 +2,7 @@
 
 > **一行要約**: ホームを「業務のノードが線でつながるキャンバス」に替える。キャンバスもフロー編集も実行も **FLOW 自前**（`@xyflow/react` ＋ gateway 内の軽量ランナー）で作り、n8n は**運営が作った「部品」を呼ぶだけ**の裏方に留める。お客さんが n8n のワークフローを作る・編集する形は n8n のライセンス違反になるため採らない。
 
-- 状態: チャンク 1（shared-types の定義スキーマと上限）・チャンク 2（テンプレート・既定の配置・部品カタログ・`flow_query` `flow_submit`）実装済み。2026-11-18。ブランチ `feat/canvas-home`（`feat/custom-pages` の上に積む）
+- 状態: チャンク 1（shared-types の定義スキーマと上限）・チャンク 2（テンプレート・既定の配置・部品カタログ・`flow_query` `flow_submit`）・チャンク 3（DB: `Canvas` / `Flow` / `FlowVersion` / `FlowRun`・`CustomPage.flowId`・`ScheduledTask.flowId`）実装済み。2026-11-18。ブランチ `feat/canvas-home`（`feat/custom-pages` の上に積む）
 - 前提にした既存の決まり: CLAUDE.md、DESIGN.md、`docs/ARCHITECTURE.md`、`docs/design/multi-tenancy.md`、`docs/design/custom-pages.md`、`docs/n8n-integration-design.md`、`docs/plan/saas-readiness-plan.md`、`docs/billing.md`
 - 変えない原則: **DB が真実の源 / n8n は加速レイヤー / ルートは `authOf(request).db` だけ / エラーは `{ success:false, error:{ code, message } }` / LLM は必ず ai-engine の LLMRouter 経由 / 外部送信は必ず人が通す**
 
@@ -1077,6 +1077,9 @@ DB の大きさの目安（仮定: 1 実行 20KB）: 100 社 × 月 1,000 実行
 | K37 | 業務ページの `flow_query` `flow_submit` は、n8n の `query` `submit` と**同じページに混ぜない**・各 1 つまで・表の行の操作には使えない。読む側（`pageDefinitionSchema`）は通し、登録経路（`pageUpsertSchema` ＝ `pageRegisterDefinitionSchema`）は拒否 | フローの結果ページは n8n を呼ばない、で単純に保てる。行の操作は `{ rowId }` を送るだけで、きっかけの項目と合わない | 混在を許す（結果ページから n8n の hook も叩ける＝チャンク 9 の経路が増える） |
 | K38 | 部品の入力は展開後の文字で届くので、`buildPartInputSchema` は number・checkbox の項目だけ文字から直してから業務ページのフォームと同じ規則で検査する。スプレッドシートの `headers` `rows` は文字（カンマ区切り・1 行 1 件）で受け、ランナーが配列に直す | 式はパス参照だけで配列を作れない（K13）。部品の入力の語彙を業務ページの Field に揃えたまま使える | 部品の入力に配列型を足す |
 | K39 | テンプレートは 4 つとも「フォーム → AI（下書き）→ 確認 → 文書」。外へ送るノードは置かない。見積・請求の文書には `FLOW_TAX_NOTICE`（税務判断はしない）を必ず付ける。`outputPage`（結果ページのひな形）はチャンク 9 で足す | 下書きまでで止めれば承認・送信の経路（チャンク 6）より前に全部動く。税務判断をしない方針（CLAUDE.md）を出力に残す | 請求に送付（メール）まで入れる |
+| K40 | `CustomPage.flowId` と `ScheduledTask.flowId` は `Flow` への **FK（ON DELETE CASCADE）**。`CustomPage.flowId` は `@unique`（NULL は複数可） | フローを消したらページと定期も消える（§5.5）を、アプリの消し忘れがあっても DB で保証。定期を SET NULL にすると flowId も agentId も無い行＝部署ワークフローの定期実行に化ける。「フロー 1 つに 1 ページ」も構造で守る | FK にしない（アプリの同じトランザクションだけに頼る）／SET NULL |
+| K41 | `FlowRun.taskId` は `@unique` だが **FK にしない** | 対の `Task` が消えても実行の記録（監査・月間件数）を残す（K25 と同じ考え方） | `Task` への FK（SET NULL） |
+| K42 | `PAGE_SOURCES` に `'FLOW'` を足す。n8n の登録経路は既存の「N8N 以外の行は 409 `PAGE_SOURCE_CONFLICT`」でそのまま結果ページを守る（テストを足した）。設定画面（MANUAL）の上書きを FLOW に対してどうするかはチャンク 9 で決める | 値域を 1 か所で縛る（K17 の流儀）。n8n 側は追加の分岐なしで止まる | チャンク 9 まで値を足さない |
 
 ## 15. 未確認・実装時に確かめること
 
