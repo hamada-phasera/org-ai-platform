@@ -113,7 +113,8 @@ export async function upsertPage(db: TenantDb, args: UpsertPageArgs, retried = f
   });
 
   if (!existing) {
-    const count = await db.customPage.count();
+    // 同じ slug は数えない。findUnique の後に同じ slug が同時に作られても上限で断らず、create の P2002 → 更新へ回す
+    const count = await db.customPage.count({ where: { slug: { not: slug } } });
     if (!canAddPage(plan, count)) {
       throw new PageServiceError(
         403,

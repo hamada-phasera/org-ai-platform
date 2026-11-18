@@ -58,6 +58,38 @@ describe('upsertPage', () => {
     expect(fake.rows('customPage')).toHaveLength(1);
   });
 
+  it('梅（1 ページまで）で同じ slug を同時に作っても、上限で断らず更新としてやり直す', async () => {
+    const fake = new FakePrisma({ organization: [orgRow('org-A')], customPage: [], auditEvent: [] });
+    const first = tenantDbFrom(fake, 'org-A');
+    let raced = false;
+    // findUnique（無い）→ 別のリクエストが同じ slug を作る → count の順で走らせる
+    const db = tenantDbFrom(
+      withCustomPage(fake, (real) => ({
+        count: async (args) => {
+          if (!raced) {
+            raced = true;
+            await upsertPage(first, { slug: 'orders', input: input(), source: 'N8N', plan: 'STARTER', actorId: null });
+          }
+          return real.count(args);
+        },
+      })),
+      'org-A',
+    );
+    const res = await upsertPage(db, { slug: 'orders', input: input(), source: 'N8N', plan: 'STARTER', actorId: null });
+    expect(raced).toBe(true);
+    expect(res).toMatchObject({ created: false, changed: false, version: 1 });
+    expect(fake.rows('customPage')).toHaveLength(1);
+  });
+
+  it('梅で別の slug の 2 つ目は 403 PAGE_LIMIT_REACHED のまま', async () => {
+    const fake = new FakePrisma({ organization: [orgRow('org-A')], customPage: [], auditEvent: [] });
+    const db = tenantDbFrom(fake, 'org-A');
+    await upsertPage(db, { slug: 'orders', input: input(), source: 'N8N', plan: 'STARTER', actorId: null });
+    await expect(
+      upsertPage(db, { slug: 'other', input: input(), source: 'N8N', plan: 'STARTER', actorId: null }),
+    ).rejects.toMatchObject({ status: 403, code: 'PAGE_LIMIT_REACHED' });
+  });
+
   it('版が先に進んでいたら（同時更新）読み直してやり直す', async () => {
     const fake = new FakePrisma({ organization: [orgRow('org-A')], customPage: [], auditEvent: [] });
     await upsertPage(tenantDbFrom(fake, 'org-A'), { slug: 'orders', input: input(), source: 'N8N', plan: 'PRO', actorId: null });
