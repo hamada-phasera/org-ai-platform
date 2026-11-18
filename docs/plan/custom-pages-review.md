@@ -75,3 +75,26 @@ K22〜K49 に「実装時」として理由付きで残っている差分（月�
 | D5 | 達成 | 上限 403 / 429、ページ上部の帯と設定画面の利用状況 |
 | D6 | ほぼ達成 | 1 列・`lg:hidden` の縦積みで横スクロールを出していない。文中リンクが 44px に届かない（L9）。390px での目視は未実施 |
 | D7 | 一部確認 | lint / typecheck / test / build / check:deploy は手元で通過。`test:int` は未実施 |
+
+## 対応状況（2026-11-18）
+
+高は 0 件。中はすべて直した。低は L7 だけ見送った（理由は下）。コミットは gateway = `42d7e9f`、web = `fa2123a`、設計書と手順書 = `ff6b471`。
+
+| # | 対応 | 内容 | コミット |
+|---|---|---|---|
+| M1 | 直した | (1) `utils/http-error.ts` の `sendBodyTooLargeAsError` が、`/api/pages` と `/api/webhooks/n8n/pages` のプラグインの中だけで 413 の本文を `{ success:false, error:{ code:'PAYLOAD_TOO_LARGE', message } }`（日本語）に置き換える。`setErrorHandler` から投げ直すとレート制限の 429（Error でない値）が 200 になってしまうので、`onSend` で 413 の既定の本文だけを書き換える。(2) submit の上限を 16KB → 96KB（textarea 2000 字 × 12 項目 × 3 バイト ≒ 70KB ＋項目名と外枠）。テストで、日本語の最大入力（64KB 超）が 200 で n8n に届くこと、上限を超えた送信・手動 upsert・登録の 413 の本文の形、それ以外のエラーは今までどおりであることを確かめた。設計書 K52 | `42d7e9f` |
+| M2 | 直した | サンプルの登録 body と seed の正本から `status` を消した。`CustomPage.adminEditedFields` を足し（マイグレーション `20261121000100_custom_page_admin_edited_fields`、追加のみ）、PATCH で変えた `title` / `icon` を記録して、n8n の再登録（定義を変えた再登録も含む）では上書きしない。status / sortOrder / minRole は今までどおり「書いたときだけ」。手順書に「status / sortOrder / minRole は意図して変えるときだけ書く」を追記した。テスト: ルート越しの「公開 → サンプルの body をそのまま再登録 → PUBLISHED・タイトル・アイコンのまま」、サンプル JSON に 3 項目が無いこと、実 DB での同じ流れ（`custom-pages-api.int.test.ts`）。設計書 K51 | `42d7e9f` |
+| M3 | 直した（案 a） | n8n へ送る body に `readOnly`（query は `orgEntitlement` の結果。submit は 402 で止まるので常に false）。構築規約（設計書 §9・手順書 §3）に「readOnly のときは LLM・外部送信をしない」を追記。K6（閲覧は通す）は変えていない。案 b（閲覧のみの組織の query を絞る）は、閲覧の体験を落とすうえに止める保証にもならないので採らなかった。設計書 K50 | `42d7e9f` |
+| L1 | 直した | `onCancel` を ref に入れ、フォーカスの effect は開いたときだけ走る。Tab / Shift+Tab を 2 つのボタンの間で回す。`shadow-lg` を外した（§7.3 の「影なし」に合わせた）。描画テスト `ConfirmDialog.render.test.tsx`（再描画でフォーカスが動かない・Tab・Escape は最新の onCancel・フォーカスを戻す） | `fa2123a` |
+| L2 | 直した | 9〜11 を try/finally で包み、確定できなかったときは `status: 'PENDING'` の行を FAILED で確定する（件数には数えたまま＝K35）。テストで、updateMany を 1 回失敗させても PENDING が残らないことを確かめた | `42d7e9f` |
+| L3 | 直した | 作った後に古い順で有効なトークンを数え直し、上限からはみ出した自分の行は消して 409（まだ誰にも見せていないので失効ではなく削除。監査も書かない）。行ロックと raw SQL は使っていない（raw SQL は 2 ファイルだけという決まりがあるため） | `42d7e9f` |
+| L4 | 直した | `reorderSlots`: 見えている行が今持っている番号を小さい順に割り当て直し、同じ番号が続くところだけ +1 ずつ押し出す。番号がばらばらなら、見えない行の番号に触れない。単体テストを追加 | `fa2123a` |
+| L5 | 直した | 「閉じる」で `issueMut.reset()` も呼ぶ | `fa2123a` |
+| L6 | 直した | `n8nUrl` も `trim() \|\|` にそろえた（既存の Task 実行にも効くが、空文字は今まで壊れていただけなので挙動は良くなるだけ）。env テストを追加 | `42d7e9f` |
+| L7 | 見送り | 登録の上限をトークンのハッシュをキーにすると、でたらめなトークンを送るたびに新しい窓ができ、DB を引く回数に上限が無くなる（当てずっぽうは 256 bit で防げても、負荷の歯止めが無くなる）。データ取得を JWT の `sub` で数えるには、rate-limit の onRequest で JWT を検証する必要がある。どちらもトレードオフの判断と `docs/security.md` の更新が要るので、「小さく安全」には入らないと判断した。組織ごとの窓（query 120 回/分・submit 30 回/分）はすでにある。`cleanup-hold-list.md` に載せる候補 | — |
+| L8 | 直した | SEED の行を MANUAL で上書きしたら `sampleData` を `DbNull` にする。単体テストを追加 | `42d7e9f` |
+| L9 | 直した | 文中のリンク 3 つ（DataNotice・SubmitFeedback・CustomPage）に `inline-flex items-center max-lg:min-h-11` を付けた | `fa2123a` |
+| L10 | 直した | (1) `PAGE_LIMITS` のコメントを UTC の暦月に直し、gateway と web の「来月 1 日」に日本時間 9 時を添えた。(2) `PAGE_ACTION_LOG_STATUSES` に `PENDING` を足した。(3) `appBaseUrl` を JSDoc の前に移した。(4) 設計書 §7.2 のファイル名を `PageContext.tsx` に直し、§3.3 の「JST の月初」も直した | `42d7e9f` `fa2123a` `ff6b471` |
+
+確認したこと（ルート）: `npm run lint`（エラー 0。警告 9 件はどれも今回触っていないファイル）/ `typecheck` / `test`（web 283・gateway 1573・shared-types 127・scripts 30、`check:deploy` を含む）/ `build` / `npm run check:tokens --workspace=apps/web` はすべて 0 終了。
+`npm run test:int` は実 Postgres（`flow_` 始まりの DB）で 9 ファイル 48 件すべて通過（スキップなし。migrate のずれ検査も含む）。このレビューで未実施だった D1・D7 の `test:int` もこれで確認できた。
