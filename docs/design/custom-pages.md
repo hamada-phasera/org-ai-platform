@@ -2,7 +2,7 @@
 
 > **一行要約**: 組織ごとの「ページ定義（JSON）」を DB に持ち、n8n が登録トークンで upsert する。web は許可リストのブロックだけを描画し、データ取得・フォーム送信・ボタンは必ず gateway を通って、その組織専用の n8n Webhook（`pages/<orgId>/<hook>`）にだけ届く。
 
-- 状態: チャンク 1（shared-types）・2（DB）・3（取得・管理 API と登録トークン）・4（アクション実行）・5（web の描画とナビ）実装済み、6〜7 は未実装。2026-11-18。ブランチ `feat/custom-pages`
+- 状態: チャンク 1（shared-types）・2（DB）・3（取得・管理 API と登録トークン）・4（アクション実行）・5（web の描画とナビ）・6（設定 > 業務ページ）実装済み、7 は未実装。2026-11-18。ブランチ `feat/custom-pages`
 - 前提にした既存の決まり: CLAUDE.md、DESIGN.md、`docs/ARCHITECTURE.md`、`docs/design/multi-tenancy.md`、`docs/n8n-integration-design.md`、`docs/plan/saas-readiness-plan.md` §2・§7
 - 既存の原則は変えない: **DB が真実の源 / n8n は加速レイヤー / ルートは `authOf(request).db` だけ / エラーは `{ success:false, error:{ code, message } }` / LLM は必ず ai-engine の LLMRouter 経由**
 
@@ -612,6 +612,9 @@ n8n への呼び出し:
 | K40 | （実装時）`buildInputSchema` の引数を `PageInputSchemaSource`（blocks と actions の kind だけ）に広げ、web は hook を落とした公開定義のまま同じスキーマで入力検証する。必須の空は zod の英語文言にせず「必須です」 | gateway と web の検証を 1 か所に（K20）。型だけの変更で gateway の挙動は変わらない | web 用に hook を詰めた偽の定義を作る |
 | K41 | （実装時）`confirm` はボタンだけでなく**その submit を指すすべての部品**（フォーム・行の操作）で確認を出す。初期フォーカスは「やめる」 | confirm は action の属性。外への送信を Enter 一発で起こさない（K10） | ボタンだけ確認 |
 | K42 | （実装時）`connection = not_configured` のページでは web は `data` を取りに行かず、データ部を「未接続」にする。query の再試行は web では 0 回（gateway が接続エラー時に 1 回） | 503 になると分かっている要求を n8n 未設定の組織から出さない。再試行を重ねて n8n を叩きすぎない | 毎回取りに行き 503 を見て判断 |
+| K43 | （実装時）セットアップ状況の「業務ページの接続」（key `pages`）は、宛先が明示されていれば n8n の `GET /healthz` を 1 回だけ叩く（5 秒・リダイレクトを追わない・Webhook は叩かない）。未設定は warn、共有トークンが既定値なら error（接続は確かめない）、届かなければ「確認できず」 | 「有無ではなく実際に確かめる」既存の流儀。Webhook を叩くと顧客のワークフローが動いてしまう | 環境変数の有無だけ（値が間違っていても「設定済み」に見える） |
+| K44 | （実装時）並び替えは新しい API を足さず、入れ替えた後の並びで番号がずれた行だけを既存の `PATCH /api/pages/:slug`（`sortOrder` = 0,1,2…）で順に送る | 既定の `sortOrder` が全部 0 でも順が決まる。ページは最大 20 で、1 回の入れ替えで送るのは高々数件。§5.1 の API を変えない | 一括の並び替え API（1 本増える） |
+| K45 | （実装時）設定 > 業務 は他のタブ（`Card` で包む）に合わせず、§7.3 のとおり白い面に区切り線と表だけ。トークンの発行・一覧はスマホでは「パソコンで開いてください」の 1 行だけ。web の「有効 2 本まで」は gateway の `MAX_ACTIVE_PAGE_TOKENS` と同じ値を持ち、超えた発行は gateway が 409 で止める | 業務ページの見た目の決まり（カードの入れ子なし）を設定でも守る。長いトークンの扱いはパソコン（DESIGN.md §4） | 他の設定タブと同じ Card |
 
 ## 15. 未確認・実装時に確かめること
 

@@ -16,7 +16,13 @@ function walk(dir: string): string[] {
   });
 }
 
-const FILES = [...walk(pagesDir), join(srcDir, 'pages', 'CustomPage.tsx'), join(srcDir, 'pages', 'CustomPagesIndex.tsx')];
+const FILES = [
+  ...walk(pagesDir),
+  join(srcDir, 'pages', 'CustomPage.tsx'),
+  join(srcDir, 'pages', 'CustomPagesIndex.tsx'),
+  // 設定 > 業務ページ（チャンク 6）も同じ決まり（区切り線と表だけ・カードで包まない）
+  join(srcDir, 'components', 'Settings', 'PagesSection.tsx'),
+];
 const read = (p: string) => readFileSync(p, 'utf8');
 
 describe('業務ページのソース', () => {
