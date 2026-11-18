@@ -95,8 +95,8 @@ export function PageView({ page, isAdmin }: { page: PageDetail; isAdmin: boolean
         {isAdmin && usage && usage.state !== 'ok' && (
           <p className={`mb-5 text-sm ${usage.state === 'over' ? 'text-danger' : 'text-secondary'}`}>
             今月の実行 <span className="tabular font-mono">{usage.used.toLocaleString('ja-JP')} / {usage.limit.toLocaleString('ja-JP')}</span>
-            {usage.state === 'over' ? '（送信は来月 1 日まで止まります）' : ''}{' '}
-            <Link to="/settings?tab=billing" className="font-semibold text-accent underline">
+            {usage.state === 'over' ? '（送信は来月 1 日 9 時まで止まります）' : ''}{' '}
+            <Link to="/settings?tab=billing" className="inline-flex items-center font-semibold text-accent underline max-lg:min-h-11">
               プラン
             </Link>
           </p>

@@ -161,7 +161,7 @@ describe('利用状況・接続', () => {
     });
     renderSection();
     expect((await screen.findByTestId('pages-count')).textContent).toBe('1 / 1');
-    expect(screen.getByText(/送信は来月 1 日まで止まります/)).toBeTruthy();
+    expect(screen.getByText(/送信は来月 1 日（日本時間 9 時）まで止まります/)).toBeTruthy();
     expect(screen.getByRole('link', { name: 'プラン' }).getAttribute('href')).toBe('/settings?tab=billing');
   });
 

@@ -71,6 +71,18 @@ function errorText(err: unknown, fallback: string): string {
 
 type Confirming = { message: string; run: () => void } | null;
 
+/**
+ * 並び替えで割り当てる番号。見えている行が今持っている番号の集合を小さい順に並べ、同じ番号が続くところだけ +1 ずつ押し出す。
+ * 管理者に見えないページ（オーナー限定。K28）の番号には触れないので、オーナーのナビの並びが作成日時で決まり直すことがない（レビュー L4）。
+ */
+export function reorderSlots(current: readonly number[]): number[] {
+  const sorted = [...current].sort((a, b) => a - b);
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i]! <= sorted[i - 1]!) sorted[i] = sorted[i - 1]! + 1;
+  }
+  return sorted;
+}
+
 export function PagesSection() {
   const qc = useQueryClient();
   const role = useAuthStore((s) => s.user?.role);
@@ -105,11 +117,12 @@ export function PagesSection() {
   });
 
   const reorderMut = useMutation({
-    /** 入れ替えた後の並びで、番号がずれた行だけを 0,1,2… に振り直す（同じ番号が並んでいても順が決まる） */
+    /** 入れ替えた後の並びに、見えている行が今持っている番号を割り当て直す。番号がずれた行だけ書く（reorderSlots） */
     mutationFn: async (next: AdminPageRow[]) => {
+      const slots = reorderSlots(next.map((p) => p.sortOrder));
       for (const [index, page] of next.entries()) {
-        if (page.sortOrder !== index) {
-          await api.patch(`/pages/${encodeURIComponent(page.slug)}`, { sortOrder: index });
+        if (page.sortOrder !== slots[index]) {
+          await api.patch(`/pages/${encodeURIComponent(page.slug)}`, { sortOrder: slots[index] });
         }
       }
     },
@@ -302,7 +315,7 @@ function UsageRows({ data }: { data: PagesAdminData }) {
       </dl>
       {(pagesFull || usage.state !== 'ok') && (
         <p className="text-xs text-secondary">
-          {usage.blocked ? '送信は来月 1 日まで止まります' : pagesFull ? 'ページは上限です' : '実行が上限の 8 割を超えました'}{' '}
+          {usage.blocked ? '送信は来月 1 日（日本時間 9 時）まで止まります' : pagesFull ? 'ページは上限です' : '実行が上限の 8 割を超えました'}{' '}
           <Link to="/settings?tab=billing" className="font-semibold text-accent underline">
             プラン
           </Link>
@@ -375,7 +388,16 @@ function TokensSection({ onConfirm }: { onConfirm: (c: Confirming) => void }) {
         </form>
         {!canIssue && <p className="text-xs text-secondary">有効なトークンは {MAX_ACTIVE_TOKENS} 本までです</p>}
 
-        {issued && <IssuedTokenRows issued={issued} onClose={() => setIssued(null)} />}
+        {issued && (
+          <IssuedTokenRows
+            issued={issued}
+            onClose={() => {
+              setIssued(null);
+              // 生トークンはミューテーションの状態にも残っている。閉じたらそこからも消す（「閉じたら二度と出ない」。L5）
+              issueMut.reset();
+            }}
+          />
+        )}
 
         {error && (
           <p role="alert" className="text-xs text-danger">

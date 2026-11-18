@@ -14,7 +14,7 @@ export function SubmitFeedback({ result }: { result: SubmitResult | null }) {
       {result?.code === 'PAGE_ACTION_LIMIT' && isAdmin && (
         <>
           {' '}
-          <Link to="/settings?tab=billing" className="font-semibold text-accent underline">
+          <Link to="/settings?tab=billing" className="inline-flex items-center font-semibold text-accent underline max-lg:min-h-11">
             プラン
           </Link>
         </>

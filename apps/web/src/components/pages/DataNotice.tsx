@@ -21,7 +21,7 @@ export function DataNotice({ data }: { data: Exclude<BlockData, { state: 'ok' }>
           {isAdmin && (
             <>
               {'　'}
-              <Link to="/settings?tab=pages" className="font-semibold text-accent underline">
+              <Link to="/settings?tab=pages" className="inline-flex items-center font-semibold text-accent underline max-lg:min-h-11">
                 設定
               </Link>
             </>
