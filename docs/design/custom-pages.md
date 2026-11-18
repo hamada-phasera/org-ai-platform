@@ -121,6 +121,7 @@ sequenceDiagram
 | `schemaVersion` | Int | ブロックスキーマの版。v1 は 1 |
 | `definition` | Json | `{ blocks, actions }`（§4）。保存前に必ず zod を通す |
 | `definitionHash` | String | 正規化した定義の sha256。同じ内容の再登録を無変更にする（冪等） |
+| `adminEditedFields` | String[] | 管理者が設定画面で変えた項目（`title` `icon`）。n8n の再登録はこれを上書きしない（K51）。既定 `[]` |
 | `sampleData` | Json? | サンプルモード用の応答（アクション ID → 応答）。**seed だけが書ける**。API からは書けない |
 | `createdBy` / `updatedBy` | String? | User.id。n8n 経由は null |
 | `createdAt` / `updatedAt` | DateTime | |
@@ -161,7 +162,7 @@ sequenceDiagram
 索引: `@@index([orgId, createdAt])`、`@@unique([orgId, requestId])`。
 
 - **記録するのは `submit` だけ**。`query`（閲覧）は記録しない（既存も閲覧は監査対象外。開くたびに行が増える）。
-- 月間実行数 = 当月（JST の月初から）の `PageActionLog` の件数（AI の月間上限が AILog の件数で数えているのと同じ考え方）。
+- 月間実行数 = 当月（UTC の暦月。K27）の `PageActionLog` の件数（AI の月間上限が AILog の件数で数えているのと同じ考え方）。
 - 定義の登録・更新・削除・公開・トークンの発行と失効は既存の `AuditEvent` に残す（`services/audit.ts` の `AUDIT_ACTIONS` に `page.upsert` `page.delete` `page.publish` `page.unpublish` `page_token.issue` `page_token.revoke` を足す）。n8n 経由は `actorId = null`、`meta.registrarId` に登録トークンの id（値ではない。K26）。
 
 ### 3.4 テナント分離と RLS
@@ -278,7 +279,7 @@ Source = { action: ActionId /* query */, key: string /* ^[a-zA-Z][a-zA-Z0-9_]{0,
 | 3 | ページ解決 | `db.customPage.findUnique({ orgId_slug })`、状態・`minRole`、`actionId` が定義にあり種類が合う | 404 `NOT_FOUND` |
 | 4 | レート制限 | IP ごと: ルートの `config.rateLimit = PAGE_ACTION_RATE_LIMIT`（60 回/分）。組織ごと: メモリの窓で query 120 回/分・submit 30 回/分（`services/pages/org-throttle.ts`。D8 と同じく 1 台前提） | 429 `RATE_LIMITED` |
 | 5 | プラン上限 | submit だけ。当月の `PageActionLog` 件数が上限以上 | 429 `PAGE_ACTION_LIMIT`（プランへの導線付きの文言） |
-| 6 | 入力検証 | `buildInputSchema` で `.strict()` 検証。body 全体 16KB まで | 400 `VALIDATION_ERROR` |
+| 6 | 入力検証 | `buildInputSchema` で `.strict()` 検証。body 全体 96KB まで（定義が許す最大の入力が収まる値。K52） | 400 `VALIDATION_ERROR`／body 超過は 413 `PAYLOAD_TOO_LARGE` |
 | 7 | 二重送信 | `PageActionLog` を `requestId` で先に作る（`status` は後で更新）。unique 違反 | 409 `DUPLICATE_REQUEST` |
 | 8 | 接続判定 | サンプルモードなら §8 へ。`config.n8nConfigured` が偽 | 503 `PAGE_NOT_CONNECTED` |
 | 9 | n8n 呼び出し | 下の表 | 502 `PAGE_UPSTREAM_FAILED` / 504 `PAGE_UPSTREAM_TIMEOUT` |
@@ -292,7 +293,7 @@ n8n への呼び出し:
 | URL | `${config.n8nUrl}`（末尾の `/` を除く）`/webhook/pages/${encodeURIComponent(orgId)}/${hook}`。**ベースは環境変数で固定、定義から入るのは `hook`（英小文字・数字・ハイフン）だけ** |
 | メソッド | 常に POST |
 | ヘッダ | `x-org-ai-token: N8N_WEBHOOK_AUTH_TOKEN`（既存の gateway → n8n と同じ。n8n 側は既存の credential `org-ai webhook token`）、`Content-Type: application/json` |
-| body | `{ orgId, page: slug, action: actionId, kind, input, actor: { userId, role }, plan, requestId, aiEngineUrl }`。メールアドレス・氏名は送らない |
+| body | `{ orgId, page: slug, action: actionId, kind, input, actor: { userId, role }, plan, requestId, readOnly, aiEngineUrl }`。メールアドレス・氏名は送らない |
 | タイムアウト | `PAGE_ACTION_TIMEOUT_MS`（既定 10 秒。`ENV_DEFAULTS` に足す）。`AbortSignal.timeout` |
 | リダイレクト | `redirect: 'error'`（追わない） |
 | 応答 | `Content-Type: application/json` のみ。256KB を超えたら読むのをやめて失敗 |
@@ -320,7 +321,7 @@ n8n への呼び出し:
 | 契約 | `orgEntitlement(db)` が `read_only` なら 402 `SUBSCRIPTION_REQUIRED` |
 | body（PUT） | `{ title, icon?, sortOrder?, status?, minRole?, definition }`（`pageUpsertSchema`、`.strict()`）。`sampleData` `source` `orgId` は受け付けない |
 | 新規作成 | `canAddPage(plan, 現在のページ数)` を満たさなければ 403 `PAGE_LIMIT_REACHED`。`status` 省略時は `DRAFT` |
-| 更新 | `definitionHash` が同じで他の項目も同じなら何も書かず `{ changed: false, version }`。違えば `version + 1`。`status` `sortOrder` `minRole` は **body に書かれたときだけ**上書き（管理者が画面で変えた値を、再実行で黙って戻さない） |
+| 更新 | `definitionHash` が同じで他の項目も同じなら何も書かず `{ changed: false, version }`。違えば `version + 1`。`status` `sortOrder` `minRole` は **body に書かれたときだけ**上書き（管理者が画面で変えた値を、再実行で黙って戻さない）。`title` `icon` は管理者が設定画面（PATCH）で変えると `adminEditedFields` に記録し、以降 n8n からは上書きしない（K51） |
 | 作成元の衝突 | 既存の行が `MANUAL` / `SEED` のとき、n8n からの更新・削除は 409 `PAGE_SOURCE_CONFLICT`（人が作ったページを上書きしない） |
 | 応答 | `{ success: true, data: { slug, version, status, changed, url: "<APP_BASE_URL>/p/<slug>" } }` |
 | 記録 | `AuditEvent`（`page.upsert` / `page.delete`、`actorId: null`、`meta: { slug, version, registrarId }`（K26））、`PageToken.lastUsedAt` |
@@ -382,7 +383,7 @@ n8n への呼び出し:
 | `pages/CustomPagesIndex.tsx` `pages/CustomPage.tsx` | 一覧とページ。`PageHeader`（タイトル＋更新ボタン） |
 | `components/pages/BlockRenderer.tsx` | `switch (block.type)` で 7 種の部品に振り分け。**知らない type は何も描かない**（定義が新しくて web が古いときに壊れない） |
 | `components/pages/blocks/{Heading,Text,Kpi,Table,List,Form,Buttons}Block.tsx` | 部品 1 つ 1 ファイル |
-| `components/pages/usePageData.ts` | `useQuery(['page-data', slug, actionId])`。同じ action を参照するブロックは 1 回の取得を共有 |
+| `components/pages/PageContext.tsx`（`usePageData` を含む） | `useQuery(['page-data', slug, actionId])`。同じ action を参照するブロックは 1 回の取得を共有 |
 | `components/pages/icons.ts` | `PAGE_ICONS` の名前 → lucide コンポーネントの静的な表（動的 import しない） |
 
 描画の決まり（安全側）:
@@ -452,7 +453,7 @@ n8n への呼び出し:
 
 ```json
 {
-  "title": "問い合わせ", "icon": "inbox", "status": "DRAFT",
+  "title": "問い合わせ", "icon": "inbox",
   "definition": {
     "actions": {
       "list":   { "kind": "query",  "hook": "inquiries-list" },
@@ -487,6 +488,8 @@ n8n への呼び出し:
 - Webhook のパスは必ず `pages/<その組織の ID>/<hook>`。組織 ID は設定 > 業務ページ に表示する。
 - Webhook は必ず Header Auth（既存の credential）。最初のノードで `body.orgId` を確かめる。
 - LLM を使うなら ai-engine の `/llm/chat` を `body.aiEngineUrl` で呼び、`org_id` と `plan` を渡す（直接プロバイダを呼ばない＝AILog・PII・上限を通す）。
+- `body.readOnly` が true（閲覧のみの組織のデータ取得）なら、LLM・外部送信をせず保存済みのデータだけ返す（K50）。
+- 登録の body に `status` `sortOrder` `minRole` は意図して変えるときだけ書く（書くと再実行のたびに管理者の値を戻す。サンプルにも書かない）。
 - メール・Slack・LINE など外へ送るアクションには必ず `confirm` を書く（§決定 K10）。
 - 応答は 10 秒以内・256KB 以内。重い処理は受け付けだけ返して別ワークフローに回す。
 
@@ -505,7 +508,7 @@ n8n への呼び出し:
 | T7 | 共有トークン `N8N_WEBHOOK_AUTH_TOKEN` の漏洩 | 既存の対策のまま（本番の既定値は起動拒否）。ページ用 Webhook は orgId を body で照合。**登録には共有トークンを使わない**ので、漏れてもページ定義は書き換えられない | 既存＋登録経路が `x-webhook-token` では通らないこと |
 | T8 | 大きい・遅い・壊れた応答で gateway を詰まらせる | タイムアウト 10 秒、256KB、JSON のみ、行数・文字数の切り詰め、組織ごとの窓 | `action-runner` 単体（遅延・巨大・非 JSON） |
 | T9 | 大きい定義・大量のページ | 定義 32KB、ブロック 20、アクション 12、ページ数はプラン上限、登録のレート制限 | スキーマ・upsert テスト |
-| T10 | 入力の注入（定義に無い項目・型違い・巨大な値） | `buildInputSchema` の `.strict()`、body 16KB。n8n 側での SQL 等への埋め込みは構築者の責任だが、型と長さは gateway が保証 | 単体 |
+| T10 | 入力の注入（定義に無い項目・型違い・巨大な値） | `buildInputSchema` の `.strict()`、body 96KB（K52）。n8n 側での SQL 等への埋め込みは構築者の責任だが、型と長さは gateway が保証 | 単体 |
 | T11 | 二重送信・連打 | `requestId` の unique、ボタンは送信中 disabled、組織ごと 30 回/分 | 単体・統合（同じ `requestId` を並行で 2 回 → 1 回だけ n8n に届く） |
 | T12 | 解約後・トライアル切れの組織が n8n を動かし続ける | submit は 402（既存）、登録も `orgEntitlement` で 402 | entitlement テストに足す |
 | T13 | 人の承認なしの外部送信 | ボタンとフォームは人が押す（その操作が承認）。外へ送るアクションは `confirm` 必須を構築規約に。**エージェントや定期実行からページのアクションは呼べない**（JWT のルートしか無い） | 規約＋ルートが `requireAuth` であること |
@@ -619,6 +622,9 @@ n8n への呼び出し:
 | K47 | （実装時）サンプルのデータ元は n8n の**ワークフロー静的データ**（Code ノードの `$getWorkflowStaticData`）。外部の credential 無しで「登録 → 表に出る → 完了」まで通る。`remind` は外へ送らず文言だけ返す（送り先はワークフローに足す前提で `confirm` 付き） | 取り込んだ直後に動き、顧客のデータ元（スプレッドシート等）に差し替える場所が 1 ノードに閉じる | Data Table（n8n の版で有無が違う）／スプレッドシート（credential が要る） |
 | K48 | （実装時）`n8n:import` の対象選びを `scripts/n8n-import-files.mjs` に出し、直下のファイルの `dept-*` `cap-*` だけにする（サブディレクトリは読まない） | 「pages/ を拾わない」を node --test で固定できる（取り込みスクリプト本体は読み込むと API を叩く） | 本体のまま正規表現だけ見るテスト |
 | K49 | （実装時）`npm run seed` は先に shared-types をビルドする（ts-node が CommonJS で dist を読むため）。型チェックは db-schema の tsconfig の `paths` でソースを見る（dist に依存しない、gateway と同じ） | CI は build の前に typecheck を回す | seed だけ tsx に替える（README・手順が変わる） |
+| K50 | （実装時・レビュー M3）n8n へ送る body に `readOnly`（`orgEntitlement` の結果。submit は requireAuth が 402 で止めるので常に false）を足し、構築規約に「readOnly のときは LLM・外部送信をしない」を書く。K6（閲覧は通す）は変えない | n8n 側は契約の状態を知るすべが無かった。閲覧を止めると解約後にデータを見られなくなる（K6 の理由がそのまま残る） | 閲覧のみの組織の query を止める・staleTime を延ばす・組織ごとの窓を絞る（どれも閲覧の体験を落とし、LLM を使うワークフローを止める保証にもならない）。ワークフローを作るのは運営（§0）なので、守らせるのは構築規約とワークフローのレビュー。gateway 側の強制が要るなら、閲覧のみの組織の query を止める判断を別に行う |
+| K51 | （実装時・レビュー M2）`CustomPage.adminEditedFields`（`'title' \| 'icon'`）を足し、PATCH で変えた項目を記録。n8n の再登録はここにある項目を上書きしない。status / sortOrder / minRole は従来どおり「body に書いたときだけ」。サンプルの登録 body から `status` を消した | title は必須で毎回届くので「書いたときだけ」では守れない。定義が変わったときだけ反映、では定義を直した再実行で結局戻る | 定義が変わったときだけ反映（列は要らないが §5.3 を守れない）／全項目をロック（構築者が意図して非公開にできなくなる） |
+| K52 | （実装時・レビュー M1）submit の body 上限を 16KB → 96KB（textarea 2000 字 × 12 項目 × UTF-8 3 バイト ≒ 70KB ＋項目名と外枠）。bodyLimit 超過の 413 は、`/api/pages` と `/api/webhooks/n8n/pages` のプラグインの中だけ `onSend` で統一フォーマット `PAYLOAD_TOO_LARGE`（日本語）に書き換える（`utils/http-error.ts` `sendBodyTooLargeAsError`）。K36 の 16KB はこれで置き換え | 定義どおりの正しい入力が 413 になっていた。Fastify の既定の 413 本文は英語で web も n8n の構築者も理由が読めない。setErrorHandler で投げ直すと、レート制限の 429（Error でない値）が 200 になる（Fastify 4）ので onSend にした | 定義の時点で「maxLength の合計 × 3 バイト ≤ 16KB」を検査（今ある長いフォームの定義が通らなくなる）／app 全体のエラーハンドラ（既存の全ルートの応答が変わる） |
 
 ## 15. 未確認・実装時に確かめること
 
