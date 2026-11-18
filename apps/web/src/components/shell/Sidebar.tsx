@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 import { OrgSwitcher } from '../org/OrgSwitcher';
+import { CustomPagesNav } from '../pages/CustomPagesNav';
 import { ADMIN_NAV, MAIN_NAV, WORK_PAGES } from './navConfig';
 import type { NavEntry } from './navConfig';
 
@@ -107,6 +108,7 @@ export function Sidebar() {
             <span className="flex-1 truncate">{page.label}</span>
           </NavLink>
         ))}
+        <CustomPagesNav linkClass={linkClass} />
 
         <p className="mt-4 mb-1.5 px-2.5 text-micro font-bold uppercase tracking-[0.1em] text-text-muted">
           管理

@@ -2,7 +2,7 @@
 
 > **一行要約**: 組織ごとの「ページ定義（JSON）」を DB に持ち、n8n が登録トークンで upsert する。web は許可リストのブロックだけを描画し、データ取得・フォーム送信・ボタンは必ず gateway を通って、その組織専用の n8n Webhook（`pages/<orgId>/<hook>`）にだけ届く。
 
-- 状態: チャンク 1（shared-types）・2（DB）・3（取得・管理 API と登録トークン）・4（アクション実行）実装済み、5〜7 は未実装。2026-11-18。ブランチ `feat/custom-pages`
+- 状態: チャンク 1（shared-types）・2（DB）・3（取得・管理 API と登録トークン）・4（アクション実行）・5（web の描画とナビ）実装済み、6〜7 は未実装。2026-11-18。ブランチ `feat/custom-pages`
 - 前提にした既存の決まり: CLAUDE.md、DESIGN.md、`docs/ARCHITECTURE.md`、`docs/design/multi-tenancy.md`、`docs/n8n-integration-design.md`、`docs/plan/saas-readiness-plan.md` §2・§7
 - 既存の原則は変えない: **DB が真実の源 / n8n は加速レイヤー / ルートは `authOf(request).db` だけ / エラーは `{ success:false, error:{ code, message } }` / LLM は必ず ai-engine の LLMRouter 経由**
 
@@ -607,6 +607,11 @@ n8n への呼び出し:
 | K35 | （実装時）n8n が `{ ok: false }` を返したら 200 `{ ok: false, message }` で文言を返し、記録は `FAILED`。非 2xx・接続エラーは 502、タイムアウトは 504、非 JSON・256KB 超は query でも 502 `PAGE_INVALID_RESPONSE`（JSON の形違いだけ query はブロック単位の error）。数えるのは n8n まで届いた送信（OK / FAILED / TIMEOUT / INVALID_RESPONSE）すべて | 業務上の失敗（重複など）を利用者に伝えられる。届いた送信には n8n の原価が掛かっているので数える | 失敗は数えない（失敗させ続けて枠を回避できる） |
 | K36 | （実装時）submit の body 16KB 超は Fastify の `bodyLimit` で 413（§5.2 の 6 の「400」ではなく K31 と同じ扱い）。上限の判定（5）は件数を数えてから作る（7）ので、並行で上限をわずかに超えうる | 読む前に止める方が安い。超過は高々並行数ぶんで、枠の目的（原価の抑止）には足りる | 件数と作成を 1 トランザクションで直列化（行ロックが要り、送信のたびに組織単位で詰まる） |
 | K37 | （実装時）query の応答の切り詰めでブロックが error になったときは `createLogger('pages')` に warn を 1 行（本文は出さない）。組織ごとの窓は固定窓（境界で最大 2 倍） | 構築者が応答の形違いに気づける。窓の目的は暴走の抑止で、精密さは要らない | スライディング窓 |
+| K38 | （実装時）ブロック内の「空」は `EmptyState`（Card）ではなく区切り線の中の 1 行（定義の `empty` か「まだありません」）。ページの白い面に `bg-elevated` を敷く | §7.3 の「フラット・カードで包まない」を優先（`EmptyState` は影付きの Card で、ページの中に面が 1 枚増える） | `EmptyState` をブロックごとに出す |
+| K39 | （実装時）KPI の `percent` は n8n が**百分率の数**を返す前提（12.5 → 12.5%）。0〜1 の比率を推測で 100 倍しない | 0.5 が 50% か 0.5% かを web で決められない。構築者向けの手順書（チャンク 7）に書く | 1 未満なら 100 倍する |
+| K40 | （実装時）`buildInputSchema` の引数を `PageInputSchemaSource`（blocks と actions の kind だけ）に広げ、web は hook を落とした公開定義のまま同じスキーマで入力検証する。必須の空は zod の英語文言にせず「必須です」 | gateway と web の検証を 1 か所に（K20）。型だけの変更で gateway の挙動は変わらない | web 用に hook を詰めた偽の定義を作る |
+| K41 | （実装時）`confirm` はボタンだけでなく**その submit を指すすべての部品**（フォーム・行の操作）で確認を出す。初期フォーカスは「やめる」 | confirm は action の属性。外への送信を Enter 一発で起こさない（K10） | ボタンだけ確認 |
+| K42 | （実装時）`connection = not_configured` のページでは web は `data` を取りに行かず、データ部を「未接続」にする。query の再試行は web では 0 回（gateway が接続エラー時に 1 回） | 503 になると分かっている要求を n8n 未設定の組織から出さない。再試行を重ねて n8n を叩きすぎない | 毎回取りに行き 503 を見て判断 |
 
 ## 15. 未確認・実装時に確かめること
 

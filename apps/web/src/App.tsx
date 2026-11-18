@@ -12,6 +12,9 @@ import AgentsPage from './pages/AgentsPage';
 /* エージェント詳細だけがキャンバス（@xyflow/react ≒ 60KB gzip）を使う。
    静的に import すると全ユーザーが初回ロードで落とすので、ここだけ遅延にする。 */
 const AgentDetailPage = lazy(() => import('./pages/AgentDetailPage'));
+/* 業務ページは zod（入力検証）とブロックの描画を使う。初回ロードに載せないよう遅延にする（設計書 K20） */
+const CustomPagesIndex = lazy(() => import('./pages/CustomPagesIndex'));
+const CustomPage = lazy(() => import('./pages/CustomPage'));
 import GovernancePage from './pages/GovernancePage';
 import TaskManagerPage from './pages/TaskManagerPage';
 import DeliverablesPage from './pages/DeliverablesPage';
@@ -89,6 +92,22 @@ export default function App() {
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="sns" element={<SnsPage />} />
         <Route path="accounting" element={<AccountingPage />} />
+        <Route
+          path="p"
+          element={
+            <Suspense fallback={<div className="flex justify-center py-20"><Spinner /></div>}>
+              <CustomPagesIndex />
+            </Suspense>
+          }
+        />
+        <Route
+          path="p/:slug"
+          element={
+            <Suspense fallback={<div className="flex justify-center py-20"><Spinner /></div>}>
+              <CustomPage />
+            </Suspense>
+          }
+        />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

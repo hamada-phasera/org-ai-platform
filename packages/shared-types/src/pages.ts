@@ -480,8 +480,14 @@ function fieldInputSchema(field: PageField): z.ZodTypeAny {
  * - table の rowAction: `{ rowId: string ≤128 }`
  * `origin.blockIndex` のブロックがその submit を指していない・action が submit でないときは null（呼び出し側で 400/404）。
  */
+/** buildInputSchema が読むのは blocks と actions の kind だけ（web は hook を落とした公開定義のまま渡せる） */
+export interface PageInputSchemaSource {
+  blocks: PageBlock[];
+  actions: Record<string, { kind: 'query' | 'submit' }>;
+}
+
 export function buildInputSchema(
-  definition: PageDefinition,
+  definition: PageInputSchemaSource,
   actionId: string,
   origin: PageActionOrigin,
 ): z.ZodTypeAny | null {
