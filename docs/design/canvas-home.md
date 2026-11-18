@@ -2,7 +2,7 @@
 
 > **一行要約**: ホームを「業務のノードが線でつながるキャンバス」に替える。キャンバスもフロー編集も実行も **FLOW 自前**（`@xyflow/react` ＋ gateway 内の軽量ランナー）で作り、n8n は**運営が作った「部品」を呼ぶだけ**の裏方に留める。お客さんが n8n のワークフローを作る・編集する形は n8n のライセンス違反になるため採らない。
 
-- 状態: 設計のみ（未実装）。2026-11-18。ブランチ `feat/canvas-home`（`feat/custom-pages` の上に積む）
+- 状態: チャンク 1（shared-types の定義スキーマと上限）実装済み。2026-11-18。ブランチ `feat/canvas-home`（`feat/custom-pages` の上に積む）
 - 前提にした既存の決まり: CLAUDE.md、DESIGN.md、`docs/ARCHITECTURE.md`、`docs/design/multi-tenancy.md`、`docs/design/custom-pages.md`、`docs/n8n-integration-design.md`、`docs/plan/saas-readiness-plan.md`、`docs/billing.md`
 - 変えない原則: **DB が真実の源 / n8n は加速レイヤー / ルートは `authOf(request).db` だけ / エラーは `{ success:false, error:{ code, message } }` / LLM は必ず ai-engine の LLMRouter 経由 / 外部送信は必ず人が通す**
 
@@ -1066,6 +1066,13 @@ DB の大きさの目安（仮定: 1 実行 20KB）: 100 社 × 月 1,000 実行
 | K26 | 運営の判定は既存の `ADMIN_EMAILS` | 環境変数を増やさない。組織の役割とは別の軸 | `User` に運営フラグの列 |
 | K27 | 既存のエージェント（`Agent.steps`）は変えない・移行しない | 既存の設計軸を変えない。キャンバスからリンクで開ける | フローに統合（移行と互換の作業が大きい） |
 | K28 | 中断した実行は自動でやり直さない | 途中まで外部に書いた可能性がある。人が「もう一度」を押す | 自動リトライ |
+| K29 | zod に依存しない純粋関数（`topoOrder` `upstreamOf` `outputKeysOf` `renderTemplate` `checkFlowDefinition` ほか）は **`flows-core.ts`** に置く（`flows.ts`＝zod スキーマ、`flows-plan.ts`＝定数と上限） | スマホの縦リストとホームは zod を読まずに番号・参照を出せる。モジュールの top-level の `z.object()` は tree-shaking で落ちないため、同じファイルに置くと zod が初回チャンクに載る | flows.ts に同居 |
+| K30 | 部品の照合はカタログを渡す `buildFlowDefinitionSchema(parts)`。チャンク 1 の `flowDefinitionSchema` は空のカタログ（部品ノードはすべて拒否）で、チャンク 2 で `FLOW_PARTS` に差し替える | カタログより先にスキーマが入っても安全側に倒れる | カタログの仮置き |
+| K31 | 外部送信ノードの「直前に確認」は、**入る線の元がすべて `approval`**（1 本以上）。確認と送信の間に AI などを挟むと保存で落とす | 確認した後に中身が変わると、人が見たものと送るものがずれる | 経路のどこかに確認があれば可 |
+| K32 | データノードの `update` は `where` が `id` の等値 1 つだけ（1 行だけ）、`get` は条件必須、`limit` は `list` だけ | 一覧の条件で何行も書き換える事故を構造で止める | 任意の条件で更新 |
+| K33 | 定期のきっかけの `dayOfMonth` は 1〜28 | どの月にもある日だけ（31 日指定が短い月に飛ぶのを避ける）。月末は将来 | 1〜31 |
+| K34 | 形になっていない `{{` `}}`（`{{ x }}` `{{a.b.c}}` 閉じ忘れ）は保存時に 400 | 打ち間違いが黙って文字のまま送られるのを防ぐ。展開は式の形のものだけ | 文字として通す |
+| K35 | 文字列の検査（`hasControlChars` `utf8ByteLength`）は zod 非依存の `pages-plan.ts` に移す（export 名は同じ）。部署の値は flows.ts に `FLOW_DEPARTMENTS` として写し、テストで `AGENT_DEPARTMENTS` と突き合わせる | flows-core から zod 無しで使うため。index → flows → index の循環で、ESM では index の本体より先に flows.ts が評価され `AGENT_DEPARTMENTS` が未初期化になる | index から読む |
 
 ## 15. 未確認・実装時に確かめること
 

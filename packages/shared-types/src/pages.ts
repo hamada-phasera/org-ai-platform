@@ -9,7 +9,7 @@
  *   （zod を初回ロードに載せない。K20）。zod に依存しない定数と上限は pages-plan.ts。
  */
 import { z } from 'zod';
-import { PAGE_ICONS, PAGE_STATUSES } from './pages-plan';
+import { PAGE_ICONS, PAGE_STATUSES, hasControlChars, utf8ByteLength } from './pages-plan';
 
 // ── 上限（設計書 §4.2・§4.3・§5.2） ─────────────────────────────
 
@@ -59,19 +59,6 @@ const L = PAGE_DEFINITION_LIMITS;
 export const PAGE_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 export const PAGE_ACTION_ID_PATTERN = /^[a-z][a-z0-9_]{0,23}$/;
 export const PAGE_DATA_KEY_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
-
-/**
- * 文字列に制御文字が無いか。`allowNewline` のときだけ改行（\n）を許す（text ブロックの本文・textarea の入力）。
- * 正規表現の制御文字クラスは ESLint の no-control-regex に掛かるので文字コードで見る。
- */
-export function hasControlChars(value: string, allowNewline = false): boolean {
-  for (let i = 0; i < value.length; i++) {
-    const c = value.charCodeAt(i);
-    if (allowNewline && (c === 0x0a || c === 0x0d)) continue;
-    if (c < 0x20 || c === 0x7f || (c >= 0x80 && c <= 0x9f) || c === 0x2028 || c === 0x2029) return true;
-  }
-  return false;
-}
 
 const CONTROL_MSG = '制御文字は使えません';
 
@@ -179,7 +166,7 @@ const listBlockSchema = z
 export const PAGE_FIELD_TYPES = ['text', 'textarea', 'number', 'date', 'select', 'checkbox', 'email', 'tel'] as const;
 export type PageFieldType = (typeof PAGE_FIELD_TYPES)[number];
 
-const fieldSchema = z
+export const pageFieldSchema = z
   .object({
     key: pageDataKeySchema,
     label: label(L.labelMax),
@@ -226,7 +213,7 @@ const formBlockSchema = z
   .object({
     type: z.literal('form'),
     title: label(L.formTitleMax).optional(),
-    fields: z.array(fieldSchema).min(1).max(L.fieldsMax),
+    fields: z.array(pageFieldSchema).min(1).max(L.fieldsMax),
     action: pageActionIdSchema,
     submit: label(L.buttonLabelMax),
   })
@@ -264,21 +251,6 @@ export const PAGE_BLOCK_TYPES = ['heading', 'text', 'kpi', 'table', 'list', 'for
 export type PageBlockType = (typeof PAGE_BLOCK_TYPES)[number];
 
 // ── ページ定義 ─────────────────────────────────────────
-
-/** UTF-8 のバイト数（TextEncoder に頼らない＝lib に DOM が無くても動く） */
-export function utf8ByteLength(value: string): number {
-  let bytes = 0;
-  for (let i = 0; i < value.length; i++) {
-    const c = value.charCodeAt(i);
-    if (c < 0x80) bytes += 1;
-    else if (c < 0x800) bytes += 2;
-    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < value.length) {
-      bytes += 4;
-      i++;
-    } else bytes += 3;
-  }
-  return bytes;
-}
 
 const baseDefinitionSchema = z
   .object({
@@ -362,7 +334,7 @@ export const pageDefinitionSchema = baseDefinitionSchema.superRefine((def, ctx) 
 export type PageDefinition = z.infer<typeof baseDefinitionSchema>;
 export type PageBlock = z.infer<typeof pageBlockSchema>;
 export type PageAction = z.infer<typeof pageActionSchema>;
-export type PageField = z.infer<typeof fieldSchema>;
+export type PageField = z.infer<typeof pageFieldSchema>;
 export type PageSourceRef = z.infer<typeof sourceSchema>;
 
 /**

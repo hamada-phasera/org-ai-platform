@@ -101,3 +101,33 @@ export const PAGE_RESERVED_SLUGS = ['admin', 'tokens'] as const;
 export function isReservedPageSlug(slug: string): boolean {
   return (PAGE_RESERVED_SLUGS as readonly string[]).includes(slug);
 }
+
+// ── 文字列の検査（zod に依存しない。業務フローの flows-core.ts からも使う） ──────────
+
+/**
+ * 文字列に制御文字が無いか。`allowNewline` のときだけ改行（\n）を許す（text ブロックの本文・textarea の入力）。
+ * 正規表現の制御文字クラスは ESLint の no-control-regex に掛かるので文字コードで見る。
+ */
+export function hasControlChars(value: string, allowNewline = false): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const c = value.charCodeAt(i);
+    if (allowNewline && (c === 0x0a || c === 0x0d)) continue;
+    if (c < 0x20 || c === 0x7f || (c >= 0x80 && c <= 0x9f) || c === 0x2028 || c === 0x2029) return true;
+  }
+  return false;
+}
+
+/** UTF-8 のバイト数（TextEncoder に頼らない＝lib に DOM が無くても動く） */
+export function utf8ByteLength(value: string): number {
+  let bytes = 0;
+  for (let i = 0; i < value.length; i++) {
+    const c = value.charCodeAt(i);
+    if (c < 0x80) bytes += 1;
+    else if (c < 0x800) bytes += 2;
+    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < value.length) {
+      bytes += 4;
+      i++;
+    } else bytes += 3;
+  }
+  return bytes;
+}
