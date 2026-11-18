@@ -687,6 +687,8 @@ model CustomPage {
   /// User.id。n8n 経由は null
   createdBy      String?
   updatedBy      String?
+  /// 管理者が設定画面（PATCH）で変えた項目（'title' | 'icon'）。n8n の再登録はここにある項目を上書きしない（§5.3・K51）
+  adminEditedFields String[]  @default([])
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 

@@ -4,8 +4,10 @@
 // ■ 冪等
 //   定義を正規化（キーを並べ替えた JSON）して sha256 を取り、同じ内容・同じ項目なら何も書かずに { changed: false }。
 //   定義が変わったときだけ version を +1。
-// ■ 管理者が画面で変えた値を守る
+// ■ 管理者が画面で変えた値を守る（§5.3・K51）
 //   status / sortOrder / minRole / icon は **body に書かれたときだけ**上書き（ワークフローの再実行で黙って戻さない）。
+//   title / icon は管理者が設定画面（PATCH）で変えると adminEditedFields に記録され、以降 n8n からは上書きしない
+//   （title は必須で毎回届くので、書かれたときだけ、では守れない）。管理者の手動 upsert（MANUAL）はそのまま書く。
 // ■ 作成元
 //   n8n からは source = N8N の行しか更新・削除できない（MANUAL / SEED の行は 409 PAGE_SOURCE_CONFLICT。人が作ったページを上書きしない）。
 // ■ 上限
@@ -23,9 +25,12 @@ import {
   type PageSource,
   type PageUpsertInput,
 } from '@org-ai/shared-types';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import type { TenantDb } from '../../tenancy/tenant-db';
 import { recordAudit } from '../audit';
+
+/** 登録・手動 upsert の本文の上限（ルートの bodyLimit。定義の 32KB はスキーマが別に見る。K31） */
+export const PAGE_REGISTER_BODY_LIMIT = 64 * 1024;
 
 /** ルートが sendError にそのまま渡せる失敗 */
 export class PageServiceError extends Error {
@@ -90,7 +95,12 @@ const PAGE_SELECT = {
   source: true,
   version: true,
   definitionHash: true,
+  adminEditedFields: true,
 } as const;
+
+/** 管理者が設定画面で変えたら n8n から上書きしない項目（routes/pages.ts の PATCH が記録する） */
+export const ADMIN_EDITABLE_FIELDS = ['title', 'icon'] as const;
+export type AdminEditableField = (typeof ADMIN_EDITABLE_FIELDS)[number];
 
 export async function upsertPage(db: TenantDb, args: UpsertPageArgs, retried = false): Promise<UpsertPageResult> {
   const { slug, input, source, plan, actorId, registrarId } = args;
@@ -136,6 +146,7 @@ export async function upsertPage(db: TenantDb, args: UpsertPageArgs, retried = f
           schemaVersion: PAGE_SCHEMA_VERSION,
           definition,
           definitionHash: hash,
+          adminEditedFields: [],
           createdBy: actorId,
           updatedBy: actorId,
         },
@@ -165,9 +176,11 @@ export async function upsertPage(db: TenantDb, args: UpsertPageArgs, retried = f
   }
 
   const definitionChanged = existing.definitionHash !== hash;
+  // n8n からの更新では、管理者が画面で変えた項目は今の値を保つ（MANUAL は管理者自身の操作なので書く）
+  const keep = (field: AdminEditableField): boolean => source === 'N8N' && existing.adminEditedFields.includes(field);
   const next = {
-    title: input.title,
-    icon: input.icon ?? existing.icon,
+    title: keep('title') ? existing.title : input.title,
+    icon: keep('icon') ? existing.icon : (input.icon ?? existing.icon),
     sortOrder: input.sortOrder ?? existing.sortOrder,
     status: input.status ?? existing.status,
     minRole: input.minRole ?? existing.minRole,
@@ -187,6 +200,8 @@ export async function upsertPage(db: TenantDb, args: UpsertPageArgs, retried = f
       ...next,
       version,
       ...(definitionChanged ? { definition, definitionHash: hash, schemaVersion: PAGE_SCHEMA_VERSION } : {}),
+      // seed のページを人が上書きしたら、サンプルの応答は捨てる（新しい定義に古いサンプルを当てない。K13・レビュー L8）
+      ...(existing.source === 'SEED' && next.source !== 'SEED' ? { sampleData: Prisma.DbNull } : {}),
       updatedBy: actorId,
     },
   });

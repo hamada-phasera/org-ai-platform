@@ -77,6 +77,17 @@ describe('config: 値の読み方', () => {
     expect(config.n8nUrl).toBe('https://cloud.test');
   });
 
+  it('空文字・空白だけの N8N_CLOUD_URL は飛ばして N8N_URL を使う（n8nConfigured と同じ見方。L6）', () => {
+    process.env.N8N_CLOUD_URL = '';
+    process.env.N8N_URL = ' https://self.test ';
+    expect(config.n8nConfigured).toBe(true);
+    expect(config.n8nUrl).toBe('https://self.test');
+    process.env.N8N_CLOUD_URL = '   ';
+    expect(config.n8nUrl).toBe('https://self.test');
+    delete process.env.N8N_URL;
+    expect(config.n8nUrl).toBe('http://localhost:5678');
+  });
+
   it('n8nConfigured は N8N_CLOUD_URL か N8N_URL が明示されたときだけ真（既定の localhost では偽。業務ページ K8）', () => {
     expect(config.n8nConfigured).toBe(false);
     process.env.N8N_URL = '  ';

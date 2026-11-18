@@ -63,7 +63,10 @@ test('登録は手動トリガ → PUT /api/webhooks/n8n/pages/inquiries（x-pag
   assert.equal(put.parameters.genericAuthType, 'httpHeaderAuth');
   assert.equal(put.credentials.httpHeaderAuth.name, 'FLOW page token');
   const body = JSON.parse(put.parameters.jsonBody);
-  assert.equal(body.status, 'DRAFT', '登録は既定で下書き（K9）');
+  // 新規は gateway の既定で下書き（K9）。status を書くと再実行のたびに管理者の公開を戻すので書かない（§5.3・K51・レビュー M2）
+  for (const k of ['status', 'sortOrder', 'minRole']) {
+    assert.ok(!(k in body), `${k} は書かない（再実行で管理者が画面で変えた値を戻さない）`);
+  }
   assert.ok(!('orgId' in body) && !('sampleData' in body), '組織はトークンが決める。sampleData は seed だけ');
 });
 

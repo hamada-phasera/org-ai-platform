@@ -5,7 +5,7 @@
 //   3 ページ解決 … tenantDb の (orgId, slug)、見え方、actionId が定義にあり種類が合う。満たさなければ 404
 //   4 レート制限 … IP ごとはルートの config.rateLimit。組織ごとは org-throttle（429 RATE_LIMITED）
 //   5 プラン上限 … submit だけ。当月の PageActionLog の件数（429 PAGE_ACTION_LIMIT）
-//   6 入力検証 … buildInputSchema（.strict()）。body はルートの bodyLimit で 16KB まで
+//   6 入力検証 … buildInputSchema（.strict()）。body はルートの bodyLimit（定義が許す最大の入力が収まる 96KB）まで
 //   7 二重送信 … PageActionLog を requestId で先に作る（unique 違反は 409 DUPLICATE_REQUEST）
 //   8 接続判定 … サンプルモード → sampleData／n8n 未設定 → 503 PAGE_NOT_CONNECTED
 //   9 n8n 呼び出し … URL は `${n8nUrl}/webhook/pages/<orgId>/<hook>` だけ（K2）。リダイレクトは追わない
@@ -31,6 +31,7 @@ import {
 import { config } from '../../config/env';
 import type { TenantDb } from '../../tenancy/tenant-db';
 import { createLogger } from '../../utils/logger';
+import { orgEntitlement } from '../org-entitlement';
 import { canViewPage, pageUsageOf, planOf } from './access';
 import { describeIssues } from './upsert';
 import { takeOrgActionSlot, type PageActionKind } from './org-throttle';
@@ -40,8 +41,12 @@ const log = createLogger('pages');
 
 /** n8n の応答の上限（T8） */
 export const PAGE_RESPONSE_MAX_BYTES = 256 * 1024;
-/** submit の body の上限（ルートの bodyLimit。§5.2 の 6） */
-export const PAGE_SUBMIT_BODY_LIMIT = 16 * 1024;
+/**
+ * submit の body の上限（ルートの bodyLimit。§5.2 の 6・K50）。
+ * 定義が許す最大の入力（textarea 2000 字 × 12 項目、UTF-8 で 1 字 3 バイト＝約 70KB）に項目名と外枠を足しても収まる値。
+ * 定義どおりの正しい入力が 413 にならないことをテストで固定している（page-actions.route.test.ts）。
+ */
+export const PAGE_SUBMIT_BODY_LIMIT = 96 * 1024;
 
 export type ActionOutcome<T> = { ok: true; data: T } | { ok: false; status: number; code: string; message: string };
 
@@ -204,13 +209,19 @@ async function resolveAction(ctx: PageActionContext, kind: PageActionKind): Prom
   };
 }
 
-/** n8n へ送る本文。メールアドレス・氏名は送らない（T15） */
+/**
+ * n8n へ送る本文。メールアドレス・氏名は送らない（T15）。
+ * readOnly は「閲覧のみ」（解約・トライアル切れ）の組織か。query は閲覧のみでも通す（K6）ので、
+ * ワークフロー側はこれが true のとき LLM や外部への送信をせず、保存済みのデータを返すだけにする（構築規約 §9・K50）。
+ * submit は requireAuth が 402 で止めるので常に false。
+ */
 function hookBody(
   ctx: PageActionContext,
   kind: PageActionKind,
   plan: string,
   input: Record<string, unknown>,
   requestId: string,
+  readOnly: boolean,
 ): Record<string, unknown> {
   return {
     orgId: ctx.db.orgId,
@@ -221,6 +232,7 @@ function hookBody(
     actor: { userId: ctx.userId, role: ctx.role },
     plan,
     requestId,
+    readOnly,
     aiEngineUrl: config.aiEngineUrl,
   };
 }
@@ -242,9 +254,10 @@ export async function runPageQuery(ctx: PageActionContext): Promise<ActionOutcom
   if (!config.n8nConfigured) return NOT_CONNECTED();
 
   const plan = await planOf(ctx.db);
+  const readOnly = (await orgEntitlement(ctx.db)).access === 'read_only';
   const result = await callPageHook({
     url: buildPageHookUrl(config.n8nUrl, ctx.db.orgId, action.hook),
-    body: hookBody(ctx, 'query', plan, {}, randomUUID()),
+    body: hookBody(ctx, 'query', plan, {}, randomUUID(), readOnly),
     retryOnConnectionError: true,
   });
   if (!result.ok) {
@@ -296,7 +309,7 @@ export async function runPageSubmit(ctx: PageActionContext & { body: unknown }):
   const plan = await planOf(ctx.db);
   const usage = await pageUsageOf(ctx.db, plan);
   if (usage.blocked) {
-    return fail(429, 'PAGE_ACTION_LIMIT', `今月の実行回数の上限（${usage.limit.toLocaleString('ja-JP')} 回）に達しました。来月 1 日に戻ります。`);
+    return fail(429, 'PAGE_ACTION_LIMIT', `今月の実行回数の上限（${usage.limit.toLocaleString('ja-JP')} 回）に達しました。来月 1 日（日本時間 9 時）に戻ります。`);
   }
 
   // 6
@@ -341,35 +354,49 @@ export async function runPageSubmit(ctx: PageActionContext & { body: unknown }):
     return NOT_CONNECTED();
   }
 
-  // 9
-  const result = await callPageHook({
-    url: buildPageHookUrl(config.n8nUrl, ctx.db.orgId, action.hook),
-    body: hookBody(ctx, 'submit', plan, values, body.data.requestId),
-    retryOnConnectionError: false,
-  });
+  // 9〜11: 記録を PENDING のまま残さない（DB の一時的な失敗などで途中で例外が出たら FAILED で確定する。L2）
+  const started = Date.now();
+  let finalized = false;
+  try {
+    // 9
+    const result = await callPageHook({
+      url: buildPageHookUrl(config.n8nUrl, ctx.db.orgId, action.hook),
+      body: hookBody(ctx, 'submit', plan, values, body.data.requestId, false),
+      retryOnConnectionError: false,
+    });
 
-  // 10
-  let outcome: ActionOutcome<PageSubmitData>;
-  let status: 'OK' | 'FAILED' | 'TIMEOUT' | 'INVALID_RESPONSE';
-  if (!result.ok) {
-    status = result.reason;
-    outcome = hookFailureOutcome(result.reason);
-  } else {
-    const parsed = pageSubmitResponseSchema.safeParse(result.json);
-    if (!parsed.success) {
-      status = 'INVALID_RESPONSE';
-      outcome = INVALID_RESPONSE();
+    // 10
+    let outcome: ActionOutcome<PageSubmitData>;
+    let status: 'OK' | 'FAILED' | 'TIMEOUT' | 'INVALID_RESPONSE';
+    if (!result.ok) {
+      status = result.reason;
+      outcome = hookFailureOutcome(result.reason);
     } else {
-      // n8n が { ok: false } と返したときは業務上の失敗。記録は FAILED、利用者には n8n の文言を返す
-      status = parsed.data.ok ? 'OK' : 'FAILED';
-      outcome = { ok: true, data: { ok: parsed.data.ok, ...(parsed.data.message ? { message: parsed.data.message } : {}), sample: false } };
+      const parsed = pageSubmitResponseSchema.safeParse(result.json);
+      if (!parsed.success) {
+        status = 'INVALID_RESPONSE';
+        outcome = INVALID_RESPONSE();
+      } else {
+        // n8n が { ok: false } と返したときは業務上の失敗。記録は FAILED、利用者には n8n の文言を返す
+        status = parsed.data.ok ? 'OK' : 'FAILED';
+        outcome = { ok: true, data: { ok: parsed.data.ok, ...(parsed.data.message ? { message: parsed.data.message } : {}), sample: false } };
+      }
+    }
+
+    // 11
+    await ctx.db.pageActionLog.updateMany({ where: { id: logId }, data: { status, durationMs: result.durationMs } });
+    finalized = true;
+    if (status !== 'OK') {
+      log.warn(`業務ページの送信が失敗 org=${ctx.db.orgId} slug=${ctx.slug} action=${ctx.actionId} status=${status} ms=${result.durationMs}`);
+    }
+    return outcome;
+  } finally {
+    if (!finalized) {
+      // n8n に届いたかどうかは分からない。件数には数えたまま（K35）、状態だけ FAILED で確定する
+      log.warn(`業務ページの送信の記録を確定できませんでした org=${ctx.db.orgId} slug=${ctx.slug} action=${ctx.actionId} log=${logId}`);
+      await ctx.db.pageActionLog
+        .updateMany({ where: { id: logId, status: 'PENDING' }, data: { status: 'FAILED', durationMs: Date.now() - started } })
+        .catch(() => undefined);
     }
   }
-
-  // 11
-  await ctx.db.pageActionLog.updateMany({ where: { id: logId }, data: { status, durationMs: result.durationMs } });
-  if (status !== 'OK') {
-    log.warn(`業務ページの送信が失敗 org=${ctx.db.orgId} slug=${ctx.slug} action=${ctx.actionId} status=${status} ms=${result.durationMs}`);
-  }
-  return outcome;
 }

@@ -15,11 +15,13 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 
 export const SAMPLE_PAGE_SLUG = 'inquiries';
 
-/** 設計書 §9 のサンプル定義（n8n の登録ノードに埋め込むものと同じ） */
+/**
+ * 設計書 §9 のサンプル定義（n8n の登録ノードに埋め込むものと同じ）。
+ * ⚠️ status / sortOrder / minRole は書かない: 書くとワークフローの再実行で管理者が画面で変えた値（公開など）を戻す（§5.3・レビュー M2）。
+ */
 export const SAMPLE_INQUIRIES_UPSERT = {
   title: '問い合わせ',
   icon: 'inbox',
-  status: 'DRAFT',
   definition: {
     actions: {
       list: { kind: 'query', hook: 'inquiries-list' },

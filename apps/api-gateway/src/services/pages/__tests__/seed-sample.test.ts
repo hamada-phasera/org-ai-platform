@@ -42,6 +42,11 @@ describe('サンプル定義（seed / n8n / fixture）', () => {
     expect(parsed.data).toEqual(parsedSampleUpsert());
   });
 
+  it('n8n サンプルの登録 body は status / sortOrder / minRole を書かない（再実行で管理者の公開・並び・役割を戻さない。§5.3）', () => {
+    const body = embeddedUpsert() as Record<string, unknown>;
+    for (const k of ['status', 'sortOrder', 'minRole']) expect(body).not.toHaveProperty(k);
+  });
+
   it('ルートテストの fixture（設計書 §9）とも同じ定義', () => {
     expect(pageDefinitionSchema.parse(SAMPLE_DEFINITION)).toEqual(parsedSampleUpsert().definition);
   });

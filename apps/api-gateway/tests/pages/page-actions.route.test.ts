@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import jwt from '@fastify/jwt';
 import { randomUUID } from 'crypto';
+import { PAGE_DEFINITION_LIMITS } from '@org-ai/shared-types';
 import { FakePrisma } from '../helpers/fake-prisma';
 import { HEADING_DEFINITION, orgRow, pageRow, userAndMembership } from './fixtures';
 
@@ -146,7 +147,7 @@ describe('GET /api/pages/:slug/data/:actionId（query）', () => {
     const body = calledBody();
     expect(body).toMatchObject({
       orgId: 'org-A', page: 'inquiries', action: 'list', kind: 'query', input: {},
-      actor: { userId: 'u-member', role: 'MEMBER' }, plan: 'STARTER', aiEngineUrl: 'http://ai.test',
+      actor: { userId: 'u-member', role: 'MEMBER' }, plan: 'STARTER', readOnly: false, aiEngineUrl: 'http://ai.test',
     });
     expect(typeof body.requestId).toBe('string');
     expect(JSON.stringify(body)).not.toContain('@example.com');
@@ -309,10 +310,80 @@ describe('POST /api/pages/:slug/actions/:actionId（submit）', () => {
     expect(fake.rows('pageActionLog')).toHaveLength(0);
   });
 
-  it('body は 16KB まで（超えたら 413）', async () => {
-    const res = await submit('create', { input: { ...FORM_INPUT, body: 'x'.repeat(17 * 1024) }, requestId: randomUUID(), origin: { blockIndex: 2 } });
+  it('body の上限（96KB）を超えたら 413 PAYLOAD_TOO_LARGE（統一の形・日本語）で n8n に届かない', async () => {
+    const res = await submit('create', { input: { ...FORM_INPUT, body: 'x'.repeat(97 * 1024) }, requestId: randomUUID(), origin: { blockIndex: 2 } });
     expect(res.statusCode).toBe(413);
+    expect(res.json()).toEqual({
+      success: false,
+      error: { code: 'PAYLOAD_TOO_LARGE', message: '送信する内容が大きすぎます。入力を短くしてください。' },
+    });
+    expect(res.body).not.toContain('FST_ERR');
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(fake.rows('pageActionLog')).toHaveLength(0);
+  });
+
+  it('定義が許す最大の入力（日本語の textarea 2000 字 × 12 項目）は 413 にならず n8n に届く', async () => {
+    const keyOf = (i: number) => `f${String(i).padStart(2, '0')}${'x'.repeat(29)}`;
+    const fields = Array.from({ length: PAGE_DEFINITION_LIMITS.fieldsMax }, (_, i) => ({
+      key: keyOf(i), label: `項目${i}`, type: 'textarea', maxLength: PAGE_DEFINITION_LIMITS.textareaMax,
+    }));
+    fake.rows('customPage').push(
+      pageRow({
+        id: 'p-big', orgId: 'org-A', slug: 'big-form',
+        definition: { actions: { send: { kind: 'submit', hook: 'big' } }, blocks: [{ type: 'form', action: 'send', submit: '送信', fields }] },
+      }),
+    );
+    fetchMock.mockImplementation(async () => jsonRes({ ok: true }));
+    const input = Object.fromEntries(fields.map((f) => [f.key, '漢'.repeat(PAGE_DEFINITION_LIMITS.textareaMax)]));
+    const payload = { input, requestId: randomUUID(), origin: { blockIndex: 0 } };
+    expect(Buffer.byteLength(JSON.stringify(payload))).toBeGreaterThan(64 * 1024); // 32 文字の項目名 × 12。旧上限（16KB）では 413 だった
+    const res = await submit('send', payload, MEMBER(), 'big-form');
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('手動 upsert（PUT /api/pages/:slug）の 64KB 超も 413 PAYLOAD_TOO_LARGE', async () => {
+    const res = await app.inject({
+      method: 'PUT', url: '/api/pages/orders', headers: ADMIN(),
+      payload: { title: 'x', definition: { blocks: [], actions: {}, pad: 'x'.repeat(70 * 1024) } },
+    });
+    expect(res.statusCode).toBe(413);
+    expect(res.json().error.code).toBe('PAYLOAD_TOO_LARGE');
+  });
+
+  it('413 以外のエラーは今までどおり（ハンドラは bodyLimit 超過だけを置き換える）', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/pages/inquiries/actions/create', headers: { ...MEMBER(), 'content-type': 'application/json' }, payload: '{broken',
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ statusCode: 400, error: 'Bad Request' });
+  });
+
+  it('確定（updateMany）が一時的に失敗しても、記録は PENDING のまま残さず FAILED で確定する（L2）', async () => {
+    fetchMock.mockImplementation(async () => jsonRes({ ok: true }));
+    // 偽 Prisma の pageActionLog.updateMany を 1 回だけ失敗させる
+    const target = fake as unknown as { delegate: (m: string) => Record<string, (a?: unknown) => Promise<unknown>> };
+    const original = target.delegate.bind(fake);
+    let failed = false;
+    target.delegate = (model: string) => {
+      const d = original(model);
+      if (model !== 'pageActionLog') return d;
+      return {
+        ...d,
+        updateMany: async (args?: unknown) => {
+          if (!failed) {
+            failed = true;
+            throw new Error('db temporarily unavailable');
+          }
+          return d.updateMany!(args);
+        },
+      };
+    };
+    const res = await submit('create');
+    expect(res.statusCode).toBe(500);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fake.rows('pageActionLog')).toHaveLength(1);
+    expect(fake.rows('pageActionLog')[0]!.status).toBe('FAILED');
   });
 
   it('同じ requestId は 409 DUPLICATE_REQUEST（n8n には 1 回だけ）', async () => {
@@ -461,8 +532,9 @@ describe('閲覧のみ（解約・トライアル切れ）の組織', () => {
     });
   });
 
-  it('データ取得（GET）は通る', async () => {
+  it('データ取得（GET）は通る。n8n には readOnly: true を渡す（LLM・外部送信をさせない合図。K50）', async () => {
     expect((await data('inquiries', 'list')).statusCode).toBe(200);
+    expect(calledBody()).toMatchObject({ kind: 'query', readOnly: true });
   });
 
   it('送信（POST）は 402 SUBSCRIPTION_REQUIRED で n8n に届かない', async () => {

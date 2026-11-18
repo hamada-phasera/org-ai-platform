@@ -96,6 +96,27 @@ describe.skipIf(!hasTestDatabase)('業務ページの API（実 Postgres・build
     expect(page.body).not.toContain('hook');
   });
 
+  it('公開・タイトル・アイコンを画面で変えた後に同じ body で再登録しても戻らない（§5.3・K51・レビュー M2）', async () => {
+    const patch = await app.inject({
+      method: 'PATCH', url: '/api/pages/inquiries', headers: a.headers, payload: { title: '受付', icon: 'file-text' },
+    });
+    expect(patch.statusCode).toBe(200);
+    const row = await db!.prisma.customPage.findFirstOrThrow({ where: { orgId: a.orgId, slug: 'inquiries' } });
+    expect(row.adminEditedFields).toEqual(['title', 'icon']);
+
+    const again = await register(tokenA, 'inquiries', sampleUpsert());
+    expect(again.statusCode).toBe(200);
+    expect(again.json().data).toMatchObject({ status: 'PUBLISHED', changed: false });
+    const after = await db!.prisma.customPage.findFirstOrThrow({ where: { orgId: a.orgId, slug: 'inquiries' } });
+    expect(after).toMatchObject({ status: 'PUBLISHED', title: '受付', icon: 'file-text', version: 1 });
+
+    // 後のテストは n8n からタイトルを変える前提なので、行を元に戻して記録も消す（テストの後片付け）
+    await db!.prisma.customPage.updateMany({
+      where: { orgId: a.orgId, slug: 'inquiries' },
+      data: { title: '問い合わせ', icon: 'inbox', adminEditedFields: [] },
+    });
+  });
+
   it('梅（トライアル）はページ 1 つまで。2 つ目は 403、既存の更新は通る', async () => {
     const res = await register(tokenA, 'orders', sampleUpsert());
     expect(res.statusCode).toBe(403);

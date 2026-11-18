@@ -80,20 +80,33 @@ export async function listPageTokens(db: TenantDb) {
 }
 
 /** 発行。**生トークンはこの戻り値にしか無い**（呼び出し側は応答に 1 回だけ載せる） */
+const tokenLimitError = () =>
+  new PageServiceError(
+    409,
+    'PAGE_TOKEN_LIMIT',
+    `有効な登録トークンは ${MAX_ACTIVE_PAGE_TOKENS} 本までです。使っていないトークンを失効してから発行してください。`,
+  );
+
 export async function issuePageToken(db: TenantDb, args: { label: string; actorId: string }) {
   const active = await db.pageToken.count({ where: { revokedAt: null } });
-  if (active >= MAX_ACTIVE_PAGE_TOKENS) {
-    throw new PageServiceError(
-      409,
-      'PAGE_TOKEN_LIMIT',
-      `有効な登録トークンは ${MAX_ACTIVE_PAGE_TOKENS} 本までです。使っていないトークンを失効してから発行してください。`,
-    );
-  }
+  if (active >= MAX_ACTIVE_PAGE_TOKENS) throw tokenLimitError();
   const { raw, hash, prefix } = generatePageToken();
   const row = await db.pageToken.create({
     data: { orgId: db.orgId, label: args.label, tokenHash: hash, prefix, createdBy: args.actorId },
     select: PAGE_TOKEN_PUBLIC_SELECT,
   });
+  // 数えてから作るので、同時の発行（二度押し）で上限を超えうる。作った後に古い順で数え直し、
+  // 枠からはみ出した自分の行は消して断る（まだ誰にも見せていないので失効ではなく削除。レビュー L3）
+  const oldest = await db.pageToken.findMany({
+    where: { revokedAt: null },
+    select: { id: true },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    take: MAX_ACTIVE_PAGE_TOKENS,
+  });
+  if (!oldest.some((t) => t.id === row.id)) {
+    await db.pageToken.deleteMany({ where: { id: row.id } });
+    throw tokenLimitError();
+  }
   // ⚠️ 監査にも値は入れない（id と prefix だけ）
   await recordAudit(db, {
     action: 'page_token.issue',
