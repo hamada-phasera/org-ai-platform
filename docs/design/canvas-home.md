@@ -2,7 +2,7 @@
 
 > **一行要約**: ホームを「業務のノードが線でつながるキャンバス」に替える。キャンバスもフロー編集も実行も **FLOW 自前**（`@xyflow/react` ＋ gateway 内の軽量ランナー）で作り、n8n は**運営が作った「部品」を呼ぶだけ**の裏方に留める。お客さんが n8n のワークフローを作る・編集する形は n8n のライセンス違反になるため採らない。
 
-- 状態: チャンク 1（shared-types の定義スキーマと上限）・チャンク 2（テンプレート・既定の配置・部品カタログ・`flow_query` `flow_submit`）・チャンク 3（DB: `Canvas` / `Flow` / `FlowVersion` / `FlowRun`・`CustomPage.flowId`・`ScheduledTask.flowId`）実装済み。2026-11-18。ブランチ `feat/canvas-home`（`feat/custom-pages` の上に積む）
+- 状態: チャンク 1（shared-types の定義スキーマと上限）・チャンク 2（テンプレート・既定の配置・部品カタログ・`flow_query` `flow_submit`）・チャンク 3（DB: `Canvas` / `Flow` / `FlowVersion` / `FlowRun`・`CustomPage.flowId`・`ScheduledTask.flowId`）・チャンク 4（gateway: キャンバスとフローの取得・保存 API）実装済み。2026-11-19。ブランチ `feat/canvas-home`（`feat/custom-pages` の上に積む）
 - 前提にした既存の決まり: CLAUDE.md、DESIGN.md、`docs/ARCHITECTURE.md`、`docs/design/multi-tenancy.md`、`docs/design/custom-pages.md`、`docs/n8n-integration-design.md`、`docs/plan/saas-readiness-plan.md`、`docs/billing.md`
 - 変えない原則: **DB が真実の源 / n8n は加速レイヤー / ルートは `authOf(request).db` だけ / エラーは `{ success:false, error:{ code, message } }` / LLM は必ず ai-engine の LLMRouter 経由 / 外部送信は必ず人が通す**
 
@@ -1080,6 +1080,14 @@ DB の大きさの目安（仮定: 1 実行 20KB）: 100 社 × 月 1,000 実行
 | K40 | `CustomPage.flowId` と `ScheduledTask.flowId` は `Flow` への **FK（ON DELETE CASCADE）**。`CustomPage.flowId` は `@unique`（NULL は複数可） | フローを消したらページと定期も消える（§5.5）を、アプリの消し忘れがあっても DB で保証。定期を SET NULL にすると flowId も agentId も無い行＝部署ワークフローの定期実行に化ける。「フロー 1 つに 1 ページ」も構造で守る | FK にしない（アプリの同じトランザクションだけに頼る）／SET NULL |
 | K41 | `FlowRun.taskId` は `@unique` だが **FK にしない** | 対の `Task` が消えても実行の記録（監査・月間件数）を残す（K25 と同じ考え方） | `Task` への FK（SET NULL） |
 | K42 | `PAGE_SOURCES` に `'FLOW'` を足す。n8n の登録経路は既存の「N8N 以外の行は 409 `PAGE_SOURCE_CONFLICT`」でそのまま結果ページを守る（テストを足した）。設定画面（MANUAL）の上書きを FLOW に対してどうするかはチャンク 9 で決める | 値域を 1 か所で縛る（K17 の流儀）。n8n 側は追加の分岐なしで止まる | チャンク 9 まで値を足さない |
+
+| K43 | テンプレートから作るフローの slug は **テンプレートのキーの `_` を `-` にしたもの**（`sns_post` → `sns-post`。`flowTemplateSlug`）。手作りのフローはこの slug を使えない（400） | slug の形（英小文字・数字・ハイフン）に `_` が無い。決まった値なので同時に押しても 1 つ（§5.3）のまま | slug の形に `_` を足す（業務ページと揃わなくなる） |
+| K44 | `POST /api/flows` の空のフローは「きっかけ（手動）→ 出力（ページ・値なし）」の 2 ノード（`emptyFlowDefinition`） | スキーマの最小（ノード 2・線 1）に合わせる。外へは何も送らない | きっかけ 1 つだけ（スキーマの最小を下げると検証が二重になる） |
+| K45 | きっかけが「定期」のフローの `ScheduledTask` の同期は**チャンク 6**（dispatcher が `flowId` を解すのと同時）。チャンク 4 の保存は定期の行を作らない。削除だけは同じトランザクションで消す | 先に行を作ると、今の dispatcher が flowId を見ずに部署ワークフローの定期実行として動かしてしまう | チャンク 4 で同期まで入れる |
+| K46 | `PATCH` の `node` は**既にある文字の項目だけ**（`label` と config の文字列。`mode` `kind` `op` `part` `resource` `channel` `department` `minRole` は除く）を差し替え、定義全体をスキーマに通し直す。`baseVersion` 必須 | スマホの簡単な変更で構造（型・参照先・宛先の種類）が変わらない。式の参照も保存時と同じ検査 | 任意のパスを書き換える |
+| K47 | `from-template` のキャンバスの書き換えは、指定ノードの行き先が**同じテンプレートかこのフロー**のときだけ。キャンバスの版が動いていたら書き換えだけ諦める（フローは作る）。フローを消すと、テンプレート由来ならノードをテンプレートに戻す（手作りは web が「未作成」と描く） | 他人のキャンバス編集を上書きしない。もう一度押せば同じフローが返るので失うものが無い | キャンバスの衝突で作成ごと 409 |
+| K48 | `GET /api/flows/:id` は保存済みの定義がスキーマに合わなくても返す（`valid: false`）。`PUT` の検証エラーは 400 `FLOW_INVALID_DEFINITION` に `issues: { path, message }[]`（20 件まで・値は入れない）を足す | 古い形の行をフロー画面で直せる。web が該当ノードに印を付けられる（チャンク 8） | 業務ページと同じく 500 で開かせない |
+| K49 | `from-template` で既にあるフローが自分の役割より上の `minRole` なら 404（作ったことも漏らさない） | T15 と同じ「見えないものは 404」 | 既存を返す |
 
 ## 15. 未確認・実装時に確かめること
 

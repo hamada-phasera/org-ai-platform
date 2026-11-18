@@ -57,8 +57,13 @@ function canonical(value: unknown): unknown {
   return value;
 }
 
+/** キーの順に依らない JSON の sha256（業務フローの定義のハッシュも同じものを使う） */
+export function canonicalHashOf(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
+}
+
 export function definitionHashOf(definition: PageDefinition): string {
-  return createHash('sha256').update(JSON.stringify(canonical(definition))).digest('hex');
+  return canonicalHashOf(definition);
 }
 
 export interface UpsertPageArgs {

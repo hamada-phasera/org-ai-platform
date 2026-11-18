@@ -202,3 +202,34 @@ describe('buildPartInputSchema（T8）', () => {
     expect(s.safeParse({ qty: '1', ok: 'yes' }).success).toBe(false);
   });
 });
+
+describe('テンプレートの slug・空のフロー・フローの位置（チャンク 4）', () => {
+  it('テンプレートの slug は slug の形で、キーの _ を - にしたもの', async () => {
+    const { flowTemplateSlug, FLOW_TEMPLATE_SLUGS, FLOW_SLUG_PATTERN } = await import('../index');
+    expect(flowTemplateSlug('sns_post')).toBe('sns-post');
+    expect(flowTemplateSlug('proposal')).toBe('proposal');
+    expect(FLOW_TEMPLATE_SLUGS).toHaveLength(FLOW_TEMPLATE_KEYS.length);
+    for (const s of FLOW_TEMPLATE_SLUGS) expect(FLOW_SLUG_PATTERN.test(s)).toBe(true);
+  });
+
+  it('空のフローはスキーマを通り、外へ送るノードを持たない', async () => {
+    const { emptyFlowDefinition } = await import('../index');
+    const { definition, layout } = emptyFlowDefinition();
+    expect(flowDefinitionSchema.safeParse(definition).success).toBe(true);
+    expect(definition.nodes.some((n) => isExternalSendNode(n as any, FLOW_PARTS))).toBe(false);
+    expect(Object.keys(layout).sort()).toEqual(definition.nodes.map((n) => n.id).sort());
+    // 毎回別のオブジェクト（書き換えても次に影響しない）
+    expect(emptyFlowDefinition()).not.toBe(emptyFlowDefinition());
+  });
+
+  it('flowLayoutSchema は座標を丸め、未知キー・ノード ID でないキー・上限超えを拒否する', async () => {
+    const { flowLayoutSchema } = await import('../index');
+    expect(flowLayoutSchema.parse({ a: { x: 1.6, y: -99999 } })).toEqual({ a: { x: 2, y: -5000 } });
+    expect(flowLayoutSchema.safeParse({ a: { x: 0, y: 0, z: 1 } }).success).toBe(false);
+    expect(flowLayoutSchema.safeParse({ 'Bad-Id': { x: 0, y: 0 } }).success).toBe(false);
+    expect(flowLayoutSchema.safeParse({ __proto__x: { x: 0, y: 0 } }).success).toBe(false);
+    expect(flowLayoutSchema.safeParse({ a: { x: Number.NaN, y: 0 } }).success).toBe(false);
+    const many = Object.fromEntries(Array.from({ length: FLOW_DEFINITION_LIMITS.maxNodes + 1 }, (_, i) => [`n${i}`, { x: 0, y: 0 }]));
+    expect(flowLayoutSchema.safeParse(many).success).toBe(false);
+  });
+});

@@ -442,5 +442,17 @@ export const canvasLayoutSchema = baseCanvasLayoutSchema.superRefine((layout, ct
 });
 
 export type CanvasLayout = z.output<typeof baseCanvasLayoutSchema>;
+
+// ── フローのノード位置（設計書 §5.3 `Flow.layout`。定義と分ける＝K16） ─────────────────
+
+/**
+ * `{ [nodeId]: { x, y } }`。座標はキャンバスと同じく −5000〜5000 の整数に丸める。
+ * 定義に無いノードの位置は gateway が保存時に捨てる（`pickFlowLayout`）。
+ */
+export const flowLayoutSchema = z
+  .record(flowNodeIdSchema, z.object({ x: coordSchema, y: coordSchema }).strict())
+  .refine((r) => Object.keys(r).length <= L.maxNodes, `位置は ${L.maxNodes} 個までです`);
+
+export type FlowLayout = z.output<typeof flowLayoutSchema>;
 export type CanvasNode = z.output<typeof canvasNodeSchema>;
 export type CanvasTarget = z.infer<typeof canvasTargetSchema>;

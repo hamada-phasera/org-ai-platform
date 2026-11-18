@@ -37,6 +37,8 @@ import { memberRoutes } from './routes/members';
 import { billingRoutes } from './routes/billing';
 import { stripeWebhookRoutes } from './routes/billing-webhook';
 import { pageRoutes } from './routes/pages';
+import { canvasRoutes } from './routes/canvas';
+import { flowRoutes } from './routes/flows';
 import { n8nPageRoutes } from './routes/n8n-pages';
 import { prisma } from './utils/prisma';
 import { config, ENV_DEFAULTS } from './config/env';
@@ -140,6 +142,9 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(stripeWebhookRoutes, { prefix: '/api/webhooks/stripe' });
   await app.register(pageRoutes, { prefix: '/api/pages' });
   await app.register(n8nPageRoutes, { prefix: '/api/webhooks/n8n/pages' });
+  // ホームキャンバスと業務フロー（docs/design/canvas-home.md §7.1）
+  await app.register(canvasRoutes, { prefix: '/api/canvas' });
+  await app.register(flowRoutes, { prefix: '/api/flows' });
 
   return app;
 }

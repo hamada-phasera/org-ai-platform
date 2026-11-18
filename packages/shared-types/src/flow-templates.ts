@@ -206,6 +206,35 @@ export const FLOW_TEMPLATES: Readonly<Record<FlowTemplateKey, FlowTemplate>> = {
 };
 
 /**
+ * テンプレートから作るフローの slug（設計書 §5.3）。テンプレートのキーの `_` を `-` にしたもの
+ * （slug は英小文字・数字・ハイフン。`sns_post` → `sns-post`）。決まった値なので、2 人が同時に押しても
+ * `@@unique([orgId, slug])` で 1 つになる。手作りのフローはこの slug を使えない。
+ */
+export function flowTemplateSlug(key: FlowTemplateKey): string {
+  return key.replace(/_/g, '-');
+}
+
+/** テンプレート由来の slug（手作りのフローに使わせない） */
+export const FLOW_TEMPLATE_SLUGS: readonly string[] = (Object.keys(FLOW_TEMPLATES) as FlowTemplateKey[]).map(flowTemplateSlug);
+
+/**
+ * 空のフロー（`POST /api/flows`）の定義。スキーマの最小（ノード 2・線 1）に合わせ、
+ * 「きっかけ（手動）→ 出力（ページ・値なし）」にする。外へは何も送らない。
+ */
+export function emptyFlowDefinition(): { definition: FlowDefinition; layout: Record<string, { x: number; y: number }> } {
+  return {
+    definition: {
+      nodes: [
+        { id: 'start', type: 'trigger', label: 'きっかけ', config: { mode: 'manual' } },
+        { id: 'result', type: 'output', label: '出力', config: { kind: 'page', values: {} } },
+      ],
+      edges: [{ from: 'start', to: 'result' }],
+    },
+    layout: verticalLayout(['start', 'result']),
+  };
+}
+
+/**
  * テンプレートの複製（深いコピー）。from-template はこれを保存する。
  * 呼び出し側が書き換えても FLOW_TEMPLATES は変わらない。
  */

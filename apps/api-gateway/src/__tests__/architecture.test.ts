@@ -134,3 +134,27 @@ describe('A5: process.env を読むのは config/env.ts だけ（CLAUDE.md「環
     expect(offenders).toEqual([]);
   });
 });
+
+describe('A6: 業務フローとキャンバスの経路は n8n の public API に触れない（docs/design/canvas-home.md D9・T22・§8.4）', () => {
+  const FLOW_FILES = files.filter(
+    (f) => f.rel === 'routes/flows.ts' || f.rel === 'routes/canvas.ts' || f.rel.startsWith('services/flows/'),
+  );
+  /** コメントを除いたコード（説明の文に名前が出るのは構わない） */
+  const code = (src: string) =>
+    src
+      .split('\n')
+      .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+      .join('\n');
+
+  it('対象のファイルがある（検査が空振りしていない）', () => {
+    expect(FLOW_FILES.map((f) => f.rel)).toEqual(expect.arrayContaining(['routes/flows.ts', 'routes/canvas.ts', 'services/flows/store.ts']));
+  });
+  it('n8n-workflow-builder を import せず、n8nApiKey と /api/v1/ を参照しない', () => {
+    const bad = FLOW_FILES.filter((f) => /n8n-workflow-builder|n8nApiKey|\/api\/v1\//.test(code(f.src))).map((f) => f.rel);
+    expect(bad).toEqual([]);
+  });
+  it('eval / new Function / node:vm を使わない（T2）', () => {
+    const bad = FLOW_FILES.filter((f) => /\beval\s*\(|new\s+Function\s*\(|['"](node:)?vm['"]/.test(code(f.src))).map((f) => f.rel);
+    expect(bad).toEqual([]);
+  });
+});
