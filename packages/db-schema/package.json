@@ -7,10 +7,11 @@
     "generate": "prisma generate",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "seed": "ts-node prisma/seed.ts",
+    "seed": "npm run build -w @org-ai/shared-types && ts-node prisma/seed.ts",
     "studio": "prisma studio"
   },
   "dependencies": {
+    "@org-ai/shared-types": "*",
     "@prisma/client": "^5.0.0",
     "bcryptjs": "^2.4.3"
   },

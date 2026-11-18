@@ -47,11 +47,27 @@
 | `member.role_change` / `member.status_change` | 役割変更・無効化と復帰 |
 | `billing.checkout_start` / `billing.plan_change` / `billing.storage_addon` | Checkout 開始・プラン変更・追加容量 |
 | `integration.connect` / `integration.disconnect` | Slack・Google・LINE の接続と切断 |
+| `page.upsert` / `page.delete` / `page.publish` / `page.unpublish` | 業務ページの登録・削除・公開（n8n 経由は `actorId` が null、`meta.registrarId` に登録トークンの id） |
+| `page_token.issue` / `page_token.revoke` | ページ登録トークンの発行・失効 |
 
 - 操作の後に書くものは、記録に失敗しても操作は成功させる（ログに `[audit]`）。
 - `meta` は名前が秘密らしいキー（token / secret / password / key / authorization など）の値を `[REDACTED]` にし、文字列は 200 文字で切る。
   呼び出し側も生トークン・暗号文を渡さない（テストで固定）。
 - 閲覧は管理者以上。操作者の名前はその組織の所属から引く。
+
+## 業務ページ（n8n 連携）
+
+設計は `docs/design/custom-pages.md` §10、構築の手順は `docs/custom-pages-n8n.md`。
+
+| 守り | 中身 |
+|---|---|
+| 届く先 | gateway が `${N8N の URL}/webhook/pages/<JWT の orgId>/<hook>` に組み立てる。定義に書けるのは `hook`（英小文字・数字・ハイフン）だけ＝他組織・既存の `dept-*` `cap-*` `agent-*` には構造的に届かない。リダイレクトは追わない |
+| 登録 | 組織ごとの登録トークン（`x-page-token`、`flowpg_…`）。DB はハッシュと先頭 10 文字だけ、生値は発行時に 1 回だけ表示、失効は即時、有効は 2 本まで。共有トークン（`x-webhook-token`）では登録できない |
+| 描画 | 許可リストの 7 ブロックだけ、`.strict()`、テキストノードだけで描く（`dangerouslySetInnerHTML`・リンク・画像・スタイルは定義から来ない）。n8n の応答は宣言した key とスカラーに切り詰めてから web に渡す |
+| 応答 | `hook`・トークンのハッシュ・n8n の URL とエラー本文は利用者に返さない。ログにも入力値・応答本文を出さない |
+| 記録 | `PageActionLog` は送信ごとに項目名だけ（値は持たない） |
+| サンプルモード | `PAGES_SAMPLE_MODE=true` は本番（`NODE_ENV=production`）では常に無効。`sampleData` は seed だけが書ける |
+| 外部送信 | ページのアクションは JWT のルートからしか呼べない（エージェント・定期実行からは呼べない）。外へ送るアクションには `confirm` を書く規約 |
 
 ## メールの小文字化
 

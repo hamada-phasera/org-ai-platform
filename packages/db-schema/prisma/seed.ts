@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { SAMPLE_PAGE_SLUG, seedSamplePages } from './seed-pages';
 
 const prisma = new PrismaClient();
 
@@ -34,9 +35,13 @@ async function main(): Promise<void> {
     create: { userId: admin.id, orgId: org.id, role: 'OWNER' },
   });
 
+  // 業務ページのサンプル（docs/design/custom-pages.md §8）。PAGES_SAMPLE_MODE=true なら n8n 無しで /p/inquiries が動く
+  const page = await seedSamplePages(prisma, org.id);
+
   console.log('Seed data created successfully');
   console.log('  Organization: Demo Corp (id: demo-org-001)');
   console.log('  User: admin@demo.com / demo1234');
+  console.log(`  Page: /p/${SAMPLE_PAGE_SLUG} (${page})`);
 }
 
 main()

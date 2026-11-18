@@ -2,7 +2,7 @@
 
 > **一行要約**: 組織ごとの「ページ定義（JSON）」を DB に持ち、n8n が登録トークンで upsert する。web は許可リストのブロックだけを描画し、データ取得・フォーム送信・ボタンは必ず gateway を通って、その組織専用の n8n Webhook（`pages/<orgId>/<hook>`）にだけ届く。
 
-- 状態: チャンク 1（shared-types）・2（DB）・3（取得・管理 API と登録トークン）・4（アクション実行）・5（web の描画とナビ）・6（設定 > 業務ページ）実装済み、7 は未実装。2026-11-18。ブランチ `feat/custom-pages`
+- 状態: チャンク 1〜7（shared-types・DB・取得/管理 API と登録トークン・アクション実行・web の描画とナビ・設定 > 業務ページ・シードと n8n サンプルと手順書）実装済み。2026-11-18。ブランチ `feat/custom-pages`
 - 前提にした既存の決まり: CLAUDE.md、DESIGN.md、`docs/ARCHITECTURE.md`、`docs/design/multi-tenancy.md`、`docs/n8n-integration-design.md`、`docs/plan/saas-readiness-plan.md` §2・§7
 - 既存の原則は変えない: **DB が真実の源 / n8n は加速レイヤー / ルートは `authOf(request).db` だけ / エラーは `{ success:false, error:{ code, message } }` / LLM は必ず ai-engine の LLMRouter 経由**
 
@@ -615,6 +615,10 @@ n8n への呼び出し:
 | K43 | （実装時）セットアップ状況の「業務ページの接続」（key `pages`）は、宛先が明示されていれば n8n の `GET /healthz` を 1 回だけ叩く（5 秒・リダイレクトを追わない・Webhook は叩かない）。未設定は warn、共有トークンが既定値なら error（接続は確かめない）、届かなければ「確認できず」 | 「有無ではなく実際に確かめる」既存の流儀。Webhook を叩くと顧客のワークフローが動いてしまう | 環境変数の有無だけ（値が間違っていても「設定済み」に見える） |
 | K44 | （実装時）並び替えは新しい API を足さず、入れ替えた後の並びで番号がずれた行だけを既存の `PATCH /api/pages/:slug`（`sortOrder` = 0,1,2…）で順に送る | 既定の `sortOrder` が全部 0 でも順が決まる。ページは最大 20 で、1 回の入れ替えで送るのは高々数件。§5.1 の API を変えない | 一括の並び替え API（1 本増える） |
 | K45 | （実装時）設定 > 業務 は他のタブ（`Card` で包む）に合わせず、§7.3 のとおり白い面に区切り線と表だけ。トークンの発行・一覧はスマホでは「パソコンで開いてください」の 1 行だけ。web の「有効 2 本まで」は gateway の `MAX_ACTIVE_PAGE_TOKENS` と同じ値を持ち、超えた発行は gateway が 409 で止める | 業務ページの見た目の決まり（カードの入れ子なし）を設定でも守る。長いトークンの扱いはパソコン（DESIGN.md §4） | 他の設定タブと同じ Card |
+| K46 | （実装時）サンプル定義の正本は `seed-pages.ts` の TS 定数。n8n サンプルの登録ノード（HTTP Request の `jsonBody`）に同じ JSON を埋め込み、gateway のテストで一致・スキーマ通過・ハッシュ一致（`definitionHashOf`）を確かめる。seed は再実行で定義と `sampleData` だけ合わせ（定義が変わったときだけ version + 1）、status・並び・title は守り、SEED 以外の同名ページには触らない | n8n の JSON から TS を読む／TS から JSON を生成するより、両方を置いてテストで縛る方が単純。seed のハッシュを gateway と同じにして手動 upsert で無駄に版が上がらないようにする | 実行時に n8n の JSON を読む（seed が apps/ に依存する） |
+| K47 | （実装時）サンプルのデータ元は n8n の**ワークフロー静的データ**（Code ノードの `$getWorkflowStaticData`）。外部の credential 無しで「登録 → 表に出る → 完了」まで通る。`remind` は外へ送らず文言だけ返す（送り先はワークフローに足す前提で `confirm` 付き） | 取り込んだ直後に動き、顧客のデータ元（スプレッドシート等）に差し替える場所が 1 ノードに閉じる | Data Table（n8n の版で有無が違う）／スプレッドシート（credential が要る） |
+| K48 | （実装時）`n8n:import` の対象選びを `scripts/n8n-import-files.mjs` に出し、直下のファイルの `dept-*` `cap-*` だけにする（サブディレクトリは読まない） | 「pages/ を拾わない」を node --test で固定できる（取り込みスクリプト本体は読み込むと API を叩く） | 本体のまま正規表現だけ見るテスト |
+| K49 | （実装時）`npm run seed` は先に shared-types をビルドする（ts-node が CommonJS で dist を読むため）。型チェックは db-schema の tsconfig の `paths` でソースを見る（dist に依存しない、gateway と同じ） | CI は build の前に typecheck を回す | seed だけ tsx に替える（README・手順が変わる） |
 
 ## 15. 未確認・実装時に確かめること
 
