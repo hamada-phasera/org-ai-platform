@@ -6,7 +6,9 @@ import {
   MOBILE_MENU,
   MOBILE_TABS,
   NAV_ROUTES,
+  CUSTOM_PAGES_ENTRY,
   isMobileRoute,
+  showInMobileMenu,
 } from '../navConfig';
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
@@ -27,6 +29,8 @@ const EXPECTED: Record<string, boolean> = {
   '/analytics': false,
   '/sns': false,
   '/accounting': true,
+  '/p': true,
+  '/p/:slug': true,
   '/settings': true,
 };
 
@@ -114,6 +118,30 @@ describe('ナビの表', () => {
     expect([...MOBILE_MENU, ...DESKTOP_MENU].map((e) => e.to).sort()).toEqual(all);
     for (const e of MOBILE_MENU) expect(isMobileRoute(e.to)).toBe(true);
     for (const e of DESKTOP_MENU) expect(isMobileRoute(e.to)).toBe(false);
+  });
+});
+
+describe('業務ページ（/p）', () => {
+  it('スマホで開ける（一覧と各ページ）', () => {
+    expect(isMobileRoute('/p')).toBe(true);
+    expect(isMobileRoute('/p/inquiries')).toBe(true);
+    expect(isMobileRoute('/pages')).toBe(false);
+  });
+
+  it('下部タブは増やさない（K14）。メニューの「スマホで使える」に「業務」1 行', () => {
+    expect(MOBILE_TABS).toHaveLength(4);
+    expect(MOBILE_MENU.filter((e) => e.to === '/p')).toEqual([CUSTOM_PAGES_ENTRY]);
+    expect(CUSTOM_PAGES_ENTRY.label).toBe('業務');
+  });
+
+  it('ページが 0 件の組織にはメニューの「業務」を出さない', () => {
+    expect(showInMobileMenu(CUSTOM_PAGES_ENTRY, false)).toBe(false);
+    expect(showInMobileMenu(CUSTOM_PAGES_ENTRY, true)).toBe(true);
+    for (const e of MOBILE_MENU.filter((x) => x !== CUSTOM_PAGES_ENTRY)) expect(showInMobileMenu(e, false)).toBe(true);
+  });
+
+  it('MobileNav はメニューを showInMobileMenu で絞る', () => {
+    expect(read('../MobileNav.tsx')).toContain('showInMobileMenu(item, hasCustomPages)');
   });
 });
 

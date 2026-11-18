@@ -121,7 +121,7 @@ flowchart TD
 
 | パス | 送り手 | 処理 |
 |---|---|---|
-| `/api/webhooks/n8n/*` | n8n | タスク完了・ログ・キュー取得・定期実行（Header Auth のトークンで検証） |
+| `/api/webhooks/n8n/*` | n8n | タスク完了・ログ・キュー取得・定期実行（Header Auth のトークンで検証）。業務ページの登録 `/api/webhooks/n8n/pages/*` だけは組織ごとの登録トークン（`x-page-token`） |
 | `/api/webhooks/line/*` | LINE | 受信箱に積む。画像は `/vision/receipt` で読み取り、原価の **DRAFT** を作る（画像は保存しない） |
 | `/api/webhooks/stripe` | Stripe | 署名検証 → サブスクリプションを取り直して組織に写す（`services/billing/sync.ts`） |
 
@@ -141,6 +141,16 @@ flowchart TD
   保存/削除と同じトランザクションで増減する。
 - service_role キーは RLS を貫通するので、組織の切り分けはアプリ側（キー先頭の orgId と `keyBelongsToOrg`）。
 - アップロードされた文書は抽出 → 分割 → 埋め込みして `FileChunk`（pgvector）に索引する（RAG）。
+
+### 2.7 業務ページ（n8n 連携）
+
+- 組織ごとの画面 `/p/:slug`。定義（許可リストのブロックとアクション）は DB の `CustomPage` が正本で、
+  n8n が組織ごとの登録トークンで `PUT /api/webhooks/n8n/pages/:slug` する（`routes/n8n-pages.ts` → `services/pages/upsert.ts`）。
+- データ取得（GET `/api/pages/:slug/data/:actionId`）と送信（POST `/api/pages/:slug/actions/:actionId`）は
+  `services/pages/action-runner.ts` が `pages/<orgId>/<hook>` の n8n Webhook に届ける。ai-engine へのフォールバックはしない（未接続を出す）。
+- 応答は shared-types の `projectQueryResult` で定義どおりに切り詰めてから web に返す。送信は `PageActionLog` に記録し、月間の上限（`PAGE_LIMITS`）を数える。
+- 開発は seed（`packages/db-schema/prisma/seed-pages.ts`）＋ `PAGES_SAMPLE_MODE=true` で n8n 無しに動く。
+  設計は `docs/design/custom-pages.md`、構築手順は `docs/custom-pages-n8n.md`。
 
 ## 3. 主要ディレクトリと責務
 
@@ -181,7 +191,7 @@ flowchart TD
 ### packages
 
 - `shared-types`: web と gateway で共有する型・定数（プラン上限、`canUpload()`、承認が要る capability など）。
-- `db-schema`: Prisma スキーマ・マイグレーション・seed。ai-engine と usage-metrics-svc は同じテーブルを SQL で読む。
+- `db-schema`: Prisma スキーマ・マイグレーション・seed（デモ組織と業務ページのサンプル）。ai-engine と usage-metrics-svc は同じテーブルを SQL で読む。
 
 ## 4. 設定（環境変数）の読み込み口
 

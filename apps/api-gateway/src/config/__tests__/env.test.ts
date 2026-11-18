@@ -77,6 +77,55 @@ describe('config: 値の読み方', () => {
     expect(config.n8nUrl).toBe('https://cloud.test');
   });
 
+  it('空文字・空白だけの N8N_CLOUD_URL は飛ばして N8N_URL を使う（n8nConfigured と同じ見方。L6）', () => {
+    process.env.N8N_CLOUD_URL = '';
+    process.env.N8N_URL = ' https://self.test ';
+    expect(config.n8nConfigured).toBe(true);
+    expect(config.n8nUrl).toBe('https://self.test');
+    process.env.N8N_CLOUD_URL = '   ';
+    expect(config.n8nUrl).toBe('https://self.test');
+    delete process.env.N8N_URL;
+    expect(config.n8nUrl).toBe('http://localhost:5678');
+  });
+
+  it('n8nConfigured は N8N_CLOUD_URL か N8N_URL が明示されたときだけ真（既定の localhost では偽。業務ページ K8）', () => {
+    expect(config.n8nConfigured).toBe(false);
+    process.env.N8N_URL = '  ';
+    expect(config.n8nConfigured).toBe(false);
+    process.env.N8N_URL = 'https://self.test';
+    expect(config.n8nConfigured).toBe(true);
+    delete process.env.N8N_URL;
+    process.env.N8N_CLOUD_URL = 'https://cloud.test';
+    expect(config.n8nConfigured).toBe(true);
+  });
+
+  it('pagesSampleMode は PAGES_SAMPLE_MODE=true かつ本番でないときだけ真（T16）', () => {
+    expect(config.pagesSampleMode).toBe(false);
+    process.env.PAGES_SAMPLE_MODE = 'true';
+    expect(config.pagesSampleMode).toBe(true);
+    process.env.NODE_ENV = 'production';
+    expect(config.pagesSampleMode).toBe(false);
+    process.env.NODE_ENV = 'development';
+    process.env.PAGES_SAMPLE_MODE = '1';
+    expect(config.pagesSampleMode).toBe(false);
+  });
+
+  it('pageActionTimeoutMs は既定 10 秒。不正値・0 以下は既定に戻す', () => {
+    expect(config.pageActionTimeoutMs).toBe(10_000);
+    process.env.PAGE_ACTION_TIMEOUT_MS = '2500';
+    expect(config.pageActionTimeoutMs).toBe(2500);
+    process.env.PAGE_ACTION_TIMEOUT_MS = 'abc';
+    expect(config.pageActionTimeoutMs).toBe(10_000);
+    process.env.PAGE_ACTION_TIMEOUT_MS = '0';
+    expect(config.pageActionTimeoutMs).toBe(10_000);
+  });
+
+  it('appBaseUrl は既定 localhost:3000、末尾スラッシュを除く', () => {
+    expect(config.appBaseUrl).toBe(ENV_DEFAULTS.APP_BASE_URL);
+    process.env.APP_BASE_URL = 'https://app.test//';
+    expect(config.appBaseUrl).toBe('https://app.test');
+  });
+
   it('n8nChatCloudUrl は N8N_URL を見ない（従来どおり）', () => {
     process.env.N8N_URL = 'https://self.test';
     expect(config.n8nChatCloudUrl).toBe(ENV_DEFAULTS.N8N_CHAT_CLOUD_URL);

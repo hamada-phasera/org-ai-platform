@@ -83,6 +83,8 @@ services:
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
       API_GATEWAY_URL: ${API_GATEWAY_URL:-http://localhost:4000}
       FILES_DIR: /app/data/files
+      # 業務ページを n8n 無しで確かめる（seed の sampleData を返す）。本番（NODE_ENV=production）では効かない
+      PAGES_SAMPLE_MODE: ${PAGES_SAMPLE_MODE:-true}
     ports:
       - "127.0.0.1:4000:4000"
     volumes:

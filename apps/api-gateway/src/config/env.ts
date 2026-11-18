@@ -51,6 +51,12 @@ export const envSchema = z.object({
   N8N_TIMEOUT_MS: optional,
   N8N_CALLBACK_ORG_REQUIRED: optional,
 
+  // 業務ページ（docs/design/custom-pages.md §5.2・§8）
+  /** 開発用。true で seed の sampleData を n8n の代わりに返す。**本番では常に無効** */
+  PAGES_SAMPLE_MODE: optional,
+  /** 業務ページのアクションで n8n を待つ時間（ms） */
+  PAGE_ACTION_TIMEOUT_MS: optional,
+
   // RLS Phase 2a（docs/design/multi-tenancy.md §RLS Phase 2a）。off | on
   RLS_MODE: optional,
 
@@ -122,6 +128,8 @@ export const ENV_DEFAULTS = {
   N8N_CHAT_CLOUD_URL: 'https://hamahiro.app.n8n.cloud',
   N8N_WEBHOOK_AUTH_TOKEN: 'org-ai-n8n-secret-token',
   N8N_TIMEOUT_MS: 30_000,
+  /** 業務ページのアクション（n8n の pages/<orgId>/<hook>）のタイムアウト */
+  PAGE_ACTION_TIMEOUT_MS: 10_000,
   RLS_MODE: 'off',
   SUPABASE_STORAGE_BUCKET: 'org-files',
   ADMIN_SLACK_CHANNEL: '#org-ai-admin',
@@ -135,6 +143,8 @@ export const ENV_DEFAULTS = {
   SHUTDOWN_DRAIN_MS: 20_000,
   /** 登録時トライアル（カード不要）と Checkout のトライアルの日数 */
   BILLING_TRIAL_DAYS: 30,
+  /** 利用者が開く web の URL（業務ページの登録応答に載せる /p/<slug> の土台） */
+  APP_BASE_URL: 'http://localhost:3000',
 } as const;
 
 /** 'false' のときだけ無効。未設定・その他の値は有効（従来の `(X ?? 'true') === 'false'` と同じ）。 */
@@ -228,11 +238,20 @@ export const config = {
   /** N8N_CLOUD_URL → N8N_URL → localhost の順（末尾スラッシュはそのまま）。 */
   get n8nUrl(): string {
     const env = readEnv();
-    return env.N8N_CLOUD_URL ?? env.N8N_URL ?? ENV_DEFAULTS.N8N_URL;
+    // 空文字（render に空のまま残った等）は未設定として飛ばす。n8nConfigured と同じ見方にそろえる（レビュー L6）
+    return env.N8N_CLOUD_URL?.trim() || env.N8N_URL?.trim() || ENV_DEFAULTS.N8N_URL;
   },
   /** chat.ts 用。N8N_URL は見ず、既定は n8n cloud。 */
   get n8nChatCloudUrl(): string {
     return readEnv().N8N_CLOUD_URL ?? ENV_DEFAULTS.N8N_CHAT_CLOUD_URL;
+  },
+  /**
+   * n8n の宛先が明示されているか（N8N_CLOUD_URL か N8N_URL）。既定の localhost に落ちているだけなら偽。
+   * 業務ページは ai-engine へフォールバックしないので、未設定なら「未接続」を出す（docs/design/custom-pages.md §5.2・K8）。
+   */
+  get n8nConfigured(): boolean {
+    const env = readEnv();
+    return !!(env.N8N_CLOUD_URL?.trim() || env.N8N_URL?.trim());
   },
   get n8nApiKey(): string {
     return readEnv().N8N_API_KEY ?? '';
@@ -261,6 +280,18 @@ export const config = {
   get n8nWebhookAuthTokenIsDefault(): boolean {
     const v = readEnv().N8N_WEBHOOK_AUTH_TOKEN;
     return v === undefined || v === ENV_DEFAULTS.N8N_WEBHOOK_AUTH_TOKEN;
+  },
+  /**
+   * 業務ページのサンプルモード（seed の sampleData を n8n の代わりに返す）。
+   * `PAGES_SAMPLE_MODE=true` かつ本番でないときだけ真（本番で作り物の数字を出さない。設計書 T16・K13）。
+   */
+  get pagesSampleMode(): boolean {
+    return readEnv().PAGES_SAMPLE_MODE === 'true' && !this.isProduction;
+  },
+  /** 業務ページのアクションのタイムアウト（ms）。不正値・0 以下は既定値 */
+  get pageActionTimeoutMs(): number {
+    const n = Number(readEnv().PAGE_ACTION_TIMEOUT_MS ?? ENV_DEFAULTS.PAGE_ACTION_TIMEOUT_MS);
+    return Number.isFinite(n) && n > 0 ? n : ENV_DEFAULTS.PAGE_ACTION_TIMEOUT_MS;
   },
   get n8nTimeoutMs(): number {
     return Number(readEnv().N8N_TIMEOUT_MS ?? ENV_DEFAULTS.N8N_TIMEOUT_MS);
@@ -353,6 +384,10 @@ export const config = {
       !!env.STRIPE_PRICE_STARTER_MONTHLY?.trim() &&
       !!env.STRIPE_WEBHOOK_SECRET?.trim()
     );
+  },
+  /** web の公開 URL（末尾の / を除く）。利用者の入力からは作らない */
+  get appBaseUrl(): string {
+    return (readEnv().APP_BASE_URL?.trim() || ENV_DEFAULTS.APP_BASE_URL).replace(/\/+$/, '');
   },
   /**
    * 登録時トライアルの日数。数でない・1 未満は既定に戻す。

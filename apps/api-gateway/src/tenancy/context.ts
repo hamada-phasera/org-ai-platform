@@ -20,6 +20,7 @@ export type TenantSource =
   | 'line-webhook'
   | 'stripe-webhook'
   | 'n8n-callback'
+  | 'n8n-page'
   | 'scheduler'
   | 'recovery';
 

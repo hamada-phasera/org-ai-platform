@@ -57,7 +57,7 @@ CREATE POLICY tenant_isolation ON "MessageEmbedding"
 -- BEGIN
 --   FOREACH t IN ARRAY ARRAY['ChatSession','Task','UploadedFile','ScheduledTask','Agent','Project','Vendor',
 --     'CostEntry','Deal','ProviderConnection','ChannelConnection','InboundMessage','Invitation','Membership',
---     'Capability','CapabilityGap','ExecutionLog']
+--     'Capability','CapabilityGap','ExecutionLog','AuditEvent','CustomPage','PageToken','PageActionLog']
 --   LOOP
 --     EXECUTE format('CREATE POLICY tenant_isolation ON %I FOR ALL TO flow_app
 --       USING ("orgId" = app_current_org()) WITH CHECK ("orgId" = app_current_org())', t);
@@ -66,6 +66,8 @@ CREATE POLICY tenant_isolation ON "MessageEmbedding"
 --
 -- ⚠️ Membership は「所属の確認」（テナントが決まる前）でも読むので、そこは flow_system で読むか、
 --    userId でも読めるポリシー（USING ("orgId" = app_current_org() OR "userId" = current_setting('app.user_id', true))）にする。
+-- ⚠️ PageToken はトークンのハッシュから組織を逆引きする（テナントが決まる前）ので、その 1 か所は flow_system で読む
+--    （apps/api-gateway/src/services/pages/page-token.ts。docs/design/custom-pages.md §3.4）。
 -- ⚠️ Organization は id = app_current_org() で絞る。User / BillingEvent はポリシーを付けない（flow_system 経由）。
 
 -- ── ロールバック ──

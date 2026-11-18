@@ -55,7 +55,10 @@ type TenantDelegateKey =
   | 'capability'
   | 'capabilityGap'
   | 'executionLog'
-  | 'auditEvent';
+  | 'auditEvent'
+  | 'customPage'
+  | 'pageToken'
+  | 'pageActionLog';
 type ChildDelegateKey = 'message' | 'taskLog' | 'requiredCredential';
 
 /** テナントクライアント（トランザクションの中で使う形）。 */

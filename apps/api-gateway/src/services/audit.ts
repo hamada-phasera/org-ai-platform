@@ -1,7 +1,8 @@
 // 管理操作の監査記録（AuditEvent）。書くのはここだけ。
 //
 // ■ 何を残すか
-//   招待・役割変更・無効化・組織の作成と改名・Checkout 開始・プラン変更・追加容量・連携の接続と切断。
+//   招待・役割変更・無効化・組織の作成と改名・Checkout 開始・プラン変更・追加容量・連携の接続と切断・
+//   業務ページの登録／削除／公開と登録トークンの発行／失効。
 //   AILog / RiskEvent は AI の入出力だけなので、「誰が・いつ・何を」を人の操作についてここに残す。
 //
 // ■ 書き方
@@ -33,6 +34,13 @@ export const AUDIT_ACTIONS = [
   'billing.storage_addon',
   'integration.connect',
   'integration.disconnect',
+  // 業務ページ（docs/design/custom-pages.md §3.3）。n8n 経由は actorId = null、meta.registrarId に登録トークンの id
+  'page.upsert',
+  'page.delete',
+  'page.publish',
+  'page.unpublish',
+  'page_token.issue',
+  'page_token.revoke',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

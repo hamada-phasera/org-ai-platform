@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// apps/n8n-workflows/dept-*.json を n8n Public API でインポート (or 上書き) し、
+// apps/n8n-workflows/{dept,cap}-*.json を n8n Public API でインポート (or 上書き) し、
 // アクティブ化する。
 //
 // 使い方:
@@ -10,10 +10,11 @@
 //
 // .env を自動で読み込みます（dotenv-flow 不要、簡易パーサ）。
 
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { listImportFiles } from './n8n-import-files.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -194,9 +195,8 @@ try {
   credential = null;
 }
 
-const files = (await readdir(WF_DIR))
-  .filter((f) => (f.startsWith('dept-') || f.startsWith('cap-')) && f.endsWith('.json'))
-  .sort();
+// dept-* / cap-* だけ。業務ページのサンプル（pages/）は組織ごとに手で入れるので拾わない
+const files = listImportFiles(WF_DIR);
 
 for (const f of files) {
   const wf = JSON.parse(await readFile(join(WF_DIR, f), 'utf8'));

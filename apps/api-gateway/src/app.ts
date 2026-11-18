@@ -36,6 +36,8 @@ import { accountingRoutes } from './routes/accounting';
 import { memberRoutes } from './routes/members';
 import { billingRoutes } from './routes/billing';
 import { stripeWebhookRoutes } from './routes/billing-webhook';
+import { pageRoutes } from './routes/pages';
+import { n8nPageRoutes } from './routes/n8n-pages';
 import { prisma } from './utils/prisma';
 import { config, ENV_DEFAULTS } from './config/env';
 import { registerTenantContext } from './tenancy/context';
@@ -136,6 +138,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(memberRoutes, { prefix: '/api/members' });
   await app.register(billingRoutes, { prefix: '/api/billing' });
   await app.register(stripeWebhookRoutes, { prefix: '/api/webhooks/stripe' });
+  await app.register(pageRoutes, { prefix: '/api/pages' });
+  await app.register(n8nPageRoutes, { prefix: '/api/webhooks/n8n/pages' });
 
   return app;
 }

@@ -213,6 +213,17 @@ STRIPE_PRICE_STORAGE_ADDON= / STRIPE_TAX_RATE_ID= / BILLING_TRIAL_DAYS=30 / APP_
 - **デプロイ手順は `docs/DEPLOY.md` の 1 本**（`DEPLOYMENT_RUNBOOK.md` は案内だけ）。render.yaml に `sync: false` の
   キーを足したら DEPLOY.md にも書く（`npm run check:deploy` が検査）。
 
+## 業務ページ（n8n 連携）— docs/design/custom-pages.md
+
+- **組織ごとの画面 `/p/:slug`**。定義は DB の `CustomPage`（許可リストの 7 ブロック＋アクション）が正本。n8n は「登録する人」と「データを出す人」。
+  検証は shared-types の `pages.ts`（zod・`.strict()`）1 か所、上限は `pages-plan.ts` の `PAGE_LIMITS`（ページ数・月間の送信数）。
+- **届く先は gateway が組み立てる**: `${N8N の URL}/webhook/pages/<JWT の orgId>/<hook>`。定義に書けるのは `hook` だけ（任意 URL 禁止）。
+  ai-engine へのフォールバックはしない（未接続を出す）。応答は `projectQueryResult` で切り詰めてから web へ。web は `dangerouslySetInnerHTML` を使わない。
+- **登録は組織ごとの登録トークン**（`x-page-token`、ハッシュ保存、有効 2 本）。共有トークンでは登録できない。n8n は SEED / MANUAL の行を上書きしない（409）。
+- 送信は `PageActionLog` に項目名だけ記録し月間件数を数える。取得（GET）は数えず「閲覧のみ」でも通る。
+- **開発**: seed（`packages/db-schema/prisma/seed-pages.ts` が定義の正本）＋ `PAGES_SAMPLE_MODE=true` で n8n 無しに `/p/inquiries` が動く（本番は常に無効）。
+  n8n のサンプル `apps/n8n-workflows/pages/page-inquiries.json` は `__ORG_ID__` を置き換えて手で入れる（`n8n:import` は `pages/` を拾わない）。手順は `docs/custom-pages-n8n.md`。
+
 ## エージェント機能 (業務効率化エージェント)
 
 - ユーザーはチャット/フォームから再利用可能なエージェントを作成 (`POST /api/agents`)。

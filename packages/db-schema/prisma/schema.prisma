@@ -129,6 +129,9 @@ model Organization {
   projects            Project[]
   costEntries         CostEntry[]
   vendors             Vendor[]
+  customPages         CustomPage[]
+  pageTokens          PageToken[]
+  pageActionLogs      PageActionLog[]
   createdAt           DateTime             @default(now())
 }
 
@@ -645,5 +648,101 @@ model BillingEvent {
   orgId     String?
   createdAt DateTime @default(now())
 
+  @@index([orgId, createdAt])
+}
+
+// ── 業務ページ（n8n 連携）。docs/design/custom-pages.md §3 ──
+
+/// 組織ごとの業務ページの定義（`/p/:slug`）。n8n が登録トークンで upsert する。
+/// ⚠️ definition は保存前に必ず shared-types の pageDefinitionSchema を通す（ブロックの許可リスト）。
+/// ⚠️ sampleData は seed だけが書く。登録 API のスキーマには項目が無い（本番で作り物の数字を出さない）。
+model CustomPage {
+  id             String       @id @default(cuid())
+  orgId          String
+  org            Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// ^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$。URL の /p/:slug
+  slug           String
+  /// 1〜24 文字。ナビとページ見出し
+  title          String
+  /// shared-types の PAGE_ICONS のどれか
+  icon           String       @default("file-text")
+  /// 小さい順。同値は createdAt
+  sortOrder      Int          @default(0)
+  /// 'DRAFT' | 'PUBLISHED'。DEFAULT は fail-closed（作りかけを全員に見せない）
+  status         String       @default("DRAFT")
+  /// 'MEMBER' | 'ADMIN' | 'OWNER'。これ未満の人には一覧にも出さない
+  minRole        String       @default("MEMBER")
+  /// 'N8N' | 'MANUAL' | 'SEED'（作成元。n8n は MANUAL / SEED の行を上書きしない）
+  source         String
+  /// 定義が変わるたびに +1
+  version        Int          @default(1)
+  /// ブロックスキーマの版（v1 = 1）
+  schemaVersion  Int          @default(1)
+  /// { blocks, actions }
+  definition     Json
+  /// 正規化した definition の sha256。同じ内容の再登録を無変更にする
+  definitionHash String
+  /// サンプルモード用の応答（アクション ID → n8n の応答そのもの）。seed だけが書く
+  sampleData     Json?
+  /// User.id。n8n 経由は null
+  createdBy      String?
+  updatedBy      String?
+  /// 管理者が設定画面（PATCH）で変えた項目（'title' | 'icon'）。n8n の再登録はここにある項目を上書きしない（§5.3・K51）
+  adminEditedFields String[]  @default([])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([orgId, slug])
+  @@index([orgId, status, sortOrder])
+}
+
+/// ページ登録トークン（n8n → gateway の登録だけに使う、組織ごとの秘密）。
+/// ⚠️ 生値は保存しない（Invitation.tokenHash と同じ流儀）。発行時の応答に 1 回出るきり。
+/// ⚠️ ハッシュから組織を逆引きする経路だけはテナントが決まる前なので素の prisma で読む（services/pages/page-token.ts）。
+model PageToken {
+  id         String       @id @default(cuid())
+  orgId      String
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// 1〜24 文字（「n8n 本番」など）
+  label      String
+  /// sha256(生トークン)
+  tokenHash  String       @unique
+  /// 生トークンの先頭 10 文字（flowpg_abc）。一覧での見分け用
+  prefix     String
+  /// 使われるたびに更新（1 分に 1 回まで）
+  lastUsedAt DateTime?
+  /// 失効した時刻。null = 有効
+  revokedAt  DateTime?
+  createdBy  String
+  createdAt  DateTime     @default(now())
+
+  @@index([orgId, createdAt])
+}
+
+/// 業務ページの送信（submit）の記録。監査と月間実行数の正本（当月の件数 = 使った回数）。
+/// ⚠️ 入力値は保存しない（項目名だけ）。query（閲覧）は記録しない。
+/// ⚠️ pageId は CustomPage への FK にしない。ページを消しても記録と当月の件数を残す
+///    （FK で一緒に消えると、消して作り直すだけで上限をすり抜けられる）。組織の削除では消える。
+model PageActionLog {
+  id          String       @id @default(cuid())
+  orgId       String
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  pageId      String
+  slug        String
+  actionId    String
+  /// 押した時点の定義の版
+  pageVersion Int
+  /// 押した人（User.id）
+  actorId     String
+  /// web が送信ごとに作る UUID。同じ組織で一意 = 二重送信を止める
+  requestId   String
+  /// 'PENDING' | 'OK' | 'FAILED' | 'TIMEOUT' | 'INVALID_RESPONSE'。先に PENDING で作り、結果で確定する
+  status      String       @default("PENDING")
+  durationMs  Int?
+  /// 送った項目名だけ（値は保存しない）
+  inputKeys   String[]
+  createdAt   DateTime     @default(now())
+
+  @@unique([orgId, requestId])
   @@index([orgId, createdAt])
 }

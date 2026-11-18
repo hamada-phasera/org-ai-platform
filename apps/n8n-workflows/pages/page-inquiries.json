@@ -1,0 +1,333 @@
+{
+  "name": "FLOW 業務ページ 問い合わせ (__ORG_ID__)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "register-trigger",
+      "name": "登録を実行",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $env.FLOW_GATEWAY_URL }}/api/webhooks/n8n/pages/inquiries",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"title\": \"問い合わせ\",\n  \"icon\": \"inbox\",\n  \"definition\": {\n    \"actions\": {\n      \"list\": {\n        \"kind\": \"query\",\n        \"hook\": \"inquiries-list\"\n      },\n      \"create\": {\n        \"kind\": \"submit\",\n        \"hook\": \"inquiries-submit\"\n      },\n      \"done\": {\n        \"kind\": \"submit\",\n        \"hook\": \"inquiries-submit\",\n        \"confirm\": \"対応済みにしますか\"\n      },\n      \"remind\": {\n        \"kind\": \"submit\",\n        \"hook\": \"inquiries-submit\",\n        \"confirm\": \"担当へ通知しますか\"\n      }\n    },\n    \"blocks\": [\n      {\n        \"type\": \"kpi\",\n        \"items\": [\n          {\n            \"label\": \"未対応\",\n            \"source\": {\n              \"action\": \"list\",\n              \"key\": \"open\"\n            }\n          },\n          {\n            \"label\": \"今月\",\n            \"source\": {\n              \"action\": \"list\",\n              \"key\": \"month\"\n            }\n          }\n        ]\n      },\n      {\n        \"type\": \"table\",\n        \"source\": {\n          \"action\": \"list\",\n          \"key\": \"rows\"\n        },\n        \"rowKey\": \"id\",\n        \"columns\": [\n          {\n            \"key\": \"date\",\n            \"label\": \"日付\",\n            \"format\": \"date\"\n          },\n          {\n            \"key\": \"name\",\n            \"label\": \"名前\",\n            \"primary\": true\n          },\n          {\n            \"key\": \"subject\",\n            \"label\": \"件名\"\n          },\n          {\n            \"key\": \"status\",\n            \"label\": \"状態\",\n            \"format\": \"badge\"\n          }\n        ],\n        \"rowAction\": {\n          \"label\": \"完了\",\n          \"action\": \"done\"\n        }\n      },\n      {\n        \"type\": \"form\",\n        \"action\": \"create\",\n        \"submit\": \"登録\",\n        \"fields\": [\n          {\n            \"key\": \"name\",\n            \"label\": \"名前\",\n            \"type\": \"text\",\n            \"required\": true\n          },\n          {\n            \"key\": \"tel\",\n            \"label\": \"電話\",\n            \"type\": \"tel\"\n          },\n          {\n            \"key\": \"subject\",\n            \"label\": \"件名\",\n            \"type\": \"text\",\n            \"required\": true\n          },\n          {\n            \"key\": \"body\",\n            \"label\": \"内容\",\n            \"type\": \"textarea\"\n          }\n        ]\n      },\n      {\n        \"type\": \"buttons\",\n        \"items\": [\n          {\n            \"label\": \"通知\",\n            \"action\": \"remind\"\n          }\n        ]\n      }\n    ]\n  }\n}",
+        "options": {}
+      },
+      "id": "register-put",
+      "name": "ページを登録",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        100
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "FLOW page token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pages/__ORG_ID__/inquiries-list",
+        "responseMode": "responseNode",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "id": "list-webhook",
+      "name": "Webhook 一覧",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        340
+      ],
+      "webhookId": "pages-__ORG_ID__-inquiries-list"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "list-org-org",
+              "leftValue": "={{ $('Webhook 一覧').first().json.body.orgId }}",
+              "rightValue": "__ORG_ID__",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "list-org",
+      "name": "組織を確かめる（一覧）",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        480,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// サンプルのデータ元: このワークフローの静的データ（Activate 中の実行で保持される）。\n// 本番ではスプレッドシートや n8n の Data Table などに差し替える。応答の形はページ定義の key と列に合わせる。\nconst store = $getWorkflowStaticData('global');\nif (!Array.isArray(store.rows)) store.rows = [];\nconst rows = store.rows;\nconst month = new Date().toISOString().slice(0, 7);\nreturn [{ json: {\n  open: rows.filter((r) => r.status === '未対応').length,\n  month: rows.filter((r) => String(r.date).startsWith(month)).length,\n  rows: rows.slice(-200).reverse().map((r) => ({ id: r.id, date: r.date, name: r.name, subject: r.subject, status: r.status })),\n} }];"
+      },
+      "id": "list-build",
+      "name": "一覧を作る",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "list-respond",
+      "name": "一覧を返す",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        960,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, message: '組織が違います' }) }}",
+        "options": {
+          "responseCode": 403
+        }
+      },
+      "id": "list-reject",
+      "name": "組織違い（一覧）",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        720,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pages/__ORG_ID__/inquiries-submit",
+        "responseMode": "responseNode",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "id": "submit-webhook",
+      "name": "Webhook 送信",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        600
+      ],
+      "webhookId": "pages-__ORG_ID__-inquiries-submit"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "submit-org-org",
+              "leftValue": "={{ $('Webhook 送信').first().json.body.orgId }}",
+              "rightValue": "__ORG_ID__",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "submit-org",
+      "name": "組織を確かめる（送信）",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        480,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// action ごとに分ける（create = フォーム、done = 表の行の「完了」、remind = ボタン）。\n// 入力は gateway がページ定義どおりに検証済み（項目名・型・長さ）。値はログに出さない。\nconst body = $('Webhook 送信').first().json.body;\nconst store = $getWorkflowStaticData('global');\nif (!Array.isArray(store.rows)) store.rows = [];\nconst input = body.input || {};\nif (body.action === 'create') {\n  store.rows.push({\n    id: 'inq-' + Date.now().toString(36),\n    date: new Date().toISOString().slice(0, 10),\n    name: String(input.name || ''),\n    subject: String(input.subject || ''),\n    status: '未対応',\n  });\n  return [{ json: { ok: true, message: '登録しました' } }];\n}\nif (body.action === 'done') {\n  const row = store.rows.find((r) => r.id === input.rowId);\n  if (!row) return [{ json: { ok: false, message: '見つかりません' } }];\n  row.status = '対応済み';\n  return [{ json: { ok: true, message: '対応済みにしました' } }];\n}\nif (body.action === 'remind') {\n  // 外への送信（Slack・メールなど）はここに足す。ページ定義に confirm を必ず書く（設計書 K10）\n  return [{ json: { ok: true, message: '通知は未設定です' } }];\n}\nreturn [{ json: { ok: false, message: '未対応の操作です' } }];"
+      },
+      "id": "submit-handle",
+      "name": "登録・完了・通知",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "submit-respond",
+      "name": "結果を返す",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        960,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, message: '組織が違います' }) }}",
+        "options": {
+          "responseCode": 403
+        }
+      },
+      "id": "submit-reject",
+      "name": "組織違い（送信）",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        720,
+        680
+      ]
+    }
+  ],
+  "connections": {
+    "登録を実行": {
+      "main": [
+        [
+          {
+            "node": "ページを登録",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook 一覧": {
+      "main": [
+        [
+          {
+            "node": "組織を確かめる（一覧）",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "組織を確かめる（一覧）": {
+      "main": [
+        [
+          {
+            "node": "一覧を作る",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "組織違い（一覧）",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "一覧を作る": {
+      "main": [
+        [
+          {
+            "node": "一覧を返す",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook 送信": {
+      "main": [
+        [
+          {
+            "node": "組織を確かめる（送信）",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "組織を確かめる（送信）": {
+      "main": [
+        [
+          {
+            "node": "登録・完了・通知",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "組織違い（送信）",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "登録・完了・通知": {
+      "main": [
+        [
+          {
+            "node": "結果を返す",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "staticData": null,
+  "tags": [
+    "org-ai",
+    "custom-page"
+  ]
+}

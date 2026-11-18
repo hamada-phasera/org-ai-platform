@@ -13,7 +13,7 @@ import { config } from '../config/env';
 export type Health = 'ok' | 'warn' | 'error' | 'unknown';
 
 export interface SetupItem {
-  key: 'storage' | 'aiEngine' | 'billing' | 'embeddings' | 'geminiTier';
+  key: 'storage' | 'aiEngine' | 'billing' | 'embeddings' | 'geminiTier' | 'pages';
   label: string;
   health: Health;
   detail: string;
@@ -165,7 +165,53 @@ function checkGeminiTier(): SetupItem {
   };
 }
 
+/**
+ * 業務ページの接続（docs/design/custom-pages.md §7.4）。業務ページは ai-engine へフォールバックしないので（K8）、
+ * n8n が無いとデータ部が「未接続」になる。
+ *
+ * 宛先が明示されていれば n8n の `/healthz` を 1 回だけ GET する（Webhook は叩かない＝ワークフローは動かない）。
+ * ⚠️ 宛先の URL・トークンの値は返さない。リダイレクトは追わない（宛先は環境変数だけ。T3）。
+ */
+async function checkPagesConnection(): Promise<SetupItem> {
+  const label = '業務ページの接続';
+  if (!config.n8nConfigured) {
+    return {
+      key: 'pages',
+      label,
+      health: 'warn',
+      detail: 'n8n が未設定です。業務ページのデータと送信は「未接続」になります。',
+      action: 'api-gateway に N8N_CLOUD_URL（または N8N_URL）と N8N_WEBHOOK_AUTH_TOKEN を設定してください。',
+    };
+  }
+  if (config.n8nWebhookAuthTokenIsDefault) {
+    return {
+      key: 'pages',
+      label,
+      health: 'error',
+      detail: 'n8n の Webhook トークンが公開されている既定値のままです。',
+      action: 'openssl rand -hex 32 で作った値を N8N_WEBHOOK_AUTH_TOKEN と n8n の credential「org-ai webhook token」に設定してください。',
+    };
+  }
+  try {
+    const res = await fetch(`${config.n8nUrl.replace(/\/+$/, '')}/healthz`, {
+      method: 'GET',
+      redirect: 'error',
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (res.ok) return { key: 'pages', label, health: 'ok', detail: 'n8n に接続できています。', action: '' };
+  } catch {
+    /* 下の「確認できず」 */
+  }
+  return {
+    key: 'pages',
+    label,
+    health: 'unknown',
+    detail: 'n8n に接続できず、確認できませんでした（起動中・スリープ中の可能性があります）。',
+    action: 'N8N_CLOUD_URL（または N8N_URL）と、n8n が起動しているかを確認してください。',
+  };
+}
+
 export async function collectSetupStatus(): Promise<SetupItem[]> {
-  const [storage, aiEngine] = await Promise.all([checkStorage(), checkAiEngine()]);
-  return [aiEngine, storage, checkGeminiTier(), checkBilling(), checkEmbeddings()];
+  const [storage, aiEngine, pages] = await Promise.all([checkStorage(), checkAiEngine(), checkPagesConnection()]);
+  return [aiEngine, storage, checkGeminiTier(), checkBilling(), checkEmbeddings(), pages];
 }
