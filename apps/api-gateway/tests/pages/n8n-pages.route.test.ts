@@ -184,6 +184,19 @@ describe('PUT /api/webhooks/n8n/pages/:slug', () => {
     expect((await put('orders', sampleUpsert({ source: 'SEED' }))).statusCode).toBe(400);
   });
 
+  it('登録トークンではページを業務フローに結べない（flow_query / flow_submit は 400。canvas-home.md §6.3）', async () => {
+    const definition = {
+      actions: { latest: { kind: 'flow_query' }, run: { kind: 'flow_submit' } },
+      blocks: [
+        { type: 'kpi', items: [{ label: '今月', source: { action: 'latest', key: 'total' } }] },
+        { type: 'buttons', items: [{ label: '実行', action: 'run' }] },
+      ],
+    };
+    const res = await put('orders', sampleUpsert({ definition }));
+    expect(res.statusCode).toBe(400);
+    expect(pagesOf('org-A').some((p) => p.slug === 'orders')).toBe(false);
+  });
+
   it('人が作ったページ（MANUAL / SEED）は上書きできない（409 PAGE_SOURCE_CONFLICT）', async () => {
     for (const slug of ['handmade', 'seeded']) {
       const res = await put(slug, sampleUpsert({ definition: HEADING_DEFINITION }));

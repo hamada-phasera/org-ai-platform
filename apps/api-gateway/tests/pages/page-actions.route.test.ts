@@ -32,6 +32,15 @@ const SAMPLE_DATA = {
   },
 };
 
+/** 業務フローの結果ページ（canvas-home.md §6.3）。flow_* の実行はチャンク 9 まで無い */
+const FLOW_RESULT_DEFINITION = {
+  actions: { latest: { kind: 'flow_query' }, run: { kind: 'flow_submit' } },
+  blocks: [
+    { type: 'kpi', items: [{ label: '今月', source: { action: 'latest', key: 'total' } }] },
+    { type: 'buttons', items: [{ label: '実行', action: 'run' }] },
+  ],
+};
+
 function seed(): FakePrisma {
   const people = [
     userAndMembership('u-owner', 'org-A', 'OWNER'),
@@ -50,6 +59,7 @@ function seed(): FakePrisma {
       pageRow({ id: 'p-broken', orgId: 'org-A', slug: 'broken', definition: { blocks: [{ type: 'iframe' }], actions: {} } }),
       pageRow({ id: 'p-head', orgId: 'org-A', slug: 'heading', definition: HEADING_DEFINITION }),
       pageRow({ id: 'p-B', orgId: 'org-B', slug: 'b-secret' }),
+      pageRow({ id: 'p-flow', orgId: 'org-A', slug: 'flow-result', definition: FLOW_RESULT_DEFINITION }),
     ],
     pageToken: [],
     pageActionLog: [],
@@ -556,5 +566,14 @@ describe('GET /api/pages/:slug の connection', () => {
   it('オーナーも同じ定義の範囲（OWNER の role が n8n に渡る）', async () => {
     await data('owner-only', 'list', OWNER());
     expect(calledBody()).toMatchObject({ actor: { userId: 'u-owner', role: 'OWNER' } });
+  });
+});
+
+describe('業務フローの結果ページのアクション（flow_query / flow_submit）', () => {
+  it('n8n の経路では扱わない（404・n8n に 1 回も送らない）', async () => {
+    expect((await data('flow-result', 'latest')).statusCode).toBe(404);
+    const res = await submit('run', { input: {}, requestId: randomUUID(), origin: { blockIndex: 1, itemIndex: 0 } }, MEMBER(), 'flow-result');
+    expect(res.statusCode).toBe(404);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

@@ -52,7 +52,7 @@ describe('サンプル定義（seed / n8n / fixture）', () => {
   });
 
   it('n8n の Webhook のパスは定義の hook と一致する（pages/__ORG_ID__/<hook>）', () => {
-    const hooks = new Set(Object.values(parsedSampleUpsert().definition.actions).map((a) => a.hook));
+    const hooks = new Set(Object.values(parsedSampleUpsert().definition.actions).map((a) => ('hook' in a ? a.hook : null)));
     const paths = n8nSample.nodes
       .filter((n) => n.type === 'n8n-nodes-base.webhook')
       .map((n) => String(n.parameters.path));

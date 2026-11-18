@@ -185,7 +185,8 @@ export interface PageActionContext {
 interface ResolvedAction {
   page: { id: string; slug: string; version: number; sampleData: unknown };
   definition: PageDefinition;
-  action: PageAction;
+  /** n8n の hook を持つアクションだけ（flow_query / flow_submit は業務フローの結果ページの経路。canvas-home.md §6.3） */
+  action: Extract<PageAction, { kind: 'query' | 'submit' }>;
 }
 
 async function resolveAction(ctx: PageActionContext, kind: PageActionKind): Promise<ActionOutcome<ResolvedAction>> {
@@ -202,7 +203,8 @@ async function resolveAction(ctx: PageActionContext, kind: PageActionKind): Prom
   }
   const actions = def.data.actions;
   const action = Object.prototype.hasOwnProperty.call(actions, ctx.actionId) ? actions[ctx.actionId] : undefined;
-  if (!action || action.kind !== kind) return NOT_FOUND();
+  // flow_* はここでは扱わない（hook が無い＝n8n に送らない）
+  if (!action || (action.kind !== 'query' && action.kind !== 'submit') || action.kind !== kind) return NOT_FOUND();
   return {
     ok: true,
     data: { page: { id: page.id, slug: page.slug, version: page.version, sampleData: page.sampleData }, definition: def.data, action },

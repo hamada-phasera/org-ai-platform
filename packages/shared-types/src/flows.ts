@@ -5,12 +5,14 @@
  * - グラフと参照の検査は flows-core.ts の `checkFlowDefinition`（zod に依存しない＝web も同じ検査で印を付ける）。
  * - gateway が正（保存時・実行時に必ず通す）。web ではフロー画面の遅延チャンクからだけ読むこと（zod を初回ロードに載せない）。
  * - 部品のキーと入力の照合にはカタログが要るので、`buildFlowDefinitionSchema(parts)` で組み立てる。
- *   `flowDefinitionSchema` はチャンク 2 で部品カタログ（flow-parts.ts）に差し替えるまで空のカタログ＝部品ノードは全部拒否（安全側）。
+ *   `flowDefinitionSchema` は部品カタログ（flow-parts.ts の `FLOW_PARTS`）で組み立てたもの（K30）。
+ * - 部品へ渡す入力の検証は `buildPartInputSchema(part)`（`.strict()`。T8）。
  */
 import { z } from 'zod';
 import type { AgentDepartment } from './index';
 import { PAGE_ICONS, hasControlChars, utf8ByteLength } from './pages-plan';
-import { pageFieldSchema } from './pages';
+import { pageFieldInputSchema, pageFieldSchema } from './pages';
+import { FLOW_PARTS } from './flow-parts';
 import {
   CANVAS_LAYOUT_LIMITS as CL,
   FLOW_DEFINITION_LIMITS as L,
@@ -336,8 +338,43 @@ export function buildFlowDefinitionSchema(parts: readonly FlowPartSpec[]) {
   });
 }
 
-/** チャンク 2 で部品カタログに差し替える。それまでは部品ノードを含む定義を拒否する */
-export const flowDefinitionSchema = buildFlowDefinitionSchema([]);
+/** 部品カタログ（FLOW_PARTS）で検査するフロー定義のスキーマ。gateway の保存・実行はこれを通す */
+export const flowDefinitionSchema = buildFlowDefinitionSchema(FLOW_PARTS);
+
+// ── 部品へ渡す入力（設計書 §8.2・T8） ─────────────────────────────
+
+/** 展開後の文字を数に直す（空は「無い」）。数にならない文字はそのまま渡して型の検査で落とす */
+function coerceNumber(v: unknown): unknown {
+  if (typeof v !== 'string') return v;
+  const t = v.trim();
+  if (t === '') return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : v;
+}
+
+/** 展開後の文字を真偽に直す（'true' / 'false'。空は「無い」） */
+function coerceBoolean(v: unknown): unknown {
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  if (v === '') return undefined;
+  return v;
+}
+
+/**
+ * 部品の入力スキーマ（`.strict()`＝部品に無い項目は n8n / capability に届かない）。
+ * 値はテンプレートを展開した文字で届くので、number と checkbox の項目だけ文字から直してから検査する。
+ * 項目ごとの型・`maxLength`・必須は業務ページのフォームと同じ規則（`pageFieldInputSchema`）。
+ */
+export function buildPartInputSchema(part: Pick<FlowPartSpec, 'input'>): z.ZodTypeAny {
+  const shape: Record<string, z.ZodTypeAny> = {};
+  for (const field of part.input) {
+    const base = pageFieldInputSchema(field);
+    if (field.type === 'number') shape[field.key] = z.preprocess(coerceNumber, base);
+    else if (field.type === 'checkbox') shape[field.key] = z.preprocess(coerceBoolean, base);
+    else shape[field.key] = base;
+  }
+  return z.object(shape).strict();
+}
 
 // ── キャンバスの配置（設計書 §6.6） ─────────────────────────────
 

@@ -2,7 +2,7 @@
 
 > **一行要約**: ホームを「業務のノードが線でつながるキャンバス」に替える。キャンバスもフロー編集も実行も **FLOW 自前**（`@xyflow/react` ＋ gateway 内の軽量ランナー）で作り、n8n は**運営が作った「部品」を呼ぶだけ**の裏方に留める。お客さんが n8n のワークフローを作る・編集する形は n8n のライセンス違反になるため採らない。
 
-- 状態: チャンク 1（shared-types の定義スキーマと上限）実装済み。2026-11-18。ブランチ `feat/canvas-home`（`feat/custom-pages` の上に積む）
+- 状態: チャンク 1（shared-types の定義スキーマと上限）・チャンク 2（テンプレート・既定の配置・部品カタログ・`flow_query` `flow_submit`）実装済み。2026-11-18。ブランチ `feat/canvas-home`（`feat/custom-pages` の上に積む）
 - 前提にした既存の決まり: CLAUDE.md、DESIGN.md、`docs/ARCHITECTURE.md`、`docs/design/multi-tenancy.md`、`docs/design/custom-pages.md`、`docs/n8n-integration-design.md`、`docs/plan/saas-readiness-plan.md`、`docs/billing.md`
 - 変えない原則: **DB が真実の源 / n8n は加速レイヤー / ルートは `authOf(request).db` だけ / エラーは `{ success:false, error:{ code, message } }` / LLM は必ず ai-engine の LLMRouter 経由 / 外部送信は必ず人が通す**
 
@@ -1073,6 +1073,10 @@ DB の大きさの目安（仮定: 1 実行 20KB）: 100 社 × 月 1,000 実行
 | K33 | 定期のきっかけの `dayOfMonth` は 1〜28 | どの月にもある日だけ（31 日指定が短い月に飛ぶのを避ける）。月末は将来 | 1〜31 |
 | K34 | 形になっていない `{{` `}}`（`{{ x }}` `{{a.b.c}}` 閉じ忘れ）は保存時に 400 | 打ち間違いが黙って文字のまま送られるのを防ぐ。展開は式の形のものだけ | 文字として通す |
 | K35 | 文字列の検査（`hasControlChars` `utf8ByteLength`）は zod 非依存の `pages-plan.ts` に移す（export 名は同じ）。部署の値は flows.ts に `FLOW_DEPARTMENTS` として写し、テストで `AGENT_DEPARTMENTS` と突き合わせる | flows-core から zod 無しで使うため。index → flows → index の循環で、ESM では index の本体より先に flows.ts が評価され `AGENT_DEPARTMENTS` が未初期化になる | index から読む |
+| K36 | 部品カタログ（`flow-parts.ts`）とテンプレート（`flow-templates.ts`）は **zod 非依存**のデータだけにし、`buildPartInputSchema` は zod を読む `flows.ts` に置く（§5.7 の「flow-parts.ts に置く」から変更） | 追加メニュー・スマホのステップリスト・ホームの既定の配置が zod 無しで読める（K29 と同じ理由） | flow-parts.ts に同居（zod が初回チャンクに載る） |
+| K37 | 業務ページの `flow_query` `flow_submit` は、n8n の `query` `submit` と**同じページに混ぜない**・各 1 つまで・表の行の操作には使えない。読む側（`pageDefinitionSchema`）は通し、登録経路（`pageUpsertSchema` ＝ `pageRegisterDefinitionSchema`）は拒否 | フローの結果ページは n8n を呼ばない、で単純に保てる。行の操作は `{ rowId }` を送るだけで、きっかけの項目と合わない | 混在を許す（結果ページから n8n の hook も叩ける＝チャンク 9 の経路が増える） |
+| K38 | 部品の入力は展開後の文字で届くので、`buildPartInputSchema` は number・checkbox の項目だけ文字から直してから業務ページのフォームと同じ規則で検査する。スプレッドシートの `headers` `rows` は文字（カンマ区切り・1 行 1 件）で受け、ランナーが配列に直す | 式はパス参照だけで配列を作れない（K13）。部品の入力の語彙を業務ページの Field に揃えたまま使える | 部品の入力に配列型を足す |
+| K39 | テンプレートは 4 つとも「フォーム → AI（下書き）→ 確認 → 文書」。外へ送るノードは置かない。見積・請求の文書には `FLOW_TAX_NOTICE`（税務判断はしない）を必ず付ける。`outputPage`（結果ページのひな形）はチャンク 9 で足す | 下書きまでで止めれば承認・送信の経路（チャンク 6）より前に全部動く。税務判断をしない方針（CLAUDE.md）を出力に残す | 請求に送付（メール）まで入れる |
 
 ## 15. 未確認・実装時に確かめること
 

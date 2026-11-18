@@ -522,3 +522,80 @@ describe('utf8ByteLength', () => {
     expect(utf8ByteLength(s)).toBe(n);
   });
 });
+
+describe('業務フローの結果ページのアクション（canvas-home.md §6.3）', () => {
+  const flowPage = (): any => ({
+    actions: { latest: { kind: 'flow_query' }, run: { kind: 'flow_submit' } },
+    blocks: [
+      { type: 'kpi', items: [{ label: '今月', source: { action: 'latest', key: 'total' } }] },
+      { type: 'table', source: { action: 'latest', key: 'runs' }, columns: [{ key: 'date', label: '日付' }] },
+      { type: 'form', fields: [{ key: 'customer', label: '顧客名', type: 'text', required: true }], action: 'run', submit: '作成' },
+      { type: 'buttons', items: [{ label: '実行', action: 'run' }] },
+    ],
+  });
+
+  it('保存済みの定義を読む側（pageDefinitionSchema）は flow_query / flow_submit を通す', () => {
+    expect(pageDefinitionSchema.safeParse(flowPage()).success).toBe(true);
+  });
+
+  it('n8n・手動の登録（pageUpsertSchema）は flow_* を拒否する', () => {
+    const r = pageUpsertSchema.safeParse({ title: '提案書', definition: flowPage() });
+    expect(r.success).toBe(false);
+    expect(JSON.stringify(r.error?.issues)).toContain('業務フローの結果ページだけ');
+    const one: any = { ...SAMPLE_UPSERT, definition: { ...SAMPLE_UPSERT.definition, actions: { ...SAMPLE_UPSERT.definition.actions, x: { kind: 'flow_query' } } } };
+    expect(pageUpsertSchema.safeParse(one).success).toBe(false);
+  });
+
+  it('flow_* にフロー ID・hook などを書けない（.strict()）', () => {
+    for (const extra of [{ flowId: 'other' }, { hook: 'x' }, { url: 'http://a' }]) {
+      const def = flowPage();
+      def.actions.run = { kind: 'flow_submit', ...extra };
+      expect(pageDefinitionSchema.safeParse(def).success).toBe(false);
+    }
+  });
+
+  it('n8n のアクションと混ぜない・各 1 つまで・行の操作には使えない', () => {
+    const mixed = flowPage();
+    mixed.actions.list = { kind: 'query', hook: 'x' };
+    expect(pageDefinitionSchema.safeParse(mixed).success).toBe(false);
+    const two = flowPage();
+    two.actions.again = { kind: 'flow_submit' };
+    expect(pageDefinitionSchema.safeParse(two).success).toBe(false);
+    const row = flowPage();
+    row.blocks[1].rowKey = 'id';
+    row.blocks[1].rowAction = { label: '開く', action: 'run' };
+    expect(pageDefinitionSchema.safeParse(row).success).toBe(false);
+    // 読む側を指すべき所に flow_submit、送る側に flow_query は落ちる
+    const swapped = flowPage();
+    swapped.blocks[0].items[0].source.action = 'run';
+    expect(pageDefinitionSchema.safeParse(swapped).success).toBe(false);
+    swapped.blocks[0].items[0].source.action = 'latest';
+    swapped.blocks[2].action = 'latest';
+    expect(pageDefinitionSchema.safeParse(swapped).success).toBe(false);
+  });
+
+  it('利用者に返す定義は kind だけ', () => {
+    const def = pageDefinitionSchema.parse(flowPage()) as PageDefinition;
+    expect(toPublicPageDefinition(def).actions).toEqual({ latest: { kind: 'flow_query' }, run: { kind: 'flow_submit' } });
+  });
+
+  it('flow_submit のフォーム・ボタンの入力スキーマを作れる（行の操作は作らない）', () => {
+    const def = pageDefinitionSchema.parse(flowPage()) as PageDefinition;
+    const form = buildInputSchema(def, 'run', { blockIndex: 2 });
+    expect(form?.safeParse({ customer: 'A 社' }).success).toBe(true);
+    expect(form?.safeParse({ customer: 'A 社', extra: 1 }).success).toBe(false);
+    expect(buildInputSchema(def, 'run', { blockIndex: 3, itemIndex: 0 })?.safeParse({}).success).toBe(true);
+    expect(buildInputSchema(def, 'latest', { blockIndex: 0 })).toBeNull();
+    const pub: any = { blocks: [{ ...flowPage().blocks[1], rowKey: 'id', rowAction: { label: '開く', action: 'run' } }], actions: { run: { kind: 'flow_submit' } } };
+    expect(buildInputSchema(pub, 'run', { blockIndex: 0 })).toBeNull();
+  });
+
+  it('flow_query の結果も projectQueryResult で宣言したキーだけに切り詰める', () => {
+    const def = pageDefinitionSchema.parse(flowPage()) as PageDefinition;
+    const out = projectQueryResult(def, 'latest', { total: 3, runs: [{ date: '2026-11-18', secret: 'x' }], other: 1 });
+    expect(out.blocks).toEqual([
+      { index: 0, type: 'kpi', values: { 0: 3 } },
+      { index: 1, type: 'table', rows: [{ id: null, cells: { date: '2026-11-18' } }], truncated: false },
+    ]);
+  });
+});

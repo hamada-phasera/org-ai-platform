@@ -410,14 +410,19 @@ describe('flowDefinitionSchema: 承認なしの外部送信（T5）', () => {
 });
 
 describe('flowDefinitionSchema: 部品', () => {
-  it('カタログに無い部品は落ちる（チャンク 1 の flowDefinitionSchema は空のカタログ＝部品はすべて拒否）', () => {
+  it('カタログに無い部品は落ちる（flowDefinitionSchema は FLOW_PARTS で照合する）', () => {
     const def: any = proposal();
     def.nodes.push({ id: 'p', type: 'part', label: '文書', config: { part: 'google_doc', input: { title: 'x' } } });
     def.edges.push({ from: 'draft', to: 'p' });
     expect(messagesOf(def)).toEqual([]);
-    expect(messagesOf(def, flowDefinitionSchema)).toContain('部品 "google_doc" はありません');
+    // 本物のカタログの google_doc は本文（content）が必須
+    expect(messagesOf(def, flowDefinitionSchema)).toContain('「本文」は必須です');
+    def.nodes[4].config.input = { title: 'x', content: '{{draft.text}}' };
+    expect(messagesOf(def, flowDefinitionSchema)).toEqual([]);
+    expect(messagesOf(def, buildFlowDefinitionSchema([]))).toContain('部品 "google_doc" はありません');
     def.nodes[4].config.part = 'unknown_part';
     expect(messagesOf(def)).toContain('部品 "unknown_part" はありません');
+    expect(messagesOf(def, flowDefinitionSchema)).toContain('部品 "unknown_part" はありません');
   });
 
   it('部品に無い項目・必須の欠け・パスや URL のキーは落ちる', () => {
@@ -699,7 +704,7 @@ describe('構造の固定（ソーステスト）', () => {
       .replace(/^\s*\/\/.*$/gm, '');
 
   it('flows-core.ts と flows-plan.ts は zod を import しない（初回ロードに zod を載せない）', () => {
-    for (const name of ['flows-core.ts', 'flows-plan.ts', 'pages-plan.ts']) {
+    for (const name of ['flows-core.ts', 'flows-plan.ts', 'pages-plan.ts', 'flow-parts.ts', 'flow-templates.ts']) {
       expect(src(name), name).not.toMatch(/from ['"]zod['"]/);
       // zod を読むファイル（flows.ts / pages.ts）からは型だけ
       expect(src(name), name).not.toMatch(/^import \{[^}]*\} from '\.\/(flows|pages)';/m);
@@ -707,7 +712,7 @@ describe('構造の固定（ソーステスト）', () => {
   });
 
   it('eval / new Function / vm を使わない（T2・K13）', () => {
-    for (const name of ['flows-core.ts', 'flows-plan.ts', 'flows.ts']) {
+    for (const name of ['flows-core.ts', 'flows-plan.ts', 'flows.ts', 'flow-parts.ts', 'flow-templates.ts']) {
       const s = src(name);
       expect(s, name).not.toMatch(/\beval\s*\(/);
       expect(s, name).not.toMatch(/new\s+Function\b/);
