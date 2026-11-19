@@ -59,7 +59,7 @@
 
 - シェルは `shell/AppShell` の1つ（サイドバー＋部署トグルのトップバー＋本文＋MobileNav）。ルート追加は `shell/navConfig.ts` の表だけ（各行の `mobile: 'exact' | 'prefix' | false` と `tab`）。サイドバー・下部タブ・メニュー・`isMobileRoute` はすべてこの表から出す。ルートを足したら `shell/__tests__/navConfig.test.ts` の表にも足す（App.tsx と突き合わせて落ちる）
 - サイドバー選択中 = `bg-accent-soft text-accent`
-- TOP (`/`) は最小: ブランドストリップ＋指示入力＋入口4つ。KPI数字は置かない（例外は承認件数のみ）
+- TOP (`/`) は最小: 指示入力＋業務キャンバス（PC は `@xyflow/react` のノードと線、スマホは同じ内容の縦リスト。`components/canvas/`・docs/design/canvas-home.md）。KPI数字は置かない（例外は承認件数のみ）
 - 初回の案内は TOP の入力欄の直下に区切り線の一覧で最大3行（指示・連携・招待。権限で絞る）。完了は既存 API から導出し、全部完了か閉じたら出さない（`shell/Onboarding.tsx`、判定は `utils/onboarding.ts`）
 - 全画面の高さは `h-dvh` / `min-h-dvh`（`h-screen` は使わない）。下部ナビと本文の下余白は `env(safe-area-inset-bottom)` を足す（viewport は `viewport-fit=cover`）
 - モバイルで開けるのは `mobile` が付いた行だけ、他は `DesktopOnly`。分担は「閲覧・承認・チャット・契約（設定）・経理の確認・エージェントの一覧と実行はスマホ、エージェント詳細・ガバナンス・タスク・営業・分析・SNS はパソコン」

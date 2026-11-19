@@ -2,7 +2,7 @@
 
 > **一行要約**: ホームを「業務のノードが線でつながるキャンバス」に替える。キャンバスもフロー編集も実行も **FLOW 自前**（`@xyflow/react` ＋ gateway 内の軽量ランナー）で作り、n8n は**運営が作った「部品」を呼ぶだけ**の裏方に留める。お客さんが n8n のワークフローを作る・編集する形は n8n のライセンス違反になるため採らない。
 
-- 状態: チャンク 1（shared-types の定義スキーマと上限）・チャンク 2（テンプレート・既定の配置・部品カタログ・`flow_query` `flow_submit`）・チャンク 3（DB: `Canvas` / `Flow` / `FlowVersion` / `FlowRun`・`CustomPage.flowId`・`ScheduledTask.flowId`）・チャンク 4（gateway: キャンバスとフローの取得・保存 API）・チャンク 5（gateway: ランナーとキュー・実行の API。承認ノードの停止と再開を含む）・チャンク 6（gateway: 部品ノード（n8n `parts/<key>` / capability）・通知の送信・定期のきっかけ・運営リンク・`/api/flows/parts`）実装済み。2026-11-19。ブランチ `feat/canvas-home`（`feat/custom-pages` の上に積む）
+- 状態: チャンク 1（shared-types の定義スキーマと上限）・チャンク 2（テンプレート・既定の配置・部品カタログ・`flow_query` `flow_submit`）・チャンク 3（DB: `Canvas` / `Flow` / `FlowVersion` / `FlowRun`・`CustomPage.flowId`・`ScheduledTask.flowId`）・チャンク 4（gateway: キャンバスとフローの取得・保存 API）・チャンク 5（gateway: ランナーとキュー・実行の API。承認ノードの停止と再開を含む）・チャンク 6（gateway: 部品ノード（n8n `parts/<key>` / capability）・通知の送信・定期のきっかけ・運営リンク・`/api/flows/parts`）・チャンク 7（web: ホームキャンバス（PC）と業務の縦リスト（スマホ）・`/flows/:id` の仮の画面）実装済み。2026-11-19。ブランチ `feat/canvas-home`（`feat/custom-pages` の上に積む）
 - 前提にした既存の決まり: CLAUDE.md、DESIGN.md、`docs/ARCHITECTURE.md`、`docs/design/multi-tenancy.md`、`docs/design/custom-pages.md`、`docs/n8n-integration-design.md`、`docs/plan/saas-readiness-plan.md`、`docs/billing.md`
 - 変えない原則: **DB が真実の源 / n8n は加速レイヤー / ルートは `authOf(request).db` だけ / エラーは `{ success:false, error:{ code, message } }` / LLM は必ず ai-engine の LLMRouter 経由 / 外部送信は必ず人が通す**
 
@@ -1102,6 +1102,14 @@ DB の大きさの目安（仮定: 1 実行 20KB）: 100 社 × 月 1,000 実行
 | K60 | 「n8n で開く」の URL は `config.n8nUrl` を元にする（gateway に `N8N_EDITOR_BASE_URL` を足さない）。ワークフロー ID は `services/n8n/part-editor.ts` が public API を **GET だけ**・運営のときだけ・5 分キャッシュで引く（`services/flows/` と `routes/flows.ts` は public API を直接触らない＝A6 のソーステストで固定）。運営の判定のため `ADMIN_EMAILS` を gateway の `envSchema`・render.yaml・DEPLOY.md にも載せた | Render の n8n はエディタと Webhook が同じホスト。環境変数を増やさない（K26 と同じ） | 新しい環境変数／ID をカタログに書く |
 | K61 | 部品の呼び出し数（`partCalls`）は、n8n は**試行回数**（再試行を含む）、capability は 1 回と数える。失敗で止まった実行も書く | n8n の原価に当たる分を数える（§7.6）。capability の再試行は既存の仕組みの中で見えない | 成功だけ数える |
 | K62 | 確認ノードの直後に外へ送るノードがあっても、**送る直前にもう一度止まる**（承認が 2 回）。チャンク 5 の強制停止（K12）を変えない | 確認ノードのプレビューは利用者が書いた文で、送る中身そのものではない。fail-closed のまま。画面での見せ方（1 回にまとめるか）はチャンク 8 で決める（持ち越し C6-1） | 確認ノードの承認で送信も通す |
+| K63 | チャンク 7 で `/flows/:id` のルートと**仮のフロー画面**（手順の縦リストを読むだけ。`pages/FlowPage.tsx`・遅延ロード）を足す。編集・実行・履歴はチャンク 8 でこの画面に足す | ノードを押した先が無いと catch-all でホームに戻ってしまう。`navConfig` の `HIDDEN_ROUTES` と `navConfig.test.ts` の表（App.tsx と突き合わせ）もルートが要る | チャンク 8 までルートを足さない |
+| K64 | PC とスマホの描き分けは `useMediaQuery('(min-width: 1024px)')`（Tailwind の `lg`）で、**読み込みごと**分ける。matchMedia が無い環境はスマホ側 | CSS の `lg:hidden` は隠すだけで `@xyflow/react` を読んでしまう（K20） | CSS だけで出し分け |
+| K65 | 縦リストの「同順位」は**同じ段**（Kahn 法の層＝前のノードがすべて済んだ段）。段の中は上 → 下、左 → 右 | 既定の配置で「提案書 → 見積・承認 → 請求」と読める（§4.2 の図と同じ） | 1 つずつ取り出す Kahn（請求が承認より先に出る） |
+| K66 | テンプレートのノードでも、そのテンプレートのフローが既にあれば**そのフローを開く**（K47 でキャンバスの書き換えだけ諦めた場合）。追加メニューは作成済みのテンプレートを「フロー」側に出し、同じ行き先を 2 つ置かせない（「配置済み」） | 押すたびに 200 `created:false` を往復しない。同じ業務のノードが 2 つあると地図として読めない | 毎回 from-template を呼ぶ |
+| K67 | MEMBER の「未作成」は `aria-disabled`。押しても作らず「まだ用意されていません」の 1 行だけ（POST しない）。消えた手作りのフローを指すノードは誰も押せない | §3.3 の 1 行を出しつつ、押せないことを支援技術にも伝える | ボタンを `disabled`（理由が出ない） |
+| K68 | PC のスクリーンリーダー向けに縦リストを二重に置かない。キャンバスのノード自体を `button`（`aria-label="〇〇を開く"`）にし、閲覧モードは矢印キーで縦リストと同じ順に移る。ReactFlow 側のノードの枠はフォーカスさせない（`nodesFocusable: false`） | 同じボタンが 2 組あると Tab と読み上げが倍になる。§3.6 の「同じ内容の一覧」は順番（`canvasToList`）の共用で満たす | `sr-only` の一覧を併置 |
+| K69 | 旧 TOP の「数字を見る」「エージェントを動かす」の展開パネルはやめ、ノード（数字 → `/dashboard`）と追加メニューの「画面」（エージェント → `/agents`）に置き換える。追加メニューの「画面」は `CANVAS_LINK_PATHS` の固定のパスだけ（`/agents/:id` `/p/:slug` は出さない。C7-2） | U-7（入口 4 つはノードになる）。ホームが常時取るのは配置と承認件数だけ | 旧パネルをキャンバスの上に残す |
+| K70 | キャンバスの読み込みに失敗したときは既定の配置を描き、**編集ボタンを出さない**（読み込み中も同じ） | 版 0 の既定で保存すると他人の配置を上書きしかねない（実際は 409 だが、押せないほうが分かりやすい） | 編集を許す |
 
 ## 15. 未確認・実装時に確かめること
 
@@ -1126,3 +1134,7 @@ DB の大きさの目安（仮定: 1 実行 20KB）: 100 社 × 月 1,000 実行
 | C6-2 | セットアップ状況（`GET /api/organizations/me/setup`）に n8n の死活と部品の有無の 1 行（§8.4） | チャンク 9 |
 | C6-3 | `npm run flow:parts:check`（カタログと `part-<key>` の突き合わせ）・`n8n:import` が `parts/` を拾う・`docs/flow-parts-n8n.md`・サンプル `parts/part-pdf_make.json` | チャンク 9 |
 | C6-4 | `send_email` は既存の `resolveAndExecute` の資格情報チェックで、gmail の接続状態を n8n の credential 一覧（public API の GET）から読むことがある（`N8N_API_KEY` があるとき・既存の挙動）。ワークフローの作成・変更ではないが、D9 を厳密に読むなら Gmail もセルフサーブ接続に寄せる | 別チャンク（既存の連携の整理） |
+| C7-1 | 実行中のフローがあるノードへ入る線の `animated`（§3.2）。`GET /api/canvas` に実行中の情報が無い | チャンク 8 か 9 |
+| C7-2 | 追加メニューの「画面」に組織のエージェント（`/agents/:id`）と業務ページ（`/p/:slug`）を出す（配置スキーマは既に許す） | チャンク 9 |
+| C7-3 | 目視（PC 1280px・スマホ 390px・キーボードだけで開く）。今回はテスト（jsdom の描画・ソーステスト）だけで、開発サーバでの確認はしていない | チャンク 8 の確認と一緒に |
+| C7-4 | `/flows/:id` は仮の画面（手順の縦リストを読むだけ。K63） | チャンク 8 |

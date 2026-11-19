@@ -7,6 +7,7 @@ import {
   MOBILE_TABS,
   NAV_ROUTES,
   CUSTOM_PAGES_ENTRY,
+  HIDDEN_ROUTES,
   isMobileRoute,
   showInMobileMenu,
 } from '../navConfig';
@@ -32,6 +33,8 @@ const EXPECTED: Record<string, boolean> = {
   '/p': true,
   '/p/:slug': true,
   '/settings': true,
+  // フロー画面（docs/design/canvas-home.md §4.4）。ナビに出さないがスマホで開ける（HIDDEN_ROUTES）
+  '/flows/:id': true,
 };
 
 /** シェルの外（ログイン前の画面と catch-all） */
@@ -142,6 +145,22 @@ describe('業務ページ（/p）', () => {
 
   it('MobileNav はメニューを showInMobileMenu で絞る', () => {
     expect(read('../MobileNav.tsx')).toContain('showInMobileMenu(item, hasCustomPages)');
+  });
+});
+
+describe('ナビに出さないルート（HIDDEN_ROUTES）', () => {
+  it('フロー画面はスマホで開ける', () => {
+    expect(isMobileRoute('/flows/abc')).toBe(true);
+    expect(isMobileRoute('/flowsx')).toBe(false);
+  });
+
+  it('ナビ・下部タブ・メニューには出さない（下部タブは変えない。K21）', () => {
+    for (const h of HIDDEN_ROUTES) {
+      expect(NAV_ROUTES.some((e) => e.to === h.to)).toBe(false);
+      expect(MOBILE_TABS.some((e) => e.to === h.to)).toBe(false);
+      expect([...MOBILE_MENU, ...DESKTOP_MENU].some((e) => e.to === h.to)).toBe(false);
+    }
+    expect(MOBILE_TABS).toHaveLength(4);
   });
 });
 

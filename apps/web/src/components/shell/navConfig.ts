@@ -99,6 +99,13 @@ export function showInMobileMenu(item: NavItem, hasCustomPages: boolean): boolea
 /** メニューの「パソコン向け」 */
 export const DESKTOP_MENU: readonly NavItem[] = NAV_ROUTES.filter((e) => e.mobile === false);
 
+/**
+ * ナビ（サイドバー・下部タブ・メニュー）に出さないが、スマホでも開けるルート。
+ * フロー画面はホームのノードから開く（下部タブは変えない。docs/design/canvas-home.md §4.4・K21）。
+ * `isMobileRoute` だけがこれも見る。
+ */
+export const HIDDEN_ROUTES: readonly { to: string; mobile: MobileRule }[] = [{ to: '/flows', mobile: 'prefix' }];
+
 function normalize(pathname: string): string {
   const path = pathname.split(/[?#]/)[0] || '/';
   return path.length > 1 ? path.replace(/\/+$/, '') || '/' : path;
@@ -106,7 +113,7 @@ function normalize(pathname: string): string {
 
 export function isMobileRoute(pathname: string): boolean {
   const path = normalize(pathname);
-  return NAV_ROUTES.some((e) => {
+  return [...NAV_ROUTES, ...HIDDEN_ROUTES].some((e) => {
     if (e.mobile === 'exact') return path === e.to;
     if (e.mobile === 'prefix') return path === e.to || path.startsWith(`${e.to}/`);
     return false;

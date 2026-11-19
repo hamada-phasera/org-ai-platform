@@ -37,8 +37,9 @@ describe('Onboarding', () => {
   });
 });
 
-describe('TopPage', () => {
-  const src = read('../../../pages/TopPage.tsx');
+// ホームはキャンバスに差し替えた（docs/design/canvas-home.md チャンク 7）。案内の位置と「数字は承認件数だけ」は同じ決まり
+describe('CanvasHomePage', () => {
+  const src = read('../../../pages/CanvasHomePage.tsx');
 
   it('案内は入力欄（form）の直後に置く', () => {
     const form = src.indexOf('</form>');
@@ -49,9 +50,9 @@ describe('TopPage', () => {
   });
 
   it('常時出す数字は承認待ちの件数だけのまま（KPI を足さない）', () => {
-    // 常時走るクエリ（enabled の無いもの）は saved-agents と pending-approval-count の 2 本だけ
+    // ページが直接持つクエリは pending-approval-count だけ（配置は useCanvas。数字を持たない）
     const queries = [...src.matchAll(/useQuery<[^>]*>\(\{\s*queryKey: \['([^']+)'\]([\s\S]*?)\}\);/g)];
-    const always = queries.filter((m) => !/enabled:/.test(m[2])).map((m) => m[1]);
-    expect(always.sort()).toEqual(['pending-approval-count', 'saved-agents']);
+    expect(queries.map((m) => m[1])).toEqual(['pending-approval-count']);
+    expect(src).not.toMatch(/dashboard\/efficiency/);
   });
 });

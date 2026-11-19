@@ -15,6 +15,8 @@ const AgentDetailPage = lazy(() => import('./pages/AgentDetailPage'));
 /* 業務ページは zod（入力検証）とブロックの描画を使う。初回ロードに載せないよう遅延にする（設計書 K20） */
 const CustomPagesIndex = lazy(() => import('./pages/CustomPagesIndex'));
 const CustomPage = lazy(() => import('./pages/CustomPage'));
+/* フロー画面（docs/design/canvas-home.md §3.4）。ホームのノードから開く。ナビには出さない（HIDDEN_ROUTES） */
+const FlowPage = lazy(() => import('./pages/FlowPage'));
 import GovernancePage from './pages/GovernancePage';
 import TaskManagerPage from './pages/TaskManagerPage';
 import DeliverablesPage from './pages/DeliverablesPage';
@@ -23,7 +25,7 @@ import SalesPage from './pages/SalesPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import SnsPage from './pages/SnsPage';
 import AccountingPage from './pages/AccountingPage';
-import TopPage from './pages/TopPage';
+import CanvasHomePage from './pages/CanvasHomePage';
 import TermsPage from './pages/legal/TermsPage';
 import PrivacyPage from './pages/legal/PrivacyPage';
 import TokushohoPage from './pages/legal/TokushohoPage';
@@ -70,8 +72,8 @@ export default function App() {
           </RequireAuth>
         }
       >
-        {/* TOP は最小。数字は /dashboard 側に置く。 */}
-        <Route index element={<TopPage />} />
+        {/* ホームは指示入力＋業務のキャンバス（スマホは縦リスト）。数字は /dashboard 側に置く。 */}
+        <Route index element={<CanvasHomePage />} />
         <Route path="dashboard" element={<HomePage />} />
         <Route path="chat" element={<ChatPage />} />
         <Route path="chat/:id" element={<ChatPage />} />
@@ -105,6 +107,14 @@ export default function App() {
           element={
             <Suspense fallback={<div className="flex justify-center py-20"><Spinner /></div>}>
               <CustomPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="flows/:id"
+          element={
+            <Suspense fallback={<div className="flex justify-center py-20"><Spinner /></div>}>
+              <FlowPage />
             </Suspense>
           }
         />
