@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Suspense, lazy, useCallback, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Background,
   BackgroundVariant,
@@ -16,7 +16,10 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Play, Plus } from 'lucide-react';
 import { FLOW_PARTS, flowDefinitionSchema, topoOrder, type FlowDefinition, type FlowNode, type FlowNodeType } from '@org-ai/shared-types';
-import { Button } from '../ui';
+import { Button, Spinner } from '../ui';
+
+/* 出力ビルダー（@dnd-kit とブロックの描画）は「出力」を開いたときだけ読む */
+const OutputBuilder = lazy(() => import('./OutputBuilder'));
 import { LiquidTabs } from '../motion/LiquidTabs';
 import { FlowCanvasNode, FlowEdgeView, type FlowEdgeData, type FlowNodeData } from './FlowCanvasNode';
 import { FlowSettingsPanel, NodePanel } from './NodePanel';
@@ -67,7 +70,7 @@ import '@xyflow/react/dist/base.css';
 const nodeTypes = { step: FlowCanvasNode };
 const edgeTypes = { step: FlowEdgeView };
 
-type Tab = 'steps' | 'history';
+type Tab = 'steps' | 'output' | 'history';
 
 interface Props {
   flow: FlowDetail;
@@ -102,7 +105,19 @@ function Editor({ flow, parts }: Props) {
   }, [flow]);
   const [work, setWork] = useState(saved);
   const [selected, setSelected] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>('steps');
+  const [params, setParams] = useSearchParams();
+  // 出力ビルダーは ADMIN 以上・PC だけ（§3.1。`/flows/:id?view=output`）
+  const [tab, setTabState] = useState<Tab>(() => (flow.canEdit && params.get('view') === 'output' ? 'output' : 'steps'));
+  const setTab = useCallback(
+    (t: Tab) => {
+      setTabState(t);
+      const next = new URLSearchParams(params);
+      if (t === 'output') next.set('view', 'output');
+      else next.delete('view');
+      setParams(next, { replace: true });
+    },
+    [params, setParams],
+  );
   const [menu, setMenu] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -348,20 +363,23 @@ function Editor({ flow, parts }: Props) {
             label="フロー画面の表示切り替え"
             items={[
               { value: 'steps', label: '手順' },
+              ...(canEdit ? [{ value: 'output' as const, label: '出力' }] : []),
               { value: 'history', label: '履歴' },
             ]}
             value={tab}
             onChange={setTab}
           />
         </div>
-        {canEdit && (
+        {canEdit && tab !== 'output' && (
           <Button size="sm" variant={dirty ? 'primary' : 'secondary'} disabled={!dirty} loading={saving} onClick={() => void save()}>
             保存
           </Button>
         )}
+        {tab !== 'output' && (
         <Button size="sm" variant={dirty ? 'secondary' : 'primary'} icon={<Play size={12} />} disabled={!!blocked} loading={runner.busy} onClick={action.onRun} title={blocked ?? undefined}>
           実行
         </Button>
+        )}
       </div>
 
       <div className="px-5" aria-live="polite">
@@ -370,6 +388,18 @@ function Editor({ flow, parts }: Props) {
         <RunStatusLine run={runner.run} error={action.formOpen ? null : runner.error} onClear={runner.clear} />
       </div>
 
+      {tab === 'output' ? (
+        <Suspense
+          fallback={
+            <div className="flex flex-1 justify-center py-20" aria-busy="true">
+              <Spinner />
+            </div>
+          }
+        >
+          {dirty && <p className="px-5 pt-2 text-sm text-text-muted">手順の変更は、保存してから出力に反映されます</p>}
+          <OutputBuilder flow={flow} />
+        </Suspense>
+      ) : (
       <div className="flex min-h-0 flex-1">
         <div className="home-canvas relative min-w-0 flex-1 bg-canvas" data-editing={canEdit ? 'true' : 'false'} onKeyDown={onKeyDown}>
           <ReactFlow
@@ -451,6 +481,7 @@ function Editor({ flow, parts }: Props) {
           )}
         </aside>
       </div>
+      )}
 
       {action.formOpen && action.fields && (
         <RunForm

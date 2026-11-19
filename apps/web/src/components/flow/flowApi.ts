@@ -4,7 +4,9 @@ import { isAxiosError } from 'axios';
 import {
   isFlowRunFinal,
   type FlowDefinition,
+  type FlowPageSource,
   type FlowPartSpec,
+  type PageDefinition,
   type FlowStepState,
   type UsageState,
 } from '@org-ai/shared-types';
@@ -111,6 +113,35 @@ export function useFlowRuns(id: string, enabled = true) {
     queryFn: async () => ((await api.get(`/flows/${encodeURIComponent(id)}/runs`)).data.data as { runs: FlowRunSummary[] }).runs,
     enabled: !!id && enabled,
   });
+}
+
+// ── 出力（結果ページ。§3.5） ─────────────────────────────
+
+export interface FlowPageInfo {
+  page: { slug: string; title: string; status: string; minRole: string; version: number; definition: PageDefinition } | null;
+  /** ページがまだ無いときの最初の案 */
+  draft: PageDefinition | null;
+  sources: FlowPageSource[];
+  preview: { raw: Record<string, unknown>; hasRun: boolean };
+}
+
+export const flowPageKey = (id: string) => ['flow-page', id] as const;
+
+/** 出力ビルダーが開くもの（ADMIN 以上だけ。MEMBER は 403） */
+export function useFlowPage(id: string, enabled = true) {
+  return useQuery<FlowPageInfo>({
+    queryKey: flowPageKey(id),
+    queryFn: async () => (await api.get(`/flows/${encodeURIComponent(id)}/page`)).data.data as FlowPageInfo,
+    enabled: !!id && enabled,
+    retry: false,
+  });
+}
+
+export async function saveFlowPage(
+  id: string,
+  body: { definition: PageDefinition; title?: string; baseVersion?: number },
+): Promise<{ slug: string; version: number; status: string; created: boolean; changed: boolean }> {
+  return (await api.put(`/flows/${encodeURIComponent(id)}/page`, body)).data.data;
 }
 
 export async function fetchRun(runId: string): Promise<FlowRunDetail> {

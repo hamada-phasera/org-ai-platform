@@ -1,4 +1,5 @@
 import {
+  FLOW_RUN_STATUS_LABEL,
   FLOW_BUILTIN_REFS,
   FLOW_DEFINITION_LIMITS as L,
   FLOW_NODE_TYPE_LABEL,
@@ -392,15 +393,8 @@ export function flowChanged(
 
 // ── 実行の表示 ───────────────────────────────────────────────
 
-export const RUN_STATUS_LABEL: Record<FlowRunStatus, string> = {
-  QUEUED: '待ち',
-  RUNNING: '実行中',
-  WAITING_APPROVAL: '承認待ち',
-  SUCCEEDED: '完了',
-  FAILED: '失敗',
-  CANCELED: '取消',
-  EXPIRED: '期限切れ',
-};
+/** 結果ページの履歴と同じ文言（shared-types の 1 か所） */
+export const RUN_STATUS_LABEL: Record<FlowRunStatus, string> = FLOW_RUN_STATUS_LABEL;
 
 export const STEP_STATUS_LABEL: Record<FlowStepStatus, string> = {
   PENDING: '待ち',

@@ -330,6 +330,10 @@ export interface OrganizationUsage {
   storageAddonUnits: number;
   /** 1ファイルの上限 */
   maxFileBytes: number;
+  /** 業務フロー（docs/design/canvas-home.md §7.6）。古い API では無い */
+  flows?: { count: number; limit: number };
+  flowRuns?: { used: number; limit: number; state: UsageState; blocked: boolean };
+  partCalls?: { used: number; limit: number; state: UsageState; blocked: boolean };
 }
 
 /** 本番の設定が入っているかの状態（設定 > 基本 のカードに出す。オーナーのみ） */
