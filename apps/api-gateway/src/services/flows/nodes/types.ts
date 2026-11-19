@@ -8,13 +8,18 @@ export interface NodeRunContext {
   plan: string;
   scope: FlowScope;
   node: FlowNode;
+  /**
+   * 外へ送るノードで、人が承認したときに見せた中身（展開済みの値。K57）。あればこれをそのまま送る
+   * （承認の後に組み直さない＝人が見たものと送るものをずらさない）。
+   */
+  gateArgs?: Record<string, string>;
 }
 
 export type NodeResult =
-  | { ok: true; output: Record<string, unknown>; warnings?: string[]; truncated?: boolean; aiCalls?: number; attempts?: number }
-  | { ok: false; error: { code: string; message: string }; aiCalls?: number; attempts?: number };
+  | { ok: true; output: Record<string, unknown>; warnings?: string[]; truncated?: boolean; aiCalls?: number; partCalls?: number; attempts?: number }
+  | { ok: false; error: { code: string; message: string }; aiCalls?: number; partCalls?: number; attempts?: number };
 
-export const fail = (code: string, message: string, extra: { aiCalls?: number; attempts?: number } = {}): NodeResult => ({
+export const fail = (code: string, message: string, extra: { aiCalls?: number; partCalls?: number; attempts?: number } = {}): NodeResult => ({
   ok: false,
   error: { code, message },
   ...extra,
@@ -35,4 +40,20 @@ export class Renderer {
     if (r.truncated) this.truncated = true;
     return r.text;
   }
+}
+
+const MAX_ROWS = 50;
+
+/** 表の行をスカラーだけに切り詰める（オブジェクト・配列の値は捨てる） */
+export function scalarRows(value: unknown): Record<string, string | number | boolean | null>[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.slice(0, MAX_ROWS).flatMap((row) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return [];
+    const out: Record<string, string | number | boolean | null> = {};
+    for (const [k, v] of Object.entries(row as Record<string, unknown>)) {
+      if (typeof v === 'string' || typeof v === 'boolean' || v === null) out[k] = v;
+      else if (typeof v === 'number' && Number.isFinite(v)) out[k] = v;
+    }
+    return [out];
+  });
 }

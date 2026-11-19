@@ -31,7 +31,9 @@ import {
   type FlowRow,
 } from '../services/flows/store';
 import type { TenantDb } from '../tenancy/tenant-db';
-import { hasRoleAtLeast, isFlowRunFinal } from '@org-ai/shared-types';
+import { FLOW_PARTS, hasRoleAtLeast, isFlowRunFinal, planAllowsPart } from '@org-ai/shared-types';
+import { isPlatformAdmin } from '../services/platform-admin';
+import { partEditorUrl } from '../services/n8n/part-editor';
 import { FlowRunInputError, acceptRun, cancelRun, flowQueueTuning, pumpOrg } from '../services/flows/queue';
 import { waitForRunSettled } from '../services/flows/runner';
 
@@ -199,6 +201,45 @@ export async function flowRoutes(app: FastifyInstance): Promise<void> {
     } catch (e) {
       return sendServiceError(reply, e);
     }
+  });
+
+  /**
+   * 部品カタログ（§8.5）。その組織のプランで使えるか（allowed）と接続状態（connection）つき。
+   * connection: ok / not_configured（n8n 未設定・連携の登録が無い）/ needs_auth（連携が切れている）。
+   * 運営（ADMIN_EMAILS）にだけ n8n 経由の部品の editorUrl を足す。それ以外の応答に n8n の URL・ID は入れない（T19・T23）。
+   */
+  app.get('/parts', { preHandler: requireAuth }, async (request, reply) => {
+    const { db, email } = authOf(request);
+    const plan = await planOf(db);
+    const capNames = FLOW_PARTS.flatMap((p) => (p.via.kind === 'capability' ? [p.via.name] : []));
+    const caps = await db.capability.findMany({ where: { name: { in: capNames } }, select: { name: true, kind: true, status: true } });
+    const capOf = new Map(caps.map((c) => [c.name, c]));
+    const admin = isPlatformAdmin(email);
+    const parts = await Promise.all(
+      FLOW_PARTS.map(async (p) => {
+        let connection: 'ok' | 'not_configured' | 'needs_auth';
+        if (p.via.kind === 'n8n') connection = config.n8nConfigured ? 'ok' : 'not_configured';
+        else {
+          const c = capOf.get(p.via.name);
+          connection = !c || c.kind === 'http' || c.status === 'DISABLED' ? 'not_configured' : c.status === 'NEEDS_AUTH' ? 'needs_auth' : 'ok';
+        }
+        const editorUrl = admin && p.via.kind === 'n8n' ? await partEditorUrl(p.key) : null;
+        return {
+          key: p.key,
+          title: p.title,
+          icon: p.icon,
+          via: p.via.kind,
+          input: p.input,
+          output: p.output,
+          sideEffect: p.sideEffect,
+          minPlan: p.minPlan,
+          allowed: planAllowsPart(plan, p.minPlan),
+          connection,
+          ...(editorUrl ? { editorUrl } : {}),
+        };
+      }),
+    );
+    return reply.send({ success: true, data: { parts } });
   });
 
   /** 空のフロー（きっかけ → 出力）を作る */

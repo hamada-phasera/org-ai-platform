@@ -2,7 +2,7 @@
 
 > **一行要約**: ホームを「業務のノードが線でつながるキャンバス」に替える。キャンバスもフロー編集も実行も **FLOW 自前**（`@xyflow/react` ＋ gateway 内の軽量ランナー）で作り、n8n は**運営が作った「部品」を呼ぶだけ**の裏方に留める。お客さんが n8n のワークフローを作る・編集する形は n8n のライセンス違反になるため採らない。
 
-- 状態: チャンク 1（shared-types の定義スキーマと上限）・チャンク 2（テンプレート・既定の配置・部品カタログ・`flow_query` `flow_submit`）・チャンク 3（DB: `Canvas` / `Flow` / `FlowVersion` / `FlowRun`・`CustomPage.flowId`・`ScheduledTask.flowId`）・チャンク 4（gateway: キャンバスとフローの取得・保存 API）・チャンク 5（gateway: ランナーとキュー・実行の API。承認ノードの停止と再開を含む）実装済み。2026-11-19。ブランチ `feat/canvas-home`（`feat/custom-pages` の上に積む）
+- 状態: チャンク 1（shared-types の定義スキーマと上限）・チャンク 2（テンプレート・既定の配置・部品カタログ・`flow_query` `flow_submit`）・チャンク 3（DB: `Canvas` / `Flow` / `FlowVersion` / `FlowRun`・`CustomPage.flowId`・`ScheduledTask.flowId`）・チャンク 4（gateway: キャンバスとフローの取得・保存 API）・チャンク 5（gateway: ランナーとキュー・実行の API。承認ノードの停止と再開を含む）・チャンク 6（gateway: 部品ノード（n8n `parts/<key>` / capability）・通知の送信・定期のきっかけ・運営リンク・`/api/flows/parts`）実装済み。2026-11-19。ブランチ `feat/canvas-home`（`feat/custom-pages` の上に積む）
 - 前提にした既存の決まり: CLAUDE.md、DESIGN.md、`docs/ARCHITECTURE.md`、`docs/design/multi-tenancy.md`、`docs/design/custom-pages.md`、`docs/n8n-integration-design.md`、`docs/plan/saas-readiness-plan.md`、`docs/billing.md`
 - 変えない原則: **DB が真実の源 / n8n は加速レイヤー / ルートは `authOf(request).db` だけ / エラーは `{ success:false, error:{ code, message } }` / LLM は必ず ai-engine の LLMRouter 経由 / 外部送信は必ず人が通す**
 
@@ -1096,6 +1096,12 @@ DB の大きさの目安（仮定: 1 実行 20KB）: 100 社 × 月 1,000 実行
 | K54 | データノードの原価（`cost_entry`）の `source` は既存の値域の **`CHAT`**（AI 経由の下書き）。`status` は定義に関係なく `DRAFT` 固定 | 原価の API の値域（MANUAL / CHAT / LINE）を増やさない | `FLOW` を足す |
 | K55 | 組織の同時実行数は DB の RUNNING の件数で見て、同じプロセスでは組織ごとに着手を直列にする。複数台では短い間だけ 1〜2 件超えうる（gateway 1 台の前提＝D8）。承認の後の再開は同時実行数を見ない（止めない） | 着手そのものは条件付き updateMany なので二重には走らない。上限は負荷の目安 | 組織ごとの行ロック |
 | K56 | 部品の「未接続（503）」「上位プラン（403 `FLOW_PART_PLAN`）」は**受け付けで**断る（実行の途中で落とさない） | 実行数を数える前に分かる。途中まで走って止まる実行を作らない | 実行時に判定 |
+| K57 | 外へ送るノード（`external_send` の部品・通知）は、**止めた時点で送る中身を展開して `FlowRun.steps[nodeId].gateArgs` に固定**し、承認の後はそれをそのまま送る（組み直さない）。承認の画面に全文が出るよう、通知の本文は 4,000 文字・部品の文字の項目は `Field.maxLength` で切る（`warnings` に 1 行） | 人が見たものと送るものをずらさない（承認の間に `{{run.date}}` が変わる・上流の値が差し替わる等）。`Task.approvalData` ではなく `FlowRun` に持つ（ランナーが読む正本） | 承認の後に展開し直す |
+| K58 | 定期のきっかけは `ScheduledTask.hourUtc` に UTC の時へ直して入れ、**曜日・日付は日本時間のまま**入れる。`flowId` のある行だけ dispatcher が日本時間の暦で照合する。受け付けは手の実行と同じ `acceptRun`（上限・未接続・入力）で、`requestId = sched:<flowId>:<その時間の開始の epoch ms>`。フローの行は既存の 定期タスク API の一覧に出さず、変更・削除は 409 `FLOW_MANAGED` | 「毎月 1 日 7 時（JST）」は UTC では前月末日（月で変わる）で、日付を UTC に直せない。列を足さずに済む。requestId の文字種（`[a-zA-Z0-9:_-]`）に合わせて時刻は数値 | `timezone` 列を足す／UTC の暦に直す |
+| K59 | 通知ノードの送り先は既存の capability: slack → `notify_slack`、email → `send_email`（件名は本文の最初の行を 100 文字）、line → `send_line_push`（未登録なので「設定されていません」で失敗）。部品・通知とも、組織に capability の行が無い・`DISABLED`・**`kind='http'`（お客さんのカスタム HTTP）**なら呼ばない | 送る経路を増やさない（K7）。同じ名前のカスタム HTTP ノードに横取りされない（§8.3）。送ったことにしない（K8） | 通知専用の送信処理を作る |
+| K60 | 「n8n で開く」の URL は `config.n8nUrl` を元にする（gateway に `N8N_EDITOR_BASE_URL` を足さない）。ワークフロー ID は `services/n8n/part-editor.ts` が public API を **GET だけ**・運営のときだけ・5 分キャッシュで引く（`services/flows/` と `routes/flows.ts` は public API を直接触らない＝A6 のソーステストで固定）。運営の判定のため `ADMIN_EMAILS` を gateway の `envSchema`・render.yaml・DEPLOY.md にも載せた | Render の n8n はエディタと Webhook が同じホスト。環境変数を増やさない（K26 と同じ） | 新しい環境変数／ID をカタログに書く |
+| K61 | 部品の呼び出し数（`partCalls`）は、n8n は**試行回数**（再試行を含む）、capability は 1 回と数える。失敗で止まった実行も書く | n8n の原価に当たる分を数える（§7.6）。capability の再試行は既存の仕組みの中で見えない | 成功だけ数える |
+| K62 | 確認ノードの直後に外へ送るノードがあっても、**送る直前にもう一度止まる**（承認が 2 回）。チャンク 5 の強制停止（K12）を変えない | 確認ノードのプレビューは利用者が書いた文で、送る中身そのものではない。fail-closed のまま。画面での見せ方（1 回にまとめるか）はチャンク 8 で決める（持ち越し C6-1） | 確認ノードの承認で送信も通す |
 
 ## 15. 未確認・実装時に確かめること
 
@@ -1112,8 +1118,11 @@ DB の大きさの目安（仮定: 1 実行 20KB）: 100 社 × 月 1,000 実行
 
 | # | 項目 | どこで |
 |---|---|---|
-| C5-1 | 部品（n8n `parts/<key>`・capability）と通知の実際の呼び出し。いまは承認の後も送らずに失敗する（K50） | チャンク 6 |
-| C5-2 | 定期のきっかけ（`ScheduledTask.flowId` の同期と dispatcher） | チャンク 6（K45） |
+| ~~C5-1~~ | 部品（n8n `parts/<key>`・capability）と通知の実際の呼び出し → チャンク 6 で実装（K57・K59） | 済 |
+| ~~C5-2~~ | 定期のきっかけ（`ScheduledTask.flowId` の同期と dispatcher）→ チャンク 6 で実装（K58） | 済 |
 | C5-3 | 実行履歴の保持期間の日次の掃除（`flowHistoryCutoff`）。判定の関数はあるが、消す処理はまだ無い | チャンク 6 か 9 |
 | C5-4 | 受信ページ「エージェント承認」タブの `flow_step` の表示（`RunPreviewRow`）。承認 API 自体は動く | チャンク 8 |
-
+| C6-1 | 確認ノードの直後の外へ送るノードで承認が 2 回になる（K62）。受信・フロー画面で 1 回にまとめて見せるか | チャンク 8 |
+| C6-2 | セットアップ状況（`GET /api/organizations/me/setup`）に n8n の死活と部品の有無の 1 行（§8.4） | チャンク 9 |
+| C6-3 | `npm run flow:parts:check`（カタログと `part-<key>` の突き合わせ）・`n8n:import` が `parts/` を拾う・`docs/flow-parts-n8n.md`・サンプル `parts/part-pdf_make.json` | チャンク 9 |
+| C6-4 | `send_email` は既存の `resolveAndExecute` の資格情報チェックで、gmail の接続状態を n8n の credential 一覧（public API の GET）から読むことがある（`N8N_API_KEY` があるとき・既存の挙動）。ワークフローの作成・変更ではないが、D9 を厳密に読むなら Gmail もセルフサーブ接続に寄せる | 別チャンク（既存の連携の整理） |

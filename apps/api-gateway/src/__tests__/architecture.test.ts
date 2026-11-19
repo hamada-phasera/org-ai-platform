@@ -158,5 +158,24 @@ describe('A6: 業務フローとキャンバスの経路は n8n の public API �
   it('eval / new Function / node:vm を使わない（T2）', () => {
     const bad = FLOW_FILES.filter((f) => /\beval\s*\(|new\s+Function\s*\(|['"](node:)?vm['"]/.test(code(f.src))).map((f) => f.rel);
     expect(bad).toEqual([]);
+  });  it('運営向けリンク（public API を読むだけの services/n8n/part-editor）を使うのは routes/flows.ts だけで、運営の判定の後にだけ呼ぶ', () => {
+    const importers = FLOW_FILES.filter((f) => /n8n\/part-editor/.test(code(f.src))).map((f) => f.rel);
+    expect(importers).toEqual(['routes/flows.ts']);
+    const route = FLOW_FILES.find((f) => f.rel === 'routes/flows.ts')!.src;
+    expect(route).toMatch(/admin && p\.via\.kind === 'n8n' \? await partEditorUrl\(/);
+    const editor = files.find((f) => f.rel === 'services/n8n/part-editor.ts')!.src;
+    // 読むだけ（GET）。作る・変える・消すメソッドが無い
+    expect(code(editor)).toMatch(/method: 'GET'/);
+    expect(code(editor)).not.toMatch(/method: '(POST|PUT|PATCH|DELETE)'/);
+  });
+  it('部品の呼び出しの共通部分（services/n8n/webhook-call.ts）は public API に触れない', () => {
+    const src = files.find((f) => f.rel === 'services/n8n/webhook-call.ts')!.src;
+    expect(/n8nApiKey|\/api\/v1\/|n8n-workflow-builder/.test(code(src))).toBe(false);
+  });
+  it('部品の URL は webhook/parts/<key> の 1 か所だけで組み立てる（T6・T7）', () => {
+    const builders = FLOW_FILES.filter((f) => /\/webhook\//.test(code(f.src))).map((f) => f.rel);
+    expect(builders).toEqual(['services/flows/part-client.ts']);
+    const src = code(FLOW_FILES.find((f) => f.rel === 'services/flows/part-client.ts')!.src);
+    expect(src.match(/\/webhook\/[^`'"]*/g)).toEqual(['/webhook/parts/${key}']);
   });
 });

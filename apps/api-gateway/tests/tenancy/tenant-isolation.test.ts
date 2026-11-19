@@ -324,6 +324,7 @@ const LIST_CASES: string[] = [
   '/api/pages/tokens',
   '/api/flows',
   '/api/flows/flow-A/runs',
+  '/api/flows/parts',
   '/api/canvas',
 ];
 

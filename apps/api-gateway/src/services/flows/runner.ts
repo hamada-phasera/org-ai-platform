@@ -25,7 +25,7 @@ import {
 import { tenantDb, type TenantDb } from '../../tenancy/tenant-db';
 import { createLogger } from '../../utils/logger';
 import { planOf } from './limits';
-import { approvalDataOf } from './nodes/approval';
+import { approvalDataOf, gateArgsOf } from './nodes/approval';
 import { runAiNode } from './nodes/ai';
 import { runBranchNode } from './nodes/branch';
 import { runDataNode } from './nodes/data';
@@ -197,6 +197,7 @@ function needsHuman(node: FlowNode, state: FlowStepState): boolean {
 // ── 実行 ───────────────────────────────────────────────
 
 async function executeNode(ctx: NodeRunContext, taskId: string | null): Promise<NodeResult & { document?: DocumentOutput }> {
+  // 承認待ちから再開した外へ送るノードは、止めたときに固定した中身だけを送る（K57）
   switch (ctx.node.type) {
     case 'trigger':
       return runTriggerNode(ctx);
@@ -209,7 +210,7 @@ async function executeNode(ctx: NodeRunContext, taskId: string | null): Promise<
     case 'output':
       return runOutputNode({ ...ctx, taskId });
     case 'part':
-      return runPartNode();
+      return runPartNode(ctx);
     default:
       return { ok: false, error: { code: 'FLOW_NODE_TYPE', message: 'このノードは実行できません' } };
   }
@@ -268,6 +269,9 @@ async function advanceInner(db: TenantDb, runId: string): Promise<void> {
   const segmentStart = Date.now();
   const activeBefore = row.durationMs ?? 0;
   const activeMs = (): number => activeBefore + (Date.now() - segmentStart);
+  // 呼び出しの回数（失敗で止まったときも書く＝部品の月間数に数える）
+  let aiCalls = row.aiCalls;
+  let partCalls = row.partCalls;
 
   const fail = async (nodeId: string | null, code: string, message: string, steps?: Record<string, FlowStepState>): Promise<void> => {
     if (steps) for (const id of Object.keys(steps)) if (steps[id].status === 'PENDING') steps[id] = { ...steps[id], status: 'SKIPPED' };
@@ -275,6 +279,8 @@ async function advanceInner(db: TenantDb, runId: string): Promise<void> {
       status: 'FAILED',
       error: { nodeId, code, message },
       ...(steps ? { steps: fitSteps(steps) } : {}),
+      aiCalls,
+      partCalls,
       finishedAt: new Date(),
       durationMs: activeMs(),
       lockedAt: null,
@@ -295,8 +301,6 @@ async function advanceInner(db: TenantDb, runId: string): Promise<void> {
   const input = row.input && typeof row.input === 'object' && !Array.isArray(row.input) ? (row.input as Record<string, unknown>) : {};
   const [plan, org] = await Promise.all([planOf(db), db.organization.findUnique({ where: { id: db.orgId }, select: { name: true } })]);
   const scope = scopeOf(def, steps, runId, org?.name ?? '');
-  let aiCalls = row.aiCalls;
-  const partCalls = row.partCalls;
 
   const heartbeat = setInterval(() => {
     void writer.write({ lockedAt: new Date() }).catch(() => undefined);
@@ -313,8 +317,15 @@ async function advanceInner(db: TenantDb, runId: string): Promise<void> {
       if (runnable.length === 0) {
         // 承認で止める（同時に止めるのは 1 つだけ。独立した残りは先に済ませてある）
         const node = nodeById.get(ready[0]) as FlowNode;
-        const approval: FlowStepApprovalData = approvalDataOf(runId, node, scope);
-        steps[node.id] = { ...steps[node.id], status: 'WAITING_APPROVAL', startedAt: new Date().toISOString() };
+        // 外へ送るノードは、送る中身をここで展開して固定する（承認の後はこれをそのまま送る。K57）
+        const gateArgs = node.type === 'approval' ? undefined : gateArgsOf(node, scope);
+        const approval: FlowStepApprovalData = approvalDataOf(runId, node, scope, gateArgs);
+        steps[node.id] = {
+          ...steps[node.id],
+          status: 'WAITING_APPROVAL',
+          startedAt: new Date().toISOString(),
+          ...(gateArgs ? { gateArgs } : {}),
+        };
         const ok = await writer.write({
           status: 'WAITING_APPROVAL',
           steps: fitSteps(steps),
@@ -340,7 +351,12 @@ async function advanceInner(db: TenantDb, runId: string): Promise<void> {
         runnable.map(async (id) => {
           const t0 = Date.now();
           const node = nodeById.get(id) as FlowNode;
-          const res = await executeNode({ db, run: { id: runId, orgId: db.orgId, actorId: row.actorId, input }, plan, scope, node }, row.taskId);
+          const state = steps[id];
+          const gateArgs = state.gateApproved === true && state.gateArgs ? state.gateArgs : undefined;
+          const res = await executeNode(
+            { db, run: { id: runId, orgId: db.orgId, actorId: row.actorId, input }, plan, scope, node, ...(gateArgs ? { gateArgs } : {}) },
+            row.taskId,
+          );
           return { id, node, res, durationMs: Date.now() - t0 };
         }),
       );
@@ -348,6 +364,7 @@ async function advanceInner(db: TenantDb, runId: string): Promise<void> {
       let failed: { nodeId: string; code: string; message: string } | null = null;
       for (const { id, node, res, durationMs } of results) {
         aiCalls += res.aiCalls ?? 0;
+        partCalls += res.partCalls ?? 0;
         const base = { ...steps[id], finishedAt: new Date().toISOString(), durationMs, attempts: (steps[id].attempts ?? 0) + (res.attempts ?? 1) };
         if (!res.ok) {
           steps[id] = { ...base, status: 'FAILED', error: res.error };

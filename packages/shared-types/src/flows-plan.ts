@@ -285,6 +285,11 @@ export interface FlowStepState {
   truncated?: boolean;
   /** 外へ送るノードの手前の強制停止を人が通したか（K12。定義に確認ノードが無くても止める） */
   gateApproved?: boolean;
+  /**
+   * 外へ送るノードで止めたときに展開した、送る中身（宛先・本文・部品の入力）。承認の後はこれをそのまま送る
+   * （承認の後に組み直さない＝人が見たものと送るものをずらさない。K57）
+   */
+  gateArgs?: Record<string, string>;
 }
 
 /** 止まった実行の `Task.approvalData`（kind で agent_step と分ける） */

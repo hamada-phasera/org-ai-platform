@@ -12,9 +12,11 @@
 //   新規作成だけ canAddFlow で断る（403 FLOW_LIMIT_REACHED）。既存の編集は上限を超えていても通す（降格しても消さない）。
 // ■ 監査
 //   meta は { flowId, slug, version }（＋変えた項目名）だけ。定義の中身は入れない（§7.5）。
+// ■ 定期
+//   きっかけが「定期」のフローは、作成・保存と同じトランザクションで ScheduledTask を 1 行 upsert（やめたら消す。schedule.ts）。
+//   有効/無効と名前も写す。発火は schedule-dispatcher が flowId を見てランナーへ渡す。
 // ■ まだやらないこと
-//   きっかけが「定期」のフローの ScheduledTask の同期はチャンク 6（schedule-dispatcher が flowId を解すようになってから。
-//   先に行を作ると、今の dispatcher が部署ワークフローの定期実行として動かしてしまう）。結果ページの同期はチャンク 9。
+//   結果ページの同期はチャンク 9。
 //
 // ⚠️ ルートは定義・配置を shared-types のスキーマに通してから渡すこと。ここで n8n の public API は呼ばない（D9・T22）。
 
@@ -43,6 +45,7 @@ import type { TenantDb, TenantTx } from '../../tenancy/tenant-db';
 import { recordAudit } from '../audit';
 import { canonicalHashOf } from '../pages/upsert';
 import { canCreateFlow } from './limits';
+import { syncFlowSchedule } from './schedule';
 
 /** ルートが sendError にそのまま渡せる失敗 */
 export class FlowServiceError extends Error {
@@ -267,6 +270,7 @@ export async function createFlowFromTemplate(
       await tx.flowVersion.create({
         data: { flowId: flow.id, version: 1, definition: json(tpl.definition), createdBy: args.actorId },
       });
+      await syncFlowSchedule(tx, flow, tpl.definition);
       const canvasUpdated = args.canvasNodeId
         ? await retargetCanvasNodes(tx, nodeMatches(flow.id), { kind: 'flow', flowId: flow.id }, args.actorId)
         : false;
@@ -323,6 +327,7 @@ export async function createEmptyFlow(
         select: FLOW_SELECT,
       })) as FlowRow;
       await tx.flowVersion.create({ data: { flowId: row.id, version: 1, definition: json(definition), createdBy: args.actorId } });
+      await syncFlowSchedule(tx, row, definition);
       return row;
     });
     await recordAudit(db, {
@@ -403,6 +408,15 @@ export async function writeFlow(db: TenantDb, args: WriteFlowArgs): Promise<Writ
       // 親（flow）はテナントクライアントで取れている（不変条件 I2）
       await tx.flowVersion.create({ data: { flowId: flow.id, version, definition: json(args.definition), createdBy: actorId } });
       await tx.flowVersion.deleteMany({ where: { flowId: flow.id, version: { lte: version - FLOW_RUN_LIMITS.versionsKept } } });
+    }
+    // 定期のきっかけ（定義・有効/無効・名前のどれかが変わったら写す）。定義が壊れた古い行は定期を作らない
+    if (definitionChanged || fieldChanges.enabled !== undefined || fieldChanges.name !== undefined) {
+      const def = (args.definition ?? flow.definition) as FlowDefinition | null;
+      await syncFlowSchedule(
+        tx,
+        { id: flow.id, name: fieldChanges.name ?? flow.name, enabled: fieldChanges.enabled ?? flow.enabled },
+        def && Array.isArray((def as { nodes?: unknown }).nodes) ? def : { nodes: [] },
+      );
     }
   });
 

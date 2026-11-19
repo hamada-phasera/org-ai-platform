@@ -87,6 +87,7 @@ STRIPE_SECRET_KEY=sk_test_... npm run stripe:bootstrap -- --apply \
 | `GEMINI_API_KEY` / `EMBEDDING_API_KEY` | 埋め込み用（`EMBEDDING_API_KEY` が空なら `GEMINI_API_KEY` を使う） |
 | `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` | `docs/self-serve-integrations.md`。リダイレクト URI は `https://<gateway>/api/oauth/google/callback` |
 | `N8N_CLOUD_URL` / `N8N_API_KEY` | n8n を使うときだけ |
+| `ADMIN_EMAILS` | 運営のメール（カンマ区切り。任意）。業務フローの部品に「n8n で開く」が出る。ai-engine と同じ値 |
 
 `ALLOWED_ORIGIN_HOSTS` と `APP_BASE_URL` は `render.yaml` に公開フロントのホストで入っている。独自ドメインにしたらここを変える。
 

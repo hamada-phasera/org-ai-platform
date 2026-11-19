@@ -31,6 +31,7 @@ import {
 import { config } from '../../config/env';
 import type { TenantDb } from '../../tenancy/tenant-db';
 import { createLogger } from '../../utils/logger';
+import { N8N_WEBHOOK_RESPONSE_MAX_BYTES, callN8nWebhook, type WebhookFailure } from '../n8n/webhook-call';
 import { orgEntitlement } from '../org-entitlement';
 import { canViewPage, pageUsageOf, planOf } from './access';
 import { describeIssues } from './upsert';
@@ -40,7 +41,7 @@ import { SAMPLE_SUBMIT_MESSAGE, isSamplePage, sampleQueryResponse } from './samp
 const log = createLogger('pages');
 
 /** n8n の応答の上限（T8） */
-export const PAGE_RESPONSE_MAX_BYTES = 256 * 1024;
+export const PAGE_RESPONSE_MAX_BYTES = N8N_WEBHOOK_RESPONSE_MAX_BYTES;
 /**
  * submit の body の上限（ルートの bodyLimit。§5.2 の 6・K50）。
  * 定義が許す最大の入力（textarea 2000 字 × 12 項目、UTF-8 で 1 字 3 バイト＝約 70KB）に項目名と外枠を足しても収まる値。
@@ -77,46 +78,8 @@ export function buildPageHookUrl(baseUrl: string, orgId: string, hook: string): 
   return `${baseUrl.replace(/\/+$/, '')}/webhook/pages/${encodeURIComponent(orgId)}/${hook}`;
 }
 
-export type HookFailure = 'FAILED' | 'TIMEOUT' | 'INVALID_RESPONSE';
+export type HookFailure = WebhookFailure;
 export type HookResult = { ok: true; json: unknown; durationMs: number } | { ok: false; reason: HookFailure; durationMs: number };
-
-function isTimeout(e: unknown): boolean {
-  return e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError');
-}
-
-class ResponseTooLarge extends Error {}
-
-/** Content-Type が JSON で、256KB 以内なら JSON を返す。それ以外は null（読むのをやめる） */
-async function readJsonLimited(res: Response, maxBytes: number): Promise<{ value: unknown } | null> {
-  const type = (res.headers.get('content-type') ?? '').trim().toLowerCase();
-  const declared = Number(res.headers.get('content-length'));
-  if (!/^application\/json(\s*;|$)/.test(type) || (Number.isFinite(declared) && declared > maxBytes) || !res.body) {
-    await res.body?.cancel().catch(() => undefined);
-    return null;
-  }
-  const reader = res.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > maxBytes) throw new ResponseTooLarge();
-      chunks.push(value);
-    }
-  } catch (e) {
-    await reader.cancel().catch(() => undefined);
-    if (e instanceof ResponseTooLarge) return null;
-    throw e;
-  }
-  const text = new TextDecoder('utf-8').decode(Buffer.concat(chunks));
-  try {
-    return { value: JSON.parse(text) as unknown };
-  } catch {
-    return null;
-  }
-}
 
 export interface CallPageHookArgs {
   url: string;
@@ -126,44 +89,16 @@ export interface CallPageHookArgs {
   timeoutMs?: number;
 }
 
-/** n8n の Webhook を 1 回（query は接続エラー時にもう 1 回）叩く。失敗の理由だけを返し、本文は返さない */
+/** n8n の Webhook を 1 回（query は接続エラー時にもう 1 回）叩く。失敗の理由だけを返し、本文は返さない（本体は services/n8n/webhook-call.ts） */
 export async function callPageHook(args: CallPageHookArgs): Promise<HookResult> {
-  const started = Date.now();
-  const timeoutMs = args.timeoutMs ?? config.pageActionTimeoutMs;
-  const attempts = args.retryOnConnectionError ? 2 : 1;
-  const done = (r: { ok: true; json: unknown } | { ok: false; reason: HookFailure }): HookResult => ({
-    ...r,
-    durationMs: Date.now() - started,
+  const r = await callN8nWebhook({
+    url: args.url,
+    body: args.body,
+    retryOnConnectionError: args.retryOnConnectionError,
+    timeoutMs: args.timeoutMs ?? config.pageActionTimeoutMs,
+    maxBytes: PAGE_RESPONSE_MAX_BYTES,
   });
-
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-    let res: Response;
-    const signal = AbortSignal.timeout(timeoutMs);
-    try {
-      res = await fetch(args.url, {
-        method: 'POST',
-        redirect: 'error',
-        signal,
-        headers: { 'Content-Type': 'application/json', 'x-org-ai-token': config.n8nWebhookAuthToken },
-        body: JSON.stringify(args.body),
-      });
-    } catch (e) {
-      if (isTimeout(e)) return done({ ok: false, reason: 'TIMEOUT' });
-      if (attempt < attempts) continue; // 接続エラー（とリダイレクト）だけやり直す
-      return done({ ok: false, reason: 'FAILED' });
-    }
-    if (!res.ok) {
-      await res.body?.cancel().catch(() => undefined);
-      return done({ ok: false, reason: 'FAILED' });
-    }
-    try {
-      const parsed = await readJsonLimited(res, PAGE_RESPONSE_MAX_BYTES);
-      return parsed ? done({ ok: true, json: parsed.value }) : done({ ok: false, reason: 'INVALID_RESPONSE' });
-    } catch (e) {
-      return done({ ok: false, reason: isTimeout(e) ? 'TIMEOUT' : 'FAILED' });
-    }
-  }
-  return done({ ok: false, reason: 'FAILED' });
+  return r.ok ? { ok: true, json: r.json, durationMs: r.durationMs } : { ok: false, reason: r.reason, durationMs: r.durationMs };
 }
 
 function hookFailureOutcome(reason: HookFailure): { ok: false; status: number; code: string; message: string } {

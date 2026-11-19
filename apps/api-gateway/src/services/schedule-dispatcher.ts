@@ -12,6 +12,9 @@ import { tenantDb, type TenantDb } from '../tenancy/tenant-db';
 import { dispatchQueuedTask, dispatchAgentTask } from './task-executor';
 import { runAgentTask } from './step-runner';
 import { orgEntitlement } from './org-entitlement';
+import { acceptRun, pumpOrg } from './flows/queue';
+import { FLOW_SELECT, FlowServiceError, type FlowRow } from './flows/store';
+import { planOf } from './flows/limits';
 import { config } from '../config/env';
 import { createLogger } from '../utils/logger';
 
@@ -24,16 +27,23 @@ export function startOfCurrentHourUtc(now: Date = new Date()): Date {
   return d;
 }
 
-/** frequency + 曜日/日付が現在時刻に合致するか（hourUtc の一致は呼び出し側の where で済み）。 */
+/**
+ * frequency + 曜日/日付が現在時刻に合致するか（hourUtc の一致は呼び出し側の where で済み）。
+ * 業務フローの行（flowId あり）の曜日・日付は**日本時間**で持つので、日本時間の暦で比べる
+ * （hourUtc は UTC に直してある。services/flows/schedule.ts・canvas-home.md K57）。それ以外は従来どおり UTC。
+ */
 export function matchesSchedule(
-  st: { frequency: string; dayOfWeek: number | null; dayOfMonth: number | null },
+  st: { frequency: string; dayOfWeek: number | null; dayOfMonth: number | null; flowId?: string | null },
   now: Date,
 ): boolean {
+  const cal = st.flowId ? new Date(now.getTime() + JST_OFFSET_MS) : now;
   if (st.frequency === 'daily') return true;
-  if (st.frequency === 'weekly') return st.dayOfWeek === now.getUTCDay();
-  if (st.frequency === 'monthly') return st.dayOfMonth === now.getUTCDate();
+  if (st.frequency === 'weekly') return st.dayOfWeek === cal.getUTCDay();
+  if (st.frequency === 'monthly') return st.dayOfMonth === cal.getUTCDate();
   return false;
 }
+
+const JST_OFFSET_MS = 9 * 60 * 60_000;
 
 /**
  * fire-and-forget 実行の共通ラッパー。
@@ -67,7 +77,7 @@ async function markDispatchFailed(db: TenantDb, taskId: string, label: string, e
 
 export type EnqueueResult =
   | { enqueued: true; taskId: string }
-  | { enqueued: false; reason: 'already_ran' | 'not_found' | 'agent_gone' | 'read_only' };
+  | { enqueued: false; reason: 'already_ran' | 'not_found' | 'agent_gone' | 'flow_gone' | 'flow_rejected' | 'read_only' };
 
 /**
  * 定期タスク 1 件を（まだ当該時間帯に走っていなければ）Task 化して発火する。
@@ -113,13 +123,49 @@ export async function claimAndEnqueueScheduledTask(
      エージェント・Task はテナントクライアントで引いて作り、起動した実行（fire-and-forget を含む）にも
      テナントコンテキスト（ai-engine への X-Org-Id）が伝わる。 */
   return runAsTenant({ orgId: st.orgId, userId: null, role: null, source: 'scheduler' }, () =>
-    enqueueClaimed(tenantDb(st.orgId), st),
+    enqueueClaimed(tenantDb(st.orgId), st, hourStart),
   );
 }
 
 type ScheduledTaskRow = NonNullable<Awaited<ReturnType<typeof prisma.scheduledTask.findUnique>>>;
 
-async function enqueueClaimed(db: TenantDb, st: ScheduledTaskRow): Promise<EnqueueResult> {
+/**
+ * 業務フローの定期実行（canvas-home.md §5.5・§7.4）。受け付けは手で押したときと同じ acceptRun（上限・部品の接続・入力の検証）。
+ * requestId は `sched:<flowId>:<その時間の開始>`＝同じ時間帯に 2 回受け付けない（claim に加えた二重の守り。§7.3）。
+ * 外へ送るノードは無人でも必ず承認で止まる（ランナーが止める）。
+ */
+async function enqueueFlowRun(db: TenantDb, st: ScheduledTaskRow & { flowId: string }, hourStart: Date): Promise<EnqueueResult> {
+  const flow = (await db.flow.findUnique({ where: { id: st.flowId }, select: FLOW_SELECT })) as FlowRow | null;
+  if (!flow || !flow.enabled) {
+    scheduleLog.warn(`flow ${st.flowId} が削除/無効のため skip (scheduledTask=${st.id})`);
+    return { enqueued: false, reason: 'flow_gone' };
+  }
+  try {
+    const accepted = await acceptRun(db, {
+      flow,
+      input: {},
+      requestId: `sched:${flow.id}:${hourStart.getTime()}`,
+      trigger: 'schedule',
+      actorId: null,
+      plan: await planOf(db),
+    });
+    await db.taskLog
+      .create({ data: { taskId: accepted.taskId, message: `定期実行から起動 (scheduledTaskId=${st.id})`, level: 'INFO' } })
+      .catch(() => undefined);
+    void pumpOrg(db.orgId);
+    return { enqueued: true, taskId: accepted.taskId };
+  } catch (e) {
+    // 上限・未接続・二重など。断った理由（コード）だけ残す（値は出さない）
+    const code = e instanceof FlowServiceError ? e.code : e instanceof Error ? e.name : 'error';
+    scheduleLog.warn(`業務フローの定期実行を受け付けませんでした flow=${flow.id} scheduledTask=${st.id} code=${code}`);
+    return { enqueued: false, reason: 'flow_rejected' };
+  }
+}
+
+async function enqueueClaimed(db: TenantDb, st: ScheduledTaskRow, hourStart: Date): Promise<EnqueueResult> {
+  // ── 業務フローの定期実行 ──
+  if (st.flowId) return enqueueFlowRun(db, { ...st, flowId: st.flowId }, hourStart);
+
   // ── エージェント紐付きの定期実行 ──
   if (st.agentId) {
     // ⚠️ 同じ組織のエージェントだけを使う（E5）。作成時（assertOwnAgent）にも確かめているが、
@@ -203,7 +249,7 @@ export async function enqueueDueScheduledTasks(now: Date = new Date()): Promise<
       hourUtc: now.getUTCHours(),
       OR: [{ lastRunAt: null }, { lastRunAt: { lt: hourStart } }],
     },
-    select: { id: true, frequency: true, dayOfWeek: true, dayOfMonth: true },
+    select: { id: true, frequency: true, dayOfWeek: true, dayOfMonth: true, flowId: true },
   });
   let count = 0;
   for (const st of candidates) {
