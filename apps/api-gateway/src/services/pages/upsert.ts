@@ -57,8 +57,13 @@ function canonical(value: unknown): unknown {
   return value;
 }
 
+/** キーの順に依らない JSON の sha256（業務フローの定義のハッシュも同じものを使う） */
+export function canonicalHashOf(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
+}
+
 export function definitionHashOf(definition: PageDefinition): string {
-  return createHash('sha256').update(JSON.stringify(canonical(definition))).digest('hex');
+  return canonicalHashOf(definition);
 }
 
 export interface UpsertPageArgs {
@@ -123,7 +128,9 @@ export async function upsertPage(db: TenantDb, args: UpsertPageArgs, retried = f
   });
 
   if (!existing) {
-    const count = await db.customPage.count();
+    // 同じ slug は数えない。findUnique の後に同じ slug が同時に作られても上限で断らず、create の P2002 → 更新へ回す
+    // 業務フローの結果ページ（source='FLOW'）は数えない（canvas-home.md K15）
+    const count = await db.customPage.count({ where: { slug: { not: slug }, source: { not: 'FLOW' } } });
     if (!canAddPage(plan, count)) {
       throw new PageServiceError(
         403,

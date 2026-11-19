@@ -9,6 +9,7 @@ import { prisma } from '../utils/prisma';
 import { jobs, drain, type JobRecord } from './lifecycle-core';
 import { config } from '../config/env';
 import { createLogger, errorMessage } from '../utils/logger';
+import { markFlowRunsInterrupted } from './flows/queue';
 
 const lifecycleLog = createLogger('lifecycle');
 
@@ -27,7 +28,7 @@ export const INTERRUPTED_MESSAGE = 'デプロイまたは再起動により中�
  * エージェント実行は分単位でかかりうるので、待つと猶予を使い切って
  * 結局強制終了され、記録も残らない。**待たずに印だけ先に付ける**方が人は気づける。
  */
-const LONG_RUNNING = ['agent-run', 'agent-resume'] as const;
+const LONG_RUNNING = ['agent-run', 'agent-resume', 'flow-run'] as const;
 
 /** Task を持つ処理に「中断された」と記録する。RUNNING のものだけを条件付きで塗る。 */
 async function markTasksInterrupted(records: JobRecord[]): Promise<number> {
@@ -93,7 +94,8 @@ export async function shutdown(app: FastifyInstance, signal: string): Promise<vo
   // 長時間クラスは待たずに印を付ける（処理自体は止めない。プロセスが死ぬまで走る）
   const longRunning = jobs.listByKind(LONG_RUNNING);
   if (longRunning.length > 0) {
-    const n = await markTasksInterrupted(longRunning).catch(() => 0);
+    const flowRunIds = longRunning.filter((r) => r.kind === 'flow-run' && r.ref).map((r) => r.ref as string);
+    const n = (await markTasksInterrupted(longRunning).catch(() => 0)) + (await markFlowRunsInterrupted(flowRunIds).catch(() => 0));
     lifecycleLog.info(`長時間の実行 ${longRunning.length} 件を中断として記録（更新 ${n} 件）`);
   }
 

@@ -43,6 +43,8 @@ export const RAW_PRISMA_ALLOWLIST: Record<string, string> = {
     '業務ページの登録トークンのハッシュから組織を逆引きする resolvePageToken だけ（テナントが決まる前）。以降は runAsTenant + tenantDb',
   'services/step-runner.ts':
     '取り残された RUNNING の回収（組織をまたぐ）と、orgId 無しで呼ばれた再開の Task の逆引きだけ。以降は tenantDb',
+  'services/flows/queue.ts':
+    '業務フローの回収（全組織の FlowRun から止まった・期限切れ・待ちの行を探す）と保持期間の掃除の組織探し、シャットダウン時の印だけ。行ごとの更新・削除は runAsTenant + tenantDb',
   // チャンク 10 で tenantDb に移したもの（task-executor・capability-resolver/executor・adapters・google-auth・
   // integration-sync・rag・inbox の 3 つ）はここに戻さない。組織が決まっているなら tenantDb(orgId) を使う
 };
@@ -132,5 +134,48 @@ describe('A5: process.env を読むのは config/env.ts だけ（CLAUDE.md「環
       )
       .map((f) => f.rel);
     expect(offenders).toEqual([]);
+  });
+});
+
+describe('A6: 業務フローとキャンバスの経路は n8n の public API に触れない（docs/design/canvas-home.md D9・T22・§8.4）', () => {
+  const FLOW_FILES = files.filter(
+    (f) => f.rel === 'routes/flows.ts' || f.rel === 'routes/canvas.ts' || f.rel.startsWith('services/flows/'),
+  );
+  /** コメントを除いたコード（説明の文に名前が出るのは構わない） */
+  const code = (src: string) =>
+    src
+      .split('\n')
+      .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+      .join('\n');
+
+  it('対象のファイルがある（検査が空振りしていない）', () => {
+    expect(FLOW_FILES.map((f) => f.rel)).toEqual(expect.arrayContaining(['routes/flows.ts', 'routes/canvas.ts', 'services/flows/store.ts']));
+  });
+  it('n8n-workflow-builder を import せず、n8nApiKey と /api/v1/ を参照しない', () => {
+    const bad = FLOW_FILES.filter((f) => /n8n-workflow-builder|n8nApiKey|\/api\/v1\//.test(code(f.src))).map((f) => f.rel);
+    expect(bad).toEqual([]);
+  });
+  it('eval / new Function / node:vm を使わない（T2）', () => {
+    const bad = FLOW_FILES.filter((f) => /\beval\s*\(|new\s+Function\s*\(|['"](node:)?vm['"]/.test(code(f.src))).map((f) => f.rel);
+    expect(bad).toEqual([]);
+  });  it('運営向けリンク（public API を読むだけの services/n8n/part-editor）を使うのは routes/flows.ts だけで、運営の判定の後にだけ呼ぶ', () => {
+    const importers = FLOW_FILES.filter((f) => /n8n\/part-editor/.test(code(f.src))).map((f) => f.rel);
+    expect(importers).toEqual(['routes/flows.ts']);
+    const route = FLOW_FILES.find((f) => f.rel === 'routes/flows.ts')!.src;
+    expect(route).toMatch(/admin && p\.via\.kind === 'n8n' \? await partEditorUrl\(/);
+    const editor = files.find((f) => f.rel === 'services/n8n/part-editor.ts')!.src;
+    // 読むだけ（GET）。作る・変える・消すメソッドが無い
+    expect(code(editor)).toMatch(/method: 'GET'/);
+    expect(code(editor)).not.toMatch(/method: '(POST|PUT|PATCH|DELETE)'/);
+  });
+  it('部品の呼び出しの共通部分（services/n8n/webhook-call.ts）は public API に触れない', () => {
+    const src = files.find((f) => f.rel === 'services/n8n/webhook-call.ts')!.src;
+    expect(/n8nApiKey|\/api\/v1\/|n8n-workflow-builder/.test(code(src))).toBe(false);
+  });
+  it('部品の URL は webhook/parts/<key> の 1 か所だけで組み立てる（T6・T7）', () => {
+    const builders = FLOW_FILES.filter((f) => /\/webhook\//.test(code(f.src))).map((f) => f.rel);
+    expect(builders).toEqual(['services/flows/part-client.ts']);
+    const src = code(FLOW_FILES.find((f) => f.rel === 'services/flows/part-client.ts')!.src);
+    expect(src.match(/\/webhook\/[^`'"]*/g)).toEqual(['/webhook/parts/${key}']);
   });
 });

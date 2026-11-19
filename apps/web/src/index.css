@@ -211,6 +211,23 @@ body {
   pointer-events: none;
 }
 
+/* ホームキャンバス（docs/design/canvas-home.md §3.2）。線は 1px。
+   接続点は編集モードだけ見せる（閲覧モードでは繋がらない・見えない）。 */
+.home-canvas .react-flow {
+  --xy-edge-stroke-width-default: 1;
+}
+.home-canvas .react-flow__handle {
+  width: 8px;
+  height: 8px;
+}
+.home-canvas[data-editing='false'] .react-flow__handle {
+  opacity: 0;
+  pointer-events: none;
+}
+.home-canvas[data-editing='true'] .react-flow__handle {
+  --xy-handle-background-color-default: var(--accent);
+}
+
 /* CSS アニメーションはここで止まるが、framer-motion の transform は止まらない。
  * JS 側は useReducedMotion() を見ること（components/motion/springs.ts）。 */
 @media (prefers-reduced-motion: reduce) {

@@ -28,7 +28,9 @@ export function usePageContext(): PageContextValue {
 export function queryActionIdsOf(def: PublicPageDefinition): string[] {
   const ids: string[] = [];
   const add = (id: string) => {
-    if (def.actions[id]?.kind === 'query' && !ids.includes(id)) ids.push(id);
+    // flow_query は業務フローの結果ページ（直近の実行の値と履歴。canvas-home.md §6.3）
+    const kind = def.actions[id]?.kind;
+    if ((kind === 'query' || kind === 'flow_query') && !ids.includes(id)) ids.push(id);
   };
   for (const block of def.blocks) {
     if (block.type === 'kpi') block.items.forEach((item) => add(item.source.action));

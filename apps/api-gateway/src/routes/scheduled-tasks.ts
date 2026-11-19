@@ -31,8 +31,9 @@ export async function scheduledTaskRoutes(app: FastifyInstance): Promise<void> {
   app.get('/', { preHandler: requireAuth }, async (request, reply) => {
     const payload = authOf(request);
     const { db } = payload;
+    // 業務フローの定期（flowId あり）はフロー画面のきっかけで変える。ここには出さない（canvas-home.md §5.5）
     const tasks = await db.scheduledTask.findMany({
-      where: { orgId: payload.orgId },
+      where: { orgId: payload.orgId, flowId: null },
       orderBy: { createdAt: 'desc' },
     });
     return reply.send({ success: true, data: tasks });
@@ -88,6 +89,9 @@ export async function scheduledTaskRoutes(app: FastifyInstance): Promise<void> {
     if (!existing || existing.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', '定期タスクが見つかりません');
     }
+    if (existing.flowId) {
+      return sendError(reply, 409, 'FLOW_MANAGED', 'この定期実行は業務フローのきっかけです。フロー画面で変更してください');
+    }
 
     const result = updateSchema.safeParse(request.body);
     if (!result.success) {
@@ -112,6 +116,9 @@ export async function scheduledTaskRoutes(app: FastifyInstance): Promise<void> {
     const existing = await db.scheduledTask.findUnique({ where: { id } });
     if (!existing || existing.orgId !== payload.orgId) {
       return sendError(reply, 404, 'NOT_FOUND', '定期タスクが見つかりません');
+    }
+    if (existing.flowId) {
+      return sendError(reply, 409, 'FLOW_MANAGED', 'この定期実行は業務フローのきっかけです。フロー画面で変更してください');
     }
     await db.scheduledTask.delete({ where: { id } });
     return reply.send({ success: true, data: { deleted: true } });

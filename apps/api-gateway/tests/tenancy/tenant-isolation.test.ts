@@ -58,8 +58,11 @@ const routes = {
   organizations: (await import('../../src/routes/organizations')).organizationRoutes,
   pages: (await import('../../src/routes/pages')).pageRoutes,
   n8nPages: (await import('../../src/routes/n8n-pages')).n8nPageRoutes,
+  canvas: (await import('../../src/routes/canvas')).canvasRoutes,
+  flows: (await import('../../src/routes/flows')).flowRoutes,
 };
 const { hashPageToken } = await import('../../src/services/pages/page-token');
+const { FLOW_TEMPLATES, DEFAULT_CANVAS_LAYOUT } = await import('@org-ai/shared-types');
 /** 業務ページの登録トークン（組織ごと）。生値はテストだけが知る */
 const pageTokenOf = (X: 'A' | 'B') => `flowpg_${X.repeat(43)}`;
 
@@ -130,6 +133,17 @@ function orgData(X: 'A' | 'B') {
       definitionHash: `h-${X}`, sampleData: null, createdBy: null, updatedBy: null, createdAt: now, updatedAt: now }],
     pageToken: [{ id: `ptok-${X}`, orgId: org, label: `n8n${X}`, tokenHash: hashPageToken(pageTokenOf(X)), prefix: `flowpg_${X}${X}${X}`,
       lastUsedAt: null, revokedAt: null, createdBy: `u-${X.toLowerCase()}`, createdAt: now }],
+    // ホームキャンバスと業務フロー（docs/design/canvas-home.md §11）。slug は B と同じ proposal（同じテンプレートを A で作っても B は変わらない）
+    canvas: [{ id: `canvas-${X}`, orgId: org, version: 3, updatedBy: null, createdAt: now, updatedAt: now,
+      layout: { nodes: [{ id: 'map', label: `地図${X}`, icon: 'file-text', x: 0, y: 0, target: { kind: 'flow', flowId: `flow-${X}` } }], edges: [] } }],
+    flow: [{ id: `flow-${X}`, orgId: org, slug: 'proposal', name: `フロー${X}`, icon: 'file-text', enabled: true, minRole: 'MEMBER',
+      templateKey: 'proposal', templateVersion: 1, version: 1, schemaVersion: 1, definition: FLOW_TEMPLATES.proposal.definition,
+      definitionHash: `fh-${X}`, layout: {}, createdBy: null, updatedBy: null, createdAt: now, updatedAt: now }],
+    flowVersion: [{ id: `fver-${X}`, flowId: `flow-${X}`, version: 1, definition: FLOW_TEMPLATES.proposal.definition, createdBy: null, createdAt: now }],
+    flowRun: [{ id: `frun-${X}`, orgId: org, flowId: `flow-${X}`, flowSlug: 'proposal', flowVersion: 1, definition: FLOW_TEMPLATES.proposal.definition,
+      trigger: 'form', actorId: `u-${X.toLowerCase()}`, requestId: `freq-${X}`, status: 'WAITING_APPROVAL', input: { customerName: `顧客${X}` },
+      steps: {}, output: null, error: null, partCalls: 0, aiCalls: 1, taskId: null, lockedAt: now, startedAt: now, finishedAt: null,
+      durationMs: 1, createdAt: now }],
     pageActionLog: [{ id: `plog-${X}`, orgId: org, pageId: `page-${X}`, slug: `page-${X.toLowerCase()}-only`, actionId: 'create',
       pageVersion: 1, actorId: `u-${X.toLowerCase()}`, requestId: `req-${X}`, status: 'OK', durationMs: 1, inputKeys: [], createdAt: now }],
   };
@@ -176,6 +190,8 @@ async function build(): Promise<FastifyInstance> {
   await a.register(routes.organizations, { prefix: '/api/organizations' });
   await a.register(routes.pages, { prefix: '/api/pages' });
   await a.register(routes.n8nPages, { prefix: '/api/webhooks/n8n/pages' });
+  await a.register(routes.canvas, { prefix: '/api/canvas' });
+  await a.register(routes.flows, { prefix: '/api/flows' });
   await a.ready();
   return a;
 }
@@ -261,6 +277,19 @@ const IDOR_CASES: Req[] = [
   // 業務ページのアクション（docs/design/custom-pages.md §11）。n8n には届かない（下の describe で fetch を見る）
   ['GET', '/api/pages/page-b-only/data/list'],
   ['POST', '/api/pages/page-b-only/actions/list', { input: {}, requestId: '00000000-0000-4000-8000-000000000001', origin: { blockIndex: 0 } }],
+  // 業務フロー（docs/design/canvas-home.md §11）。キャンバスは組織に 1 枚で id 指定の経路が無い（I-2 と下の describe で見る）
+  ['GET', '/api/flows/flow-B'],
+  ['PUT', '/api/flows/flow-B', { definition: FLOW_TEMPLATES.proposal.definition, layout: {}, baseVersion: 1 }],
+  ['PATCH', '/api/flows/flow-B', { enabled: false }],
+  ['DELETE', '/api/flows/flow-B'],
+  // 実行（チャンク 5）
+  ['POST', '/api/flows/flow-B/runs', { requestId: 'idor-run-1', input: { customerName: 'x' } }],
+  ['GET', '/api/flows/flow-B/runs'],
+  ['GET', '/api/flows/runs/frun-B'],
+  ['POST', '/api/flows/runs/frun-B/cancel'],
+  // 出力ビルダー（チャンク 9。結果ページの取得・保存）
+  ['GET', '/api/flows/flow-B/page'],
+  ['PUT', '/api/flows/flow-B/page', { definition: { blocks: [{ type: 'heading', text: 'x' }], actions: { result: { kind: 'flow_query' }, run: { kind: 'flow_submit' } } } }],
 ];
 
 /** I-2: 一覧。応答のどこにも B の行（id・中身）が出てこない。 */
@@ -296,6 +325,10 @@ const LIST_CASES: string[] = [
   '/api/pages',
   '/api/pages/admin/list',
   '/api/pages/tokens',
+  '/api/flows',
+  '/api/flows/flow-A/runs',
+  '/api/flows/parts',
+  '/api/canvas',
 ];
 
 /** B のデータに固有の文字列（id・中身）。応答に1つでも出たら漏えい */
@@ -304,6 +337,7 @@ const B_MARKERS = [
   'st-B', 'session-B', 'secret-B', 'conn-B', 'inbound-B', 'hello-B', 'pc-B', 'WSB', 'inv-B', 'invB@', 'risk-B',
   'prompt-B', 'file-B', 'audit-B', 'audit-meta-B', 'AgentB', '工事B', '業者B', '商談B', 'B社', 'u-b', 'b@example.com',
   'page-B', 'page-b-only', 'ページB', '見出しB', 'hook-b', 'ptok-B', 'flowpg_BBB', 'n8nB', 'plog-B',
+  'flow-B', 'フローB', 'canvas-B', '地図B', 'fver-B', 'fh-B', 'frun-B', 'freq-B', '顧客B',
 ];
 
 describe('I-1: 他組織のリソースを id 指定しても 404（存在を漏らさない）、書き込みは0件', () => {
@@ -446,6 +480,39 @@ describe('業務ページ（docs/design/custom-pages.md §11 テナント分離�
     const res = await app.inject({ method: 'GET', url: '/api/pages/page-a-only', headers: as('u-a', 'org-A') });
     expect(res.statusCode).toBe(200);
     expect(res.body).not.toContain('hook-a');
+  });
+});
+
+describe('業務フローとキャンバス（docs/design/canvas-home.md §11 テナント分離）', () => {
+  it('A のキャンバスに B のフローを指すノードは書けない（400）', async () => {
+    const before = fake.snapshot();
+    const layout = JSON.parse(JSON.stringify(DEFAULT_CANVAS_LAYOUT));
+    layout.nodes[1].target = { kind: 'flow', flowId: 'flow-B' };
+    const res = await app.inject({ method: 'PUT', url: '/api/canvas', headers: as('u-a', 'org-A'), payload: { layout, baseVersion: 3 } });
+    expect(res.statusCode).toBe(400);
+    expect(fake.snapshot()).toBe(before);
+  });
+
+  it('A のキャンバスの保存は A の行だけを変える', async () => {
+    const layout = JSON.parse(JSON.stringify(DEFAULT_CANVAS_LAYOUT));
+    const res = await app.inject({ method: 'PUT', url: '/api/canvas', headers: as('u-a', 'org-A'), payload: { layout, baseVersion: 3 } });
+    expect(res.statusCode).toBe(200);
+    expect(fake.rows('canvas').find((c) => c.id === 'canvas-A')!.version).toBe(4);
+    expect(fake.rows('canvas').find((c) => c.id === 'canvas-B')!.version).toBe(3);
+  });
+
+  it('同じテンプレート（同じ slug）を A で作り直しても、B のフローは変わらない', async () => {
+    await app.inject({ method: 'DELETE', url: '/api/flows/flow-A', headers: as('u-a', 'org-A') });
+    const beforeB = JSON.stringify(fake.rows('flow').filter((f) => f.orgId === 'org-B'));
+    const res = await app.inject({ method: 'POST', url: '/api/flows/from-template', headers: as('u-a', 'org-A'), payload: { templateKey: 'proposal' } });
+    expect(res.statusCode).toBe(201);
+    expect(JSON.stringify(fake.rows('flow').filter((f) => f.orgId === 'org-B'))).toBe(beforeB);
+    expect(fake.rows('flowVersion').filter((v) => v.flowId === 'flow-B')).toHaveLength(1);
+  });
+
+  it('両方に所属する c でも、A のトークンでは B のフローが 404、B のトークンでだけ見える', async () => {
+    expect((await app.inject({ method: 'GET', url: '/api/flows/flow-B', headers: as('u-c', 'org-A') })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'GET', url: '/api/flows/flow-B', headers: as('u-c', 'org-B') })).statusCode).toBe(200);
   });
 });
 

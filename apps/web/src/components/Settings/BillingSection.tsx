@@ -10,6 +10,7 @@ import { LiquidTabs } from '../motion/LiquidTabs';
 import { isReadOnly } from '../../utils/planNotice';
 import { useNow } from '../../hooks/useNow';
 import { LegalLinks } from '../../pages/legal/LegalLinks';
+import { FlowUsageRows } from './FlowUsageRows';
 
 /**
  * プランとお支払い。
@@ -237,6 +238,7 @@ export function BillingSection() {
             プランを再開すると元に戻ります。
           </p>
         )}
+        <FlowUsageRows />
       </Card>
 
       {billing.configured && (

@@ -57,7 +57,8 @@ CREATE POLICY tenant_isolation ON "MessageEmbedding"
 -- BEGIN
 --   FOREACH t IN ARRAY ARRAY['ChatSession','Task','UploadedFile','ScheduledTask','Agent','Project','Vendor',
 --     'CostEntry','Deal','ProviderConnection','ChannelConnection','InboundMessage','Invitation','Membership',
---     'Capability','CapabilityGap','ExecutionLog','AuditEvent','CustomPage','PageToken','PageActionLog']
+--     'Capability','CapabilityGap','ExecutionLog','AuditEvent','CustomPage','PageToken','PageActionLog',
+--     'Canvas','Flow','FlowRun']
 --   LOOP
 --     EXECUTE format('CREATE POLICY tenant_isolation ON %I FOR ALL TO flow_app
 --       USING ("orgId" = app_current_org()) WITH CHECK ("orgId" = app_current_org())', t);

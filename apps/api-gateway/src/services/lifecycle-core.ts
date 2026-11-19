@@ -13,6 +13,7 @@ const lifecycleLog = createLogger('lifecycle');
 export type JobKind =
   | 'agent-run'      // Task を持つ。中断したら FAILED を打てる
   | 'agent-resume'   // 同上（承認後の続き）
+  | 'flow-run'       // 業務フローの実行（ref は FlowRun.id）。中断したら FAILED を打てる
   | 'file-index'     // Task を持たない。失っても再アップロードで直る
   | 'receipt'        // Task を持たない。InboundMessage に印を付けたい
   | 'inbox-draft';   // 同上

@@ -5,12 +5,14 @@
 //
 // ⚠️ 保持はプロセスのメモリ（D8 と同じく gateway 1 台が前提。複数台にするときは保持先を替える。T18）。
 
-export type PageActionKind = 'query' | 'submit';
+/** flow_run は業務フローの実行（POST /api/flows/:id/runs。設計書 T11） */
+export type PageActionKind = 'query' | 'submit' | 'flow_run';
 
 export const PAGE_ORG_THROTTLE = {
   windowMs: 60_000,
   query: 120,
   submit: 30,
+  flow_run: 30,
 } as const;
 
 interface Window {

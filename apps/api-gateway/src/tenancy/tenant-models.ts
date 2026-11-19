@@ -30,6 +30,10 @@ export const TENANT_MODELS = [
   'CustomPage',
   'PageToken',
   'PageActionLog',
+  // ホームキャンバスと業務フロー（docs/design/canvas-home.md §5.8）
+  'Canvas',
+  'Flow',
+  'FlowRun',
 ] as const;
 
 /**
@@ -45,7 +49,7 @@ type TenantModelName = (typeof TENANT_MODELS)[number];
  * orgId を持たず、親を通して所属するモデル。テナントクライアントは**書き換えない**。
  * 不変条件 I2: 同じテナントクライアントで親を取れたときにだけ読み書きしてよい（呼び出し側の規律）。
  */
-export const CHILD_MODELS = ['Message', 'TaskLog', 'RequiredCredential'] as const;
+export const CHILD_MODELS = ['Message', 'TaskLog', 'RequiredCredential', 'FlowVersion'] as const;
 
 /**
  * Organization はテナントそのもの。テナントクライアントでは `id = orgId` の1行だけを見せる

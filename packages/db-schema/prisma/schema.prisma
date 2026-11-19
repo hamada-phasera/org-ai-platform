@@ -83,56 +83,59 @@ model Invitation {
 }
 
 model Organization {
-  id                  String               @id @default(cuid())
-  name                String
+  id                   String               @id @default(cuid())
+  name                 String
   /// 'STARTER' | 'PRO' | 'MAX'。**プランの真実の源はここ**。
   /// Stripe の状態は webhook のたびにサブスクリプションを取り直して写す（services/billing/sync.ts）。
-  plan                String               @default("STARTER")
-  billingEmail        String?
+  plan                 String               @default("STARTER")
+  billingEmail         String?
   /// Stripe の顧客ID。決済を繋いだ組織にだけ入る。webhook で組織を引くので一意
-  stripeCustomerId    String?              @unique
+  stripeCustomerId     String?              @unique
   /// 使用中のストレージ量（バイト）。**使用量の正本はこのカウンタ**で、
   /// UploadedFile の SUM は復旧時の再計算にだけ使う
   /// （毎回 SUM すると一覧のたびに全表走査になる）
-  storageUsedBytes    BigInt               @default(0)
+  storageUsedBytes     BigInt               @default(0)
   /// 追加購入したストレージの単位数（1単位 = 10GB）。課金開始後に増やせる
   /// ⚠️ 直接書き換えない。Stripe のサブスクリプションの数量から写す
-  storageAddonUnits   Int                  @default(0)
+  storageAddonUnits    Int                  @default(0)
   /// Stripe のサブスクリプションID。解約後も最後のものを残す（遅れて届く古いイベントの判定に使う）
-  stripeSubscriptionId String?             @unique
+  stripeSubscriptionId String?              @unique
   /// Stripe の状態のミラー: trialing | active | past_due | canceled | unpaid | incomplete | incomplete_expired | paused。
   /// null = 一度も決済を繋いでいない
-  subscriptionStatus  String?
+  subscriptionStatus   String?
   /// 'month' | 'year'
-  billingInterval     String?
+  billingInterval      String?
   /// 次回の更新日（トライアル中はトライアル終了日と同じになる）
-  currentPeriodEnd    DateTime?
+  currentPeriodEnd     DateTime?
   /// トライアルの終了日。**一度でも入ったらトライアルは使用済み**（2回目の無料期間を出さない）
-  trialEndsAt         DateTime?
+  trialEndsAt          DateTime?
   /// 期間の終わりで解約する予約が入っている
-  cancelAtPeriodEnd   Boolean              @default(false)
+  cancelAtPeriodEnd    Boolean              @default(false)
   /// 組織を作ったユーザー（User.id）。トライアルを「作成者ごとに1回」にする判定と監査に使う。
   /// 移行前の行は null
-  createdBy           String?
-  users               User[]
-  memberships         Membership[]
-  invitations         Invitation[]
-  sessions            ChatSession[]
-  tasks               Task[]
-  files               UploadedFile[]
-  scheduledTasks      ScheduledTask[]
-  agents              Agent[]
-  deals               Deal[]
-  channelConnections  ChannelConnection[]
-  inboundMessages     InboundMessage[]
-  providerConnections ProviderConnection[]
-  projects            Project[]
-  costEntries         CostEntry[]
-  vendors             Vendor[]
-  customPages         CustomPage[]
-  pageTokens          PageToken[]
-  pageActionLogs      PageActionLog[]
-  createdAt           DateTime             @default(now())
+  createdBy            String?
+  users                User[]
+  memberships          Membership[]
+  invitations          Invitation[]
+  sessions             ChatSession[]
+  tasks                Task[]
+  files                UploadedFile[]
+  scheduledTasks       ScheduledTask[]
+  agents               Agent[]
+  deals                Deal[]
+  channelConnections   ChannelConnection[]
+  inboundMessages      InboundMessage[]
+  providerConnections  ProviderConnection[]
+  projects             Project[]
+  costEntries          CostEntry[]
+  vendors              Vendor[]
+  customPages          CustomPage[]
+  pageTokens           PageToken[]
+  pageActionLogs       PageActionLog[]
+  canvas               Canvas?
+  flows                Flow[]
+  flowRuns             FlowRun[]
+  createdAt            DateTime             @default(now())
 }
 
 model ChatSession {
@@ -243,19 +246,19 @@ model AuditEvent {
 }
 
 model UploadedFile {
-  id           String       @id @default(cuid())
-  orgId        String
-  org          Organization @relation(fields: [orgId], references: [id])
-  uploadedBy   String
-  originalName String
+  id            String       @id @default(cuid())
+  orgId         String
+  org           Organization @relation(fields: [orgId], references: [id])
+  uploadedBy    String
+  originalName  String
   /// 保存先のキー。driver='local' なら絶対パス、'supabase' なら "{orgId}/{fileId}_{name}"
-  storagePath  String
+  storagePath   String
   /// 'local' | 'supabase'。既存行は 'local'（実体は再デプロイで失われている）
-  storageDriver String      @default("local")
-  mimeType     String
-  sizeBytes    Int
-  createdAt    DateTime     @default(now())
-  chunks       FileChunk[]
+  storageDriver String       @default("local")
+  mimeType      String
+  sizeBytes     Int
+  createdAt     DateTime     @default(now())
+  chunks        FileChunk[]
 
   /// 20260913000000_add_storage_driver が作った索引。schema に書いていないと migrate dev が DROP を生成する
   /// （tests/integration/migrate.int.test.ts がずれを検査する）
@@ -312,11 +315,16 @@ model ScheduledTask {
   // Agent 削除時は SetNull（routes/agents.ts の DELETE が定期タスク自体も掃除する）。
   agentId        String?
   agent          Agent?       @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  // 定期実行トリガー: 紐づく業務フロー（docs/design/canvas-home.md §5.5）。きっかけが「定期」のフローの保存で upsert する。
+  // ⚠️ フロー削除時は Cascade（SetNull にすると flowId も agentId も無い行＝部署ワークフローの実行に化ける）。
+  flowId         String?
+  flow           Flow?        @relation(fields: [flowId], references: [id], onDelete: Cascade)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
   @@index([orgId, enabled])
   @@index([agentId])
+  @@index([flowId])
 }
 
 enum CapabilityStatus {
@@ -657,40 +665,44 @@ model BillingEvent {
 /// ⚠️ definition は保存前に必ず shared-types の pageDefinitionSchema を通す（ブロックの許可リスト）。
 /// ⚠️ sampleData は seed だけが書く。登録 API のスキーマには項目が無い（本番で作り物の数字を出さない）。
 model CustomPage {
-  id             String       @id @default(cuid())
-  orgId          String
-  org            Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  id                String       @id @default(cuid())
+  orgId             String
+  org               Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   /// ^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$。URL の /p/:slug
-  slug           String
+  slug              String
   /// 1〜24 文字。ナビとページ見出し
-  title          String
+  title             String
   /// shared-types の PAGE_ICONS のどれか
-  icon           String       @default("file-text")
+  icon              String       @default("file-text")
   /// 小さい順。同値は createdAt
-  sortOrder      Int          @default(0)
+  sortOrder         Int          @default(0)
   /// 'DRAFT' | 'PUBLISHED'。DEFAULT は fail-closed（作りかけを全員に見せない）
-  status         String       @default("DRAFT")
+  status            String       @default("DRAFT")
   /// 'MEMBER' | 'ADMIN' | 'OWNER'。これ未満の人には一覧にも出さない
-  minRole        String       @default("MEMBER")
-  /// 'N8N' | 'MANUAL' | 'SEED'（作成元。n8n は MANUAL / SEED の行を上書きしない）
-  source         String
+  minRole           String       @default("MEMBER")
+  /// 'N8N' | 'MANUAL' | 'SEED' | 'FLOW'（作成元。n8n は N8N 以外の行を上書きしない）
+  source            String
   /// 定義が変わるたびに +1
-  version        Int          @default(1)
+  version           Int          @default(1)
   /// ブロックスキーマの版（v1 = 1）
-  schemaVersion  Int          @default(1)
+  schemaVersion     Int          @default(1)
   /// { blocks, actions }
-  definition     Json
+  definition        Json
   /// 正規化した definition の sha256。同じ内容の再登録を無変更にする
-  definitionHash String
+  definitionHash    String
   /// サンプルモード用の応答（アクション ID → n8n の応答そのもの）。seed だけが書く
-  sampleData     Json?
+  sampleData        Json?
   /// User.id。n8n 経由は null
-  createdBy      String?
-  updatedBy      String?
+  createdBy         String?
+  updatedBy         String?
   /// 管理者が設定画面（PATCH）で変えた項目（'title' | 'icon'）。n8n の再登録はここにある項目を上書きしない（§5.3・K51）
-  adminEditedFields String[]  @default([])
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  adminEditedFields String[]     @default([])
+  /// source='FLOW' のとき、結果を見せる業務フロー（docs/design/canvas-home.md §5.5）。フロー 1 つに 1 ページ（unique）。
+  /// フローを消すとページも消える（Cascade。アプリも同じトランザクションで消す）。⚠️ 同じ組織かはアプリが確かめる
+  flowId            String?      @unique
+  flow              Flow?        @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
 
   @@unique([orgId, slug])
   @@index([orgId, status, sortOrder])
@@ -745,4 +757,128 @@ model PageActionLog {
 
   @@unique([orgId, requestId])
   @@index([orgId, createdAt])
+}
+
+// ── ホームキャンバスと業務フロー。docs/design/canvas-home.md §5 ──
+
+/// ホームの配置（業務ノードの位置と線）。組織に 1 枚（U-8・K18）。行が無い組織は DEFAULT_CANVAS_LAYOUT を返す。
+/// ⚠️ layout は保存前に必ず shared-types の canvasLayoutSchema を通す（32KB まで）。
+model Canvas {
+  id        String       @id @default(cuid())
+  orgId     String       @unique
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// { nodes, edges }（§6.6）
+  layout    Json
+  /// 保存のたびに +1。楽観ロック（違えば 409 CANVAS_CONFLICT）
+  version   Int          @default(1)
+  /// User.id
+  updatedBy String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+/// 業務フローの現在の定義（§5.3）。論理（順番・分岐・承認）は FLOW の DB が正本で、n8n には持ち込まない（K2）。
+/// ⚠️ definition は保存前に必ず shared-types の flowDefinitionSchema を通す（ノード 7 型の許可リスト・DAG・64KB）。
+model Flow {
+  id              String          @id @default(cuid())
+  orgId           String
+  org             Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// ^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$。テンプレート由来は templateKey と同じ＝同時に押しても 1 つ
+  slug            String
+  /// 1〜24 文字
+  name            String
+  /// shared-types の PAGE_ICONS のどれか
+  icon            String          @default("file-text")
+  /// 偽なら定期のきっかけは発火せず、実行もできない
+  enabled         Boolean         @default(true)
+  /// 'MEMBER' | 'ADMIN' | 'OWNER'。これ未満には見せない・実行させない
+  minRole         String          @default("MEMBER")
+  /// どのテンプレートの何版から作ったか。手作りは null
+  templateKey     String?
+  templateVersion Int?
+  /// 定義が変わるたびに +1（位置だけの変更では上がらない）
+  version         Int             @default(1)
+  /// フロー定義スキーマの版（v1 = 1）
+  schemaVersion   Int             @default(1)
+  /// { nodes, edges }（§6）
+  definition      Json
+  /// 正規化した definition の sha256。同じ内容の保存は版を上げない
+  definitionHash  String
+  /// { [nodeId]: { x, y } }。位置は定義と分ける（K16）
+  layout          Json            @default("{}")
+  /// User.id
+  createdBy       String?
+  updatedBy       String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  versions        FlowVersion[]
+  /// 結果ページ（CustomPage.source='FLOW'）。0〜1 件
+  resultPage      CustomPage?
+  /// きっかけが「定期」のときの 1 行
+  schedules       ScheduledTask[]
+
+  @@unique([orgId, slug])
+  @@index([orgId, updatedAt])
+}
+
+/// フロー定義の履歴（直近 20 版。21 版目以降は保存と同じトランザクションで古い順に消す）。
+/// ⚠️ orgId を持たない子モデル（CHILD_MODELS）。親 Flow をテナントクライアントで取れたときだけ読み書きする（不変条件 I2）。
+model FlowVersion {
+  id         String   @id @default(cuid())
+  flowId     String
+  flow       Flow     @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  version    Int
+  definition Json
+  createdBy  String?
+  createdAt  DateTime @default(now())
+
+  @@unique([flowId, version])
+}
+
+/// フローの実行 1 回（§5.4）。監査・月間実行数の正本で、簡易キューを兼ねる（QUEUED → RUNNING は条件付き updateMany で取る）。
+/// ⚠️ flowId は Flow への FK にしない。フローを消して作り直しても当月の件数を残す（上限のすり抜け防止。K25）。
+/// ⚠️ taskId も FK にしない（対の Task が消えても実行の記録は残す）。組織の削除では消える。
+/// ⚠️ input / steps / output には顧客の値が入る。ログには出さない。保持期間はプランで切る（§7.6）。
+model FlowRun {
+  id          String       @id @default(cuid())
+  orgId       String
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  flowId      String
+  /// フローを消しても読めるように写す
+  flowSlug    String
+  flowVersion Int
+  /// 実行時点の定義の写し（版が消えても再現でき、実行中に定義が変わっても影響しない）
+  definition  Json
+  /// 'manual' | 'form' | 'schedule' | 'page'
+  trigger     String
+  /// 実行した人（User.id）。定期は null
+  actorId     String?
+  /// web が実行ごとに作る UUID。定期は sched:<flowId>:<時刻>。同じ組織で一意＝二重実行を止める
+  requestId   String
+  /// 'QUEUED' | 'RUNNING' | 'WAITING_APPROVAL' | 'SUCCEEDED' | 'FAILED' | 'CANCELED' | 'EXPIRED'
+  status      String       @default("QUEUED")
+  /// きっかけの入力（16KB まで）
+  input       Json         @default("{}")
+  /// { [nodeId]: { status, startedAt, finishedAt, durationMs, output?, error?, attempts } }（256KB まで）
+  steps       Json         @default("{}")
+  /// 出力ノードが宣言したキーの値（結果ページが読む。64KB まで）
+  output      Json?
+  /// { nodeId, code, message }（利用者向けの文言だけ）
+  error       Json?
+  /// この実行で部品・AI を呼んだ回数。部品の月間数はこの合計
+  partCalls   Int          @default(0)
+  aiCalls     Int          @default(0)
+  /// 対になる Task（taskType='flow'）
+  taskId      String?      @unique
+  /// 実行中の心拍（30 秒ごと）。止まった実行の回収に使う
+  lockedAt    DateTime?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  durationMs  Int?
+  createdAt   DateTime     @default(now())
+
+  @@unique([orgId, requestId])
+  @@index([orgId, createdAt])
+  @@index([orgId, flowId, createdAt])
+  @@index([status, createdAt])
 }

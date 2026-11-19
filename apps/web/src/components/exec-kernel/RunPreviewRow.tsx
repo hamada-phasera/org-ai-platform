@@ -23,17 +23,20 @@ export function RunPreviewRow({
   onApprove,
   onCancel,
   busy = false,
+  plain = false,
 }: {
   preview: RunPreview;
   onApprove: () => void;
   onCancel: () => void;
   busy?: boolean;
+  /** 枠と影なし（すでにカードの中に置くとき。カードの入れ子にしない） */
+  plain?: boolean;
 }) {
   return (
     <div
       role="group"
       aria-label={`実行プレビュー: ${preview.capabilityLabel}`}
-      className="rounded-lg border border-border bg-elevated shadow-elev-1 p-3.5"
+      className={plain ? 'border-t border-border pt-3' : 'rounded-lg border border-border bg-elevated shadow-elev-1 p-3.5'}
     >
       <p className="text-xs font-bold text-primary mb-2">
         この操作を実行します — {preview.capabilityLabel}
@@ -63,7 +66,7 @@ export function RunPreviewRow({
         <Button size="sm" icon={<Play size={12} />} loading={busy} onClick={onApprove}>
           実行する
         </Button>
-        <Button size="sm" variant="ghost" icon={<X size={12} />} disabled={busy} onClick={onCancel}>
+        <Button size="sm" variant="ghost" icon={<X size={12} />} disabled={busy} aria-busy={busy || undefined} onClick={onCancel}>
           やめる
         </Button>
       </div>

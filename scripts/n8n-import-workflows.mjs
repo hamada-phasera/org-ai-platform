@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// apps/n8n-workflows/{dept,cap}-*.json を n8n Public API でインポート (or 上書き) し、
+// apps/n8n-workflows/{dept,cap}-*.json と parts/part-*.json を n8n Public API でインポート (or 上書き) し、
 // アクティブ化する。
 //
 // 使い方:
@@ -14,7 +14,7 @@ import { readFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { listImportFiles } from './n8n-import-files.mjs';
+import { listImportFiles, listPartFiles } from './n8n-import-files.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -195,8 +195,9 @@ try {
   credential = null;
 }
 
-// dept-* / cap-* だけ。業務ページのサンプル（pages/）は組織ごとに手で入れるので拾わない
-const files = listImportFiles(WF_DIR);
+// dept-* / cap-* と、業務フローの部品 parts/part-*.json（全組織共通。docs/flow-parts-n8n.md）。
+// 業務ページのサンプル（pages/）は組織ごとに手で入れるので拾わない
+const files = [...listImportFiles(WF_DIR), ...listPartFiles(WF_DIR)];
 
 for (const f of files) {
   const wf = JSON.parse(await readFile(join(WF_DIR, f), 'utf8'));

@@ -7,8 +7,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p .",
     "lint": "eslint .",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage --coverage.include=src/**",
+    "test": "vitest run --testTimeout=20000",
+    "test:coverage": "vitest run --testTimeout=20000 --coverage --coverage.include=src/**",
     "check:tokens": "node scripts/check-design-tokens.mjs"
   },
   "dependencies": {

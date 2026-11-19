@@ -6,7 +6,11 @@
     "moduleResolution": "bundler",
     "strict": true,
     "jsx": "react-jsx",
-    "noEmit": true
+    "noEmit": true,
+    // @org-ai/shared-types はソースを直接見る（gateway と同じ。dist の事前ビルドが古くても型がずれない）
+    "paths": {
+      "@org-ai/shared-types": ["../../packages/shared-types/src/index.ts"]
+    }
   },
   "include": ["src"]
 }

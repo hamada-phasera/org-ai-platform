@@ -10,7 +10,7 @@ import { onboardingDismissKey, onboardingKeysFor, onboardingSteps } from '../../
  * 初回の案内（TOP の入力欄の下の 3 行: 指示・連携・招待）。判定は utils/onboarding.ts。
  *
  * 見た目は区切り線の一覧だけ（カード・影・角丸・左アクセントバーを使わない。TOP はカードの上に置くので入れ子になる）。
- * 数字（KPI）は出さない（DESIGN.md §4・TopPage の方針）。
+ * 数字（KPI）は出さない（DESIGN.md §4・ホームの方針）。
  * 完了の判定に使う一覧は設定画面と同じキャッシュキー・同じ形で取るので、設定で接続・招待すると TOP に戻った時点で反映される。
  */
 

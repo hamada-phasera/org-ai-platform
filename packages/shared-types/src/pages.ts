@@ -9,7 +9,7 @@
  *   （zod を初回ロードに載せない。K20）。zod に依存しない定数と上限は pages-plan.ts。
  */
 import { z } from 'zod';
-import { PAGE_ICONS, PAGE_STATUSES } from './pages-plan';
+import { PAGE_ICONS, PAGE_STATUSES, hasControlChars, utf8ByteLength } from './pages-plan';
 
 // ── 上限（設計書 §4.2・§4.3・§5.2） ─────────────────────────────
 
@@ -60,19 +60,6 @@ export const PAGE_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 export const PAGE_ACTION_ID_PATTERN = /^[a-z][a-z0-9_]{0,23}$/;
 export const PAGE_DATA_KEY_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
 
-/**
- * 文字列に制御文字が無いか。`allowNewline` のときだけ改行（\n）を許す（text ブロックの本文・textarea の入力）。
- * 正規表現の制御文字クラスは ESLint の no-control-regex に掛かるので文字コードで見る。
- */
-export function hasControlChars(value: string, allowNewline = false): boolean {
-  for (let i = 0; i < value.length; i++) {
-    const c = value.charCodeAt(i);
-    if (allowNewline && (c === 0x0a || c === 0x0d)) continue;
-    if (c < 0x20 || c === 0x7f || (c >= 0x80 && c <= 0x9f) || c === 0x2028 || c === 0x2029) return true;
-  }
-  return false;
-}
-
 const CONTROL_MSG = '制御文字は使えません';
 
 /** 表示する文字（1 文字以上・上限・制御文字なし） */
@@ -113,7 +100,38 @@ const submitActionSchema = z
     refresh: z.array(pageActionIdSchema).max(L.maxActions).optional(),
   })
   .strict();
-export const pageActionSchema = z.discriminatedUnion('kind', [queryActionSchema, submitActionSchema]);
+/**
+ * 業務フローの結果ページ（`CustomPage.source='FLOW'`）だけで使うアクション（docs/design/canvas-home.md §6.3）。
+ * - `flow_query`: 直近の成功した実行の `output` ＋ 履歴（`runs`）を読む
+ * - `flow_submit`: そのページの `flowId` のフローを実行する
+ * **フロー ID は定義に書かない**（`CustomPage.flowId` の 1 つだけ＝他のフローを叩けない）。hook も無い（n8n に届かない）。
+ * n8n の登録経路（`pageUpsertSchema`）は拒否する。
+ */
+const flowQueryActionSchema = z.object({ kind: z.literal('flow_query') }).strict();
+const flowSubmitActionSchema = z.object({ kind: z.literal('flow_submit') }).strict();
+export const pageActionSchema = z.discriminatedUnion('kind', [
+  queryActionSchema,
+  submitActionSchema,
+  flowQueryActionSchema,
+  flowSubmitActionSchema,
+]);
+
+export const PAGE_FLOW_ACTION_KINDS = ['flow_query', 'flow_submit'] as const;
+export type PageActionKind = 'query' | 'submit' | 'flow_query' | 'flow_submit';
+
+/** 読む側（query と flow_query）か */
+export function isPageQueryKind(kind: PageActionKind): boolean {
+  return kind === 'query' || kind === 'flow_query';
+}
+
+/** 送る側（submit と flow_submit）か */
+export function isPageSubmitKind(kind: PageActionKind): boolean {
+  return kind === 'submit' || kind === 'flow_submit';
+}
+
+export function isPageFlowActionKind(kind: PageActionKind): boolean {
+  return kind === 'flow_query' || kind === 'flow_submit';
+}
 
 // ── ブロック（許可リスト 7 種） ─────────────────────────────
 
@@ -179,7 +197,7 @@ const listBlockSchema = z
 export const PAGE_FIELD_TYPES = ['text', 'textarea', 'number', 'date', 'select', 'checkbox', 'email', 'tel'] as const;
 export type PageFieldType = (typeof PAGE_FIELD_TYPES)[number];
 
-const fieldSchema = z
+export const pageFieldSchema = z
   .object({
     key: pageDataKeySchema,
     label: label(L.labelMax),
@@ -226,7 +244,7 @@ const formBlockSchema = z
   .object({
     type: z.literal('form'),
     title: label(L.formTitleMax).optional(),
-    fields: z.array(fieldSchema).min(1).max(L.fieldsMax),
+    fields: z.array(pageFieldSchema).min(1).max(L.fieldsMax),
     action: pageActionIdSchema,
     submit: label(L.buttonLabelMax),
   })
@@ -265,21 +283,6 @@ export type PageBlockType = (typeof PAGE_BLOCK_TYPES)[number];
 
 // ── ページ定義 ─────────────────────────────────────────
 
-/** UTF-8 のバイト数（TextEncoder に頼らない＝lib に DOM が無くても動く） */
-export function utf8ByteLength(value: string): number {
-  let bytes = 0;
-  for (let i = 0; i < value.length; i++) {
-    const c = value.charCodeAt(i);
-    if (c < 0x80) bytes += 1;
-    else if (c < 0x800) bytes += 2;
-    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < value.length) {
-      bytes += 4;
-      i++;
-    } else bytes += 3;
-  }
-  return bytes;
-}
-
 const baseDefinitionSchema = z
   .object({
     blocks: z.array(pageBlockSchema).min(1).max(L.maxBlocks),
@@ -287,7 +290,33 @@ const baseDefinitionSchema = z
   })
   .strict();
 
-export const pageDefinitionSchema = baseDefinitionSchema.superRefine((def, ctx) => {
+/**
+ * ページ定義のスキーマを組み立てる。
+ * - `allowFlowActions: false`（n8n・手動の登録経路）: `flow_query` / `flow_submit` を拒否（登録トークンでページをフローに結べない）
+ * - `allowFlowActions: true`（保存済みの定義を読む側・出力ビルダー）: 使えるが、n8n の `query` / `submit` と**混ぜない**
+ *   （フローの結果ページは n8n を呼ばない）。`flow_query` と `flow_submit` は各 1 つまで。表の行の操作には使えない
+ *   （行の操作は `{ rowId }` を送るだけで、フローのきっかけの項目と合わない）。
+ */
+export function buildPageDefinitionSchema(opts: { allowFlowActions: boolean }) {
+  return baseDefinitionSchema.superRefine((def, ctx) => checkPageDefinition(def, ctx, opts.allowFlowActions));
+}
+
+function checkPageDefinition(def: z.infer<typeof baseDefinitionSchema>, ctx: z.RefinementCtx, allowFlowActions: boolean): void {
+  const kinds = Object.values(def.actions).map((a) => a.kind);
+  const flowKinds = kinds.filter((k) => isPageFlowActionKind(k));
+  if (flowKinds.length > 0) {
+    if (!allowFlowActions) {
+      ctx.addIssue({ code: 'custom', path: ['actions'], message: 'flow_query / flow_submit は業務フローの結果ページだけで使えます' });
+    } else if (flowKinds.length !== kinds.length) {
+      ctx.addIssue({ code: 'custom', path: ['actions'], message: 'フローのアクションと n8n のアクションは混ぜられません' });
+    }
+    for (const k of PAGE_FLOW_ACTION_KINDS) {
+      if (kinds.filter((x) => x === k).length > 1) {
+        ctx.addIssue({ code: 'custom', path: ['actions'], message: `${k} は 1 つまでです` });
+      }
+    }
+  }
+
   const actionIds = Object.keys(def.actions);
   if (actionIds.length > L.maxActions) {
     ctx.addIssue({ code: 'custom', path: ['actions'], message: `アクションは ${L.maxActions} 個までです` });
@@ -296,11 +325,13 @@ export const pageDefinitionSchema = baseDefinitionSchema.superRefine((def, ctx) 
     ctx.addIssue({ code: 'custom', path: [], message: `定義は ${L.maxDefinitionBytes / 1024}KB までです` });
   }
 
-  const expectKind = (actionId: string, kind: 'query' | 'submit', path: (string | number)[]) => {
-    const action = def.actions[actionId];
+  /** query は flow_query も、submit は flow_submit も受ける。`exact` なら n8n のアクションだけ */
+  const expectKind = (actionId: string, kind: 'query' | 'submit', path: (string | number)[], exact = false) => {
+    const action = Object.prototype.hasOwnProperty.call(def.actions, actionId) ? def.actions[actionId] : undefined;
+    const ok = action && (exact ? action.kind === kind : kind === 'query' ? isPageQueryKind(action.kind) : isPageSubmitKind(action.kind));
     if (!action) {
       ctx.addIssue({ code: 'custom', path, message: `アクション "${actionId}" がありません` });
-    } else if (action.kind !== kind) {
+    } else if (!ok) {
       ctx.addIssue({ code: 'custom', path, message: `アクション "${actionId}" は ${kind} ではありません` });
     }
   };
@@ -315,7 +346,7 @@ export const pageDefinitionSchema = baseDefinitionSchema.superRefine((def, ctx) 
       case 'table': {
         expectKind(block.source.action, 'query', [...at, 'source', 'action']);
         if (block.rowAction) {
-          expectKind(block.rowAction.action, 'submit', [...at, 'rowAction', 'action']);
+          expectKind(block.rowAction.action, 'submit', [...at, 'rowAction', 'action'], true);
           if (!block.rowKey) ctx.addIssue({ code: 'custom', path: [...at, 'rowKey'], message: 'rowAction には rowKey が要ります' });
         }
         const keys = block.columns.map((c) => c.key);
@@ -357,12 +388,18 @@ export const pageDefinitionSchema = baseDefinitionSchema.superRefine((def, ctx) 
       action.refresh.forEach((ref, j) => expectKind(ref, 'query', ['actions', id, 'refresh', j]));
     }
   }
-});
+}
+
+/** 保存済みの定義を読む側（業務ページの取得・実行・フローの結果ページ）。flow_* を含みうる */
+export const pageDefinitionSchema = buildPageDefinitionSchema({ allowFlowActions: true });
+
+/** n8n・手動の登録経路の定義。flow_* を拒否する */
+export const pageRegisterDefinitionSchema = buildPageDefinitionSchema({ allowFlowActions: false });
 
 export type PageDefinition = z.infer<typeof baseDefinitionSchema>;
 export type PageBlock = z.infer<typeof pageBlockSchema>;
 export type PageAction = z.infer<typeof pageActionSchema>;
-export type PageField = z.infer<typeof fieldSchema>;
+export type PageField = z.infer<typeof pageFieldSchema>;
 export type PageSourceRef = z.infer<typeof sourceSchema>;
 
 /**
@@ -376,7 +413,8 @@ export const pageUpsertSchema = z
     sortOrder: z.number().int().min(0).max(9999).optional(),
     status: z.enum(PAGE_STATUSES).optional(),
     minRole: z.enum(['MEMBER', 'ADMIN', 'OWNER']).optional(),
-    definition: pageDefinitionSchema,
+    /** flow_query / flow_submit は拒否（登録トークンでページをフローに結べない。canvas-home.md §6.3） */
+    definition: pageRegisterDefinitionSchema,
   })
   .strict();
 export type PageUpsertInput = z.infer<typeof pageUpsertSchema>;
@@ -385,7 +423,9 @@ export type PageUpsertInput = z.infer<typeof pageUpsertSchema>;
 
 export type PublicPageAction =
   | { kind: 'query' }
-  | { kind: 'submit'; confirm?: string; refresh?: string[] };
+  | { kind: 'submit'; confirm?: string; refresh?: string[] }
+  | { kind: 'flow_query' }
+  | { kind: 'flow_submit' };
 
 export interface PublicPageDefinition {
   blocks: PageBlock[];
@@ -398,6 +438,8 @@ export function toPublicPageDefinition(def: PageDefinition): PublicPageDefinitio
   for (const [id, action] of Object.entries(def.actions)) {
     if (action.kind === 'query') {
       actions[id] = { kind: 'query' };
+    } else if (action.kind === 'flow_query' || action.kind === 'flow_submit') {
+      actions[id] = { kind: action.kind };
     } else {
       const pub: PublicPageAction = { kind: 'submit' };
       if (action.confirm !== undefined) pub.confirm = action.confirm;
@@ -426,7 +468,8 @@ function isValidDate(value: string): boolean {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
 }
 
-function fieldInputSchema(field: PageField): z.ZodTypeAny {
+/** 項目 1 つの入力スキーマ（フォームの送信と、業務フローの部品の入力で共用） */
+export function pageFieldInputSchema(field: PageField): z.ZodTypeAny {
   const required = field.required === true;
   switch (field.type) {
     case 'text':
@@ -483,7 +526,7 @@ function fieldInputSchema(field: PageField): z.ZodTypeAny {
 /** buildInputSchema が読むのは blocks と actions の kind だけ（web は hook を落とした公開定義のまま渡せる） */
 export interface PageInputSchemaSource {
   blocks: PageBlock[];
-  actions: Record<string, { kind: 'query' | 'submit' }>;
+  actions: Record<string, { kind: PageActionKind }>;
 }
 
 export function buildInputSchema(
@@ -492,7 +535,7 @@ export function buildInputSchema(
   origin: PageActionOrigin,
 ): z.ZodTypeAny | null {
   const action = Object.prototype.hasOwnProperty.call(definition.actions, actionId) ? definition.actions[actionId] : undefined;
-  if (!action || action.kind !== 'submit') return null;
+  if (!action || !isPageSubmitKind(action.kind)) return null;
   if (!Number.isInteger(origin.blockIndex) || origin.blockIndex < 0) return null;
   const block = definition.blocks[origin.blockIndex];
   if (!block) return null;
@@ -501,7 +544,7 @@ export function buildInputSchema(
     case 'form': {
       if (block.action !== actionId) return null;
       const shape: Record<string, z.ZodTypeAny> = {};
-      for (const field of block.fields) shape[field.key] = fieldInputSchema(field);
+      for (const field of block.fields) shape[field.key] = pageFieldInputSchema(field);
       return z.object(shape).strict();
     }
     case 'buttons': {
@@ -513,7 +556,8 @@ export function buildInputSchema(
       return z.object({}).strict();
     }
     case 'table':
-      if (block.rowAction?.action !== actionId) return null;
+      // 行の操作は n8n の submit だけ（flow_submit はフローのきっかけの項目を送る）
+      if (block.rowAction?.action !== actionId || action.kind !== 'submit') return null;
       return z
         .object({
           rowId: z

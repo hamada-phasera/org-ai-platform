@@ -88,6 +88,10 @@ export const envSchema = z.object({
   METRICS_URL: optional,
   SHUTDOWN_DRAIN_MS: optional,
   INTERNAL_SCHEDULER_ENABLED: optional,
+  /** 業務フローの gateway 全体の同時実行数（docs/design/canvas-home.md §7.2） */
+  FLOW_MAX_CONCURRENCY: optional,
+  /** 運営（プラットフォーム管理者）のメール。ai-engine のモデル選択と同じ変数（canvas-home.md §8.5・K26） */
+  ADMIN_EMAILS: optional,
 
   // 決済（Stripe）。組み立ては services/billing/billing-core.ts の billingConfigFromEnv
   STRIPE_SECRET_KEY: optional,
@@ -113,6 +117,7 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): Env {
 
 /** 既定値。ここ以外に既定値を書かないこと。 */
 export const ENV_DEFAULTS = {
+  FLOW_MAX_CONCURRENCY: 16,
   PORT: '4000',
   TRUST_PROXY_HOPS: 1,
   JWT_EXPIRES_IN: '24h',
@@ -367,6 +372,21 @@ export const config = {
   },
   get internalSchedulerEnabled(): boolean {
     return enabledUnlessFalse(readEnv().INTERNAL_SCHEDULER_ENABLED);
+  },
+  /** 業務フローの gateway 全体の同時実行数。1〜256 の整数以外は既定（starter の RAM を守る。§7.2） */
+  get flowMaxConcurrency(): number {
+    const n = Number(readEnv().FLOW_MAX_CONCURRENCY ?? ENV_DEFAULTS.FLOW_MAX_CONCURRENCY);
+    return Number.isInteger(n) && n >= 1 && n <= 256 ? n : ENV_DEFAULTS.FLOW_MAX_CONCURRENCY;
+  },
+  /**
+   * 運営のメール（ADMIN_EMAILS、カンマ区切り・大文字小文字は無視）。組織の OWNER / ADMIN とは別の軸で、
+   * 業務フローの部品ノードに「n8n で開く」を出すかだけに使う（canvas-home.md §8.5）。未設定なら誰も運営ではない。
+   */
+  get platformAdminEmails(): string[] {
+    return (readEnv().ADMIN_EMAILS ?? '')
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => e.length > 0);
   },
 
   // ── 決済 ──

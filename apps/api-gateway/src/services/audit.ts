@@ -2,7 +2,7 @@
 //
 // ■ 何を残すか
 //   招待・役割変更・無効化・組織の作成と改名・Checkout 開始・プラン変更・追加容量・連携の接続と切断・
-//   業務ページの登録／削除／公開と登録トークンの発行／失効。
+//   業務ページの登録／削除／公開と登録トークンの発行／失効・キャンバスの変更・業務フローの作成／変更／削除／有効化／無効化。
 //   AILog / RiskEvent は AI の入出力だけなので、「誰が・いつ・何を」を人の操作についてここに残す。
 //
 // ■ 書き方
@@ -41,6 +41,13 @@ export const AUDIT_ACTIONS = [
   'page.unpublish',
   'page_token.issue',
   'page_token.revoke',
+  // ホームキャンバスと業務フロー（docs/design/canvas-home.md §5.5・§7.5）。meta は { flowId, slug, version } だけ（定義の中身は入れない）
+  'canvas.update',
+  'flow.create',
+  'flow.update',
+  'flow.delete',
+  'flow.enable',
+  'flow.disable',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

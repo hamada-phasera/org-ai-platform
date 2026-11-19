@@ -1,12 +1,14 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Bot, Inbox, RefreshCw, Users, X } from 'lucide-react';
-import type { AgentStepApprovalData } from '@org-ai/shared-types';
+import type { AgentStepApprovalData, FlowStepApprovalData } from '@org-ai/shared-types';
 import { api } from '../services/api';
 import { Button, EmptyState, ErrorState, Input, PageHeader, SkeletonList } from '../components/ui';
 import { LiquidTabs } from '../components/motion/LiquidTabs';
 import { RunPreviewRow } from '../components/exec-kernel/RunPreviewRow';
+import { apiErrorOf } from '../components/canvas/canvasApi';
 
 /**
  * 受信（LINE受信箱 + エージェント承認）。
@@ -84,6 +86,25 @@ async function fetchAgentApprovals(): Promise<AgentApprovalTask[]> {
   return res.data.data;
 }
 
+/** 業務フローの確認・送信前の停止（Task.taskType='flow'。docs/design/canvas-home.md §7.4） */
+async function fetchFlowApprovals(): Promise<AgentApprovalTask[]> {
+  const res = await api.get<{ success: boolean; data: AgentApprovalTask[] }>(
+    '/tasks?status=PENDING_APPROVAL&taskType=flow',
+  );
+  return res.data.data;
+}
+
+/** approvalData を業務フローの承認として読む。中身は gateway が展開済み（承認画面では編集させない＝人が見たものをそのまま通す） */
+function parseFlowApproval(raw: string | null): FlowStepApprovalData | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as FlowStepApprovalData;
+    return parsed?.kind === 'flow_step' && typeof parsed.runId === 'string' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 /** approvalData をエージェントのステップ承認として読む（他形式の承認は無視）。 */
 function parseStepApproval(raw: string | null): AgentStepApprovalData | null {
   if (!raw) return null;
@@ -105,7 +126,9 @@ function primaryTextKey(args: Record<string, unknown>): string | null {
 
 export default function InboxPage() {
   const qc = useQueryClient();
-  const [view, setView] = useState<ViewFilter>('PENDING');
+  const [params] = useSearchParams();
+  /* ホームの「承認」ノード・フロー画面の「受信で承認」は ?tab=approvals で開く */
+  const [view, setView] = useState<ViewFilter>(params.get('tab') === 'approvals' ? 'AGENT' : 'PENDING');
   /* カードごとの下書き編集内容。未編集なら draft をそのまま使う */
   const [edits, setEdits] = useState<Record<string, string>>({});
   /* 送信確認（RunPreviewRow）を開いているメッセージ */
@@ -124,7 +147,15 @@ export default function InboxPage() {
     queryFn: fetchAgentApprovals,
     refetchInterval: 15_000,
   });
-  const invalidateApprovals = () => qc.invalidateQueries({ queryKey: ['agent-approvals'] });
+  const flowApprovalsQ = useQuery({
+    queryKey: ['flow-approvals'],
+    queryFn: fetchFlowApprovals,
+    refetchInterval: 15_000,
+  });
+  const invalidateApprovals = () => {
+    void qc.invalidateQueries({ queryKey: ['agent-approvals'] });
+    void qc.invalidateQueries({ queryKey: ['flow-approvals'] });
+  };
   /* 承認カードで編集中の本文 */
   const [stepEdits, setStepEdits] = useState<Record<string, string>>({});
 
@@ -137,6 +168,35 @@ export default function InboxPage() {
     mutationFn: (id: string) => api.post(`/tasks/${id}/reject`, {}),
     onSuccess: invalidateApprovals,
   });
+
+  /*
+   * フローの承認・却下はカードごとに処理中と失敗を持つ（mutation を共有すると、別のカードを押したとき
+   * 処理中の印が外れる）。失敗は gateway の文言（402 閲覧のみ・409 処理済み など）をそのまま 1 行出す。
+   */
+  const [flowBusy, setFlowBusy] = useState<ReadonlySet<string>>(() => new Set());
+  const [flowErrors, setFlowErrors] = useState<Record<string, string>>({});
+  const actOnFlow = async (id: string, kind: 'approve' | 'reject') => {
+    if (flowBusy.has(id)) return;
+    setFlowBusy((cur) => new Set(cur).add(id));
+    setFlowErrors((cur) => {
+      const next = { ...cur };
+      delete next[id];
+      return next;
+    });
+    try {
+      await api.post(`/tasks/${id}/${kind}`, {});
+      invalidateApprovals();
+    } catch (e) {
+      const fallback = kind === 'approve' ? '承認できませんでした' : '却下できませんでした';
+      setFlowErrors((cur) => ({ ...cur, [id]: apiErrorOf(e, fallback).message }));
+    } finally {
+      setFlowBusy((cur) => {
+        const next = new Set(cur);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
 
   const approveMut = useMutation({
     mutationFn: ({ id, replyText }: { id: string; replyText: string }) =>
@@ -172,7 +232,8 @@ export default function InboxPage() {
   });
   const pendingCount = all.filter((m) => PENDING_STATUSES.includes(m.status)).length;
   const approvals = (approvalsQ.data ?? []).filter((t) => parseStepApproval(t.approvalData));
-  const approvalCount = approvals.length;
+  const flowApprovals = (flowApprovalsQ.data ?? []).filter((t) => parseFlowApproval(t.approvalData));
+  const approvalCount = approvals.length + flowApprovals.length;
 
   return (
     <div className="mx-auto max-w-4xl p-6">
@@ -220,11 +281,16 @@ export default function InboxPage() {
       </div>
 
       {view === 'AGENT' ? (
-        approvalsQ.isLoading ? (
+        approvalsQ.isLoading || flowApprovalsQ.isLoading ? (
           <SkeletonList count={2} />
-        ) : approvalsQ.isError ? (
-          <ErrorState onRetry={() => approvalsQ.refetch()} />
-        ) : approvals.length === 0 ? (
+        ) : approvalsQ.isError || flowApprovalsQ.isError ? (
+          <ErrorState
+            onRetry={() => {
+              if (approvalsQ.isError) void approvalsQ.refetch();
+              if (flowApprovalsQ.isError) void flowApprovalsQ.refetch();
+            }}
+          />
+        ) : approvals.length + flowApprovals.length === 0 ? (
           <EmptyState
             icon={<Bot size={22} />}
             title="承認待ちはありません"
@@ -232,6 +298,45 @@ export default function InboxPage() {
           />
         ) : (
           <div className="space-y-4">
+            {flowApprovals.map((task) => {
+              const approval = parseFlowApproval(task.approvalData)!;
+              const args = [
+                { key: approval.gate ? '送信' : '確認', value: approval.message },
+                ...(approval.preview ? [{ key: '内容', value: approval.preview }] : []),
+              ];
+              return (
+                <motion.article
+                  key={task.id}
+                  layout
+                  className="rounded-lg border border-border bg-elevated p-5 shadow-elev-1"
+                >
+                  <div className="mb-2.5 flex items-center gap-2.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-primary">{task.title}</p>
+                      <p className="tabular text-micro text-text-muted">
+                        {new Date(task.createdAt).toLocaleString('ja-JP')}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-warning/10 px-2.5 py-1 text-micro font-bold text-warning">
+                      {approval.gate ? '送信前' : '確認'}
+                    </span>
+                  </div>
+                  {/* 外側のカードの中は枠なし（カードの入れ子にしない。DESIGN.md） */}
+                  <RunPreviewRow
+                    plain
+                    preview={{ capabilityLabel: approval.label, args }}
+                    busy={flowBusy.has(task.id)}
+                    onApprove={() => void actOnFlow(task.id, 'approve')}
+                    onCancel={() => void actOnFlow(task.id, 'reject')}
+                  />
+                  {flowErrors[task.id] && (
+                    <p className="mt-2 text-xs text-danger" role="alert">
+                      {flowErrors[task.id]}
+                    </p>
+                  )}
+                </motion.article>
+              );
+            })}
             {approvals.map((task) => {
               const approval = parseStepApproval(task.approvalData)!;
               const textKey = primaryTextKey(approval.args);

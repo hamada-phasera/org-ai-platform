@@ -39,6 +39,17 @@ const DEFAULTS: Record<string, Row> = {
   },
   pageToken: { lastUsedAt: null, revokedAt: null },
   pageActionLog: { status: 'PENDING', durationMs: null, inputKeys: [] },
+  // ホームキャンバスと業務フロー（docs/design/canvas-home.md §5）
+  canvas: { version: 1, updatedBy: null },
+  flow: {
+    icon: 'file-text', enabled: true, minRole: 'MEMBER', templateKey: null, templateVersion: null, version: 1, schemaVersion: 1,
+    layout: {}, createdBy: null, updatedBy: null,
+  },
+  flowVersion: { createdBy: null },
+  flowRun: {
+    status: 'QUEUED', actorId: null, input: {}, steps: {}, output: null, error: null, partCalls: 0, aiCalls: 0, taskId: null,
+    lockedAt: null, startedAt: null, finishedAt: null, durationMs: null,
+  },
 };
 
 /**
@@ -46,9 +57,13 @@ const DEFAULTS: Record<string, Row> = {
  * 既存のモデルは足していない（今までのテストの前提を変えないため）。足すなら schema.prisma の @@unique と同じ列で。
  */
 const UNIQUES: Record<string, string[][]> = {
-  customPage: [['orgId', 'slug']],
+  customPage: [['orgId', 'slug'], ['flowId']],
   pageToken: [['tokenHash']],
   pageActionLog: [['orgId', 'requestId']],
+  canvas: [['orgId']],
+  flow: [['orgId', 'slug']],
+  flowVersion: [['flowId', 'version']],
+  flowRun: [['orgId', 'requestId'], ['taskId']],
 };
 
 const OPS = new Set(['equals', 'in', 'notIn', 'not', 'lt', 'lte', 'gt', 'gte', 'contains', 'startsWith', 'endsWith', 'mode', 'has', 'some', 'every', 'none', 'isEmpty']);
@@ -211,6 +226,8 @@ export class FakePrisma {
   /** 一意制約の違反なら Prisma と同じ形（code: 'P2002'）の例外を投げる */
   private assertUnique(model: string, row: Row, except?: Row): void {
     for (const cols of UNIQUES[model] ?? []) {
+      // NULL を含む行は一意制約にかからない（Postgres と同じ。FlowRun.taskId・CustomPage.flowId は NULL が複数ある）
+      if (cols.some((c) => row[c] === null || row[c] === undefined)) continue;
       const clash = this.rows(model).some((r) => r !== row && r !== except && cols.every((c) => eq(r[c], row[c])));
       if (clash) {
         throw Object.assign(new Error(`Unique constraint failed on the fields: (${cols.join(',')})`), {

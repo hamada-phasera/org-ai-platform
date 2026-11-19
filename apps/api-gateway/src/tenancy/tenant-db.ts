@@ -58,8 +58,11 @@ type TenantDelegateKey =
   | 'auditEvent'
   | 'customPage'
   | 'pageToken'
-  | 'pageActionLog';
-type ChildDelegateKey = 'message' | 'taskLog' | 'requiredCredential';
+  | 'pageActionLog'
+  | 'canvas'
+  | 'flow'
+  | 'flowRun';
+type ChildDelegateKey = 'message' | 'taskLog' | 'requiredCredential' | 'flowVersion';
 
 /** テナントクライアント（トランザクションの中で使う形）。 */
 export type TenantTx = Pick<PrismaClient, TenantDelegateKey | ChildDelegateKey | 'organization' | '$queryRaw' | '$executeRaw'> & {

@@ -330,6 +330,10 @@ export interface OrganizationUsage {
   storageAddonUnits: number;
   /** 1ファイルの上限 */
   maxFileBytes: number;
+  /** 業務フロー（docs/design/canvas-home.md §7.6）。古い API では無い */
+  flows?: { count: number; limit: number };
+  flowRuns?: { used: number; limit: number; state: UsageState; blocked: boolean };
+  partCalls?: { used: number; limit: number; state: UsageState; blocked: boolean };
 }
 
 /** 本番の設定が入っているかの状態（設定 > 基本 のカードに出す。オーナーのみ） */
@@ -588,3 +592,9 @@ export interface JWTPayload {
 // package.json の "sideEffects": false により、使わない側のモジュールは web のバンドルから落ちる。
 export * from './pages-plan';
 export * from './pages';
+export * from './flows-plan';
+export * from './flows-core';
+export * from './flows';
+export * from './flow-parts';
+export * from './flow-templates';
+export * from './flow-page';

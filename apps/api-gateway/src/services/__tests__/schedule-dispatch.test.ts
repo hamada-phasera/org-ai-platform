@@ -322,3 +322,14 @@ describe('閲覧のみ（期限切れ・解約済み）の組織は定期実行�
     expect(dispatchQueuedTaskMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('matchesSchedule: 業務フローの行（K57）', () => {
+  it('フローの行は日本時間の暦で照合する（毎月 1 日 7 時 JST ＝ UTC では前月末日 22 時）', () => {
+    const at = new Date('2026-11-30T22:00:00Z'); // JST 2026-12-01（火）07:00
+    expect(matchesSchedule({ frequency: 'monthly', dayOfWeek: null, dayOfMonth: 1, flowId: 'f' }, at)).toBe(true);
+    expect(matchesSchedule({ frequency: 'monthly', dayOfWeek: null, dayOfMonth: 1 }, at)).toBe(false);
+    expect(matchesSchedule({ frequency: 'weekly', dayOfWeek: 2, dayOfMonth: null, flowId: 'f' }, at)).toBe(true);
+    // 既存の行（flowId なし）は従来どおり UTC（月曜）
+    expect(matchesSchedule({ frequency: 'weekly', dayOfWeek: 1, dayOfMonth: null }, at)).toBe(true);
+  });
+});

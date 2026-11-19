@@ -141,6 +141,10 @@ describe('課金の通し（偽 Stripe）', () => {
     expect(usage.planLimit).toBe(8000);
     expect(usage.planLimit).toBe(PLAN_LIMITS.PRO.aiCallsPerMonth);
     expect(usage.storageQuotaBytes).toBe(5 * GB);
+    // 業務フローの 3 行（canvas-home.md §7.6。設定 > プラン）も竹の上限
+    expect(usage.flows).toEqual({ count: 0, limit: 10 });
+    expect(usage.flowRuns).toMatchObject({ used: 0, limit: 3000, state: 'ok', blocked: false });
+    expect(usage.partCalls).toMatchObject({ used: 0, limit: 1000 });
 
     // ── 未払い（past_due）は猶予期間なので書ける ──
     expect((await sendWebhook(stripe.setStatus(subId, 'past_due'))).statusCode).toBe(200);

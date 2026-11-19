@@ -143,6 +143,45 @@ export interface RlsSetup {
  *   3. phase2a.sql を `prisma db execute` で流す（本番の手順と同じファイル）
  * ⚠️ ロールは消さない（同じサーバの別のテスト DB が使っているかもしれない。DB を消せば権限は消える）。
  */
+/**
+ * flow_app の属性とパスワードを揃える。ロールはクラスタ全体で共有なので、同じサーバで別のワークツリーの
+ * 統合テストが同時に触っていると ALTER ROLE が行ロック待ちで止まる（hookTimeout まで固まった実例あり）。
+ *   - 属性が揃っていてパスワードで入れるなら ALTER しない（並走時の競合をそもそも避ける）
+ *   - ALTER するときは lock_timeout 付きで、待ちが長ければ短い間隔で数回やり直す
+ */
+async function ensureFlowAppRole(db: TestDatabase, password: string): Promise<void> {
+  const rows = await db.prisma.$queryRaw<Array<{ ok: boolean }>>`
+    SELECT (rolcanlogin AND NOT rolbypassrls AND NOT rolsuper) AS ok FROM pg_roles WHERE rolname = 'flow_app'`;
+  if (rows[0]?.ok) {
+    const u = new URL(db.url);
+    u.username = 'flow_app';
+    u.password = password;
+    const probe = new PrismaClient({ datasources: { db: { url: u.toString() } }, log: [] });
+    try {
+      await probe.$queryRaw`SELECT 1`;
+      return;
+    } catch {
+      // パスワードが違う（別の値で作られた）→ 下で ALTER する
+    } finally {
+      await probe.$disconnect();
+    }
+  }
+  const alter = `ALTER ROLE flow_app LOGIN NOBYPASSRLS NOSUPERUSER PASSWORD '${password}'`;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await db.prisma.$transaction([
+        db.prisma.$executeRawUnsafe(`SET LOCAL lock_timeout = '5s'`),
+        db.prisma.$executeRawUnsafe(alter),
+      ]);
+      return;
+    } catch (e) {
+      // 55P03 lock_not_available（別の実行がロールを掴んでいる）だけやり直す
+      if (attempt >= 6 || !/lock timeout|55P03/i.test(String((e as Error).message))) throw e;
+      await new Promise((r) => setTimeout(r, 1_000));
+    }
+  }
+}
+
 export async function applyRlsPhase2a(db: TestDatabase): Promise<RlsSetup> {
   // テスト専用の値。秘密情報らしい文字列をソースに置かないよう実行時に組み立てる
   const password = ['flow', 'app', 'int', 'only'].join('_');
@@ -152,7 +191,7 @@ export async function applyRlsPhase2a(db: TestDatabase): Promise<RlsSetup> {
     // 既にある（別の実行が先に作った）
     if (!/already exists/.test(String((e as Error).message))) throw e;
   }
-  await db.prisma.$executeRawUnsafe(`ALTER ROLE flow_app LOGIN NOBYPASSRLS NOSUPERUSER PASSWORD '${password}'`);
+  await ensureFlowAppRole(db, password);
   await db.prisma.$executeRawUnsafe(`
     DO $$ DECLARE t record; BEGIN
       FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public'
