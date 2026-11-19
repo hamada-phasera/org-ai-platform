@@ -197,16 +197,19 @@ function Builder({ flow, info }: { flow: FlowDetail; info: FlowPageInfo }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-3 border-b border-border px-5 py-2">
-        <label htmlFor="flow-page-title" className="text-xs font-bold text-text-muted">
+        <label htmlFor="flow-page-title" className="shrink-0 text-xs font-bold text-text-muted">
           題名
         </label>
-        <input
-          id="flow-page-title"
-          value={title}
-          maxLength={24}
-          onChange={(e) => setTitle(e.target.value)}
-          className={`${FIELD_CLASS} w-56`}
-        />
+        {/* FIELD_CLASS は w-full を持つ（同じ要素に w-56 を足しても CSS の順で w-full が勝つ）ので幅は外側で決める */}
+        <div className="w-56 shrink-0">
+          <input
+            id="flow-page-title"
+            value={title}
+            maxLength={24}
+            onChange={(e) => setTitle(e.target.value)}
+            className={FIELD_CLASS}
+          />
+        </div>
         {base.page && (
           <Link to={`/p/${encodeURIComponent(base.page.slug)}`} className="text-sm font-semibold text-accent underline">
             開く
@@ -316,7 +319,8 @@ function SortableBlock({
     <li
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
-      className={`border px-3 py-3 ${selected ? 'rounded-sm border-accent bg-accent-soft' : 'border-transparent'}`}
+      /* 枠は border でなく ring（親の divide-border は 4 辺の border-color を塗るので、border を持つと 2 つ目以降が箱になる） */
+      className={`px-3 py-3 ${selected ? 'rounded-sm bg-accent-soft ring-1 ring-inset ring-accent' : ''}`}
       data-output-block={id}
     >
       <div className="mb-2 flex items-center gap-1.5 text-xs text-text-muted">
