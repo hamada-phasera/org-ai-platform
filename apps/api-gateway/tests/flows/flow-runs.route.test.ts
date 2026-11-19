@@ -460,6 +460,89 @@ describe('外へ送るノードの強制停止（K12・T5）', () => {
   });
 });
 
+describe('フローの役割と承認・Task（レビュー指摘 1・2）', () => {
+  const GATE_DEF = {
+    nodes: [
+      { id: 'go', type: 'trigger', label: '手動', config: { mode: 'manual' } },
+      { id: 'tell', type: 'output', label: '通知', config: { kind: 'notify', channel: 'slack', to: '#keiei', body: '経営数字' } },
+    ],
+    edges: [{ from: 'go', to: 'tell' }],
+  };
+  /** flowId のフローの「送信前」で止まった実行と、その Task を作る */
+  async function gated(flowId: string, id = 'gate-o'): Promise<string> {
+    const taskId = `t-${id}`;
+    fake.rows('task').push({ id: taskId, orgId: 'org-A', status: 'RUNNING', taskType: 'flow', title: '経営', department: 'GENERAL', input: '{}', createdAt: now });
+    fake.rows('flowRun').push({
+      id, orgId: 'org-A', flowId, flowSlug: 'owner-only', flowVersion: 1, definition: GATE_DEF, trigger: 'manual', requestId: id,
+      status: 'RUNNING', input: {}, steps: {}, taskId, aiCalls: 0, partCalls: 0, createdAt: now,
+    });
+    await advanceRun('org-A', id);
+    expect(taskRow(taskId).status).toBe('PENDING_APPROVAL');
+    return taskId;
+  }
+  const approveAs = (taskId: string, headers: Record<string, string>) =>
+    app.inject({ method: 'POST', url: `/api/tasks/${taskId}/approve`, headers, payload: {} });
+  const rejectAs = (taskId: string, headers: Record<string, string>) =>
+    app.inject({ method: 'POST', url: `/api/tasks/${taskId}/reject`, headers, payload: {} });
+
+  it('オーナー限定のフローの送信前の承認・却下は、MEMBER・ADMIN に 404（存在を漏らさない）。OWNER は通る', async () => {
+    const taskId = await gated('flow-owner');
+    expect((await approveAs(taskId, MEMBER())).statusCode).toBe(404);
+    expect((await approveAs(taskId, ADMIN())).statusCode).toBe(404);
+    expect((await rejectAs(taskId, MEMBER())).statusCode).toBe(404);
+    expect(runRow('gate-o').status).toBe('WAITING_APPROVAL');
+    expect((await approveAs(taskId, OWNER())).statusCode).toBe(200);
+  });
+
+  it('承認に要る役割は max(フローの minRole, ノードの minRole)。ADMIN 限定のフローの確認ノード（MEMBER）も MEMBER は通せない', async () => {
+    (fake.rows('flow').find((f) => f.id === 'flow-p') as any).minRole = 'ADMIN';
+    const { runId } = (await run('flow-p', ADMIN())).json().data;
+    const task = taskRow(runRow(runId).taskId);
+    expect(JSON.parse(task.approvalData).minRole).toBe('MEMBER');
+    expect((await approveAs(task.id, MEMBER())).statusCode).toBe(404);
+    expect((await approveAs(task.id, ADMIN())).statusCode).toBe(200);
+  });
+
+  it('フローが消えた実行の承認は ADMIN 以上だけ', async () => {
+    const taskId = await gated('flow-gone', 'gate-gone');
+    expect((await approveAs(taskId, MEMBER())).statusCode).toBe(404);
+    expect((await approveAs(taskId, ADMIN())).statusCode).toBe(200);
+  });
+
+  it('オーナー限定のフローの Task は、MEMBER の一覧・単体・ログに出ない（受信・成果物も同じ API）', async () => {
+    const taskId = await gated('flow-owner');
+    const list = await app.inject({ method: 'GET', url: '/api/tasks?status=PENDING_APPROVAL&taskType=flow', headers: MEMBER() });
+    expect(list.json().data.map((t: any) => t.id)).not.toContain(taskId);
+    const all = await app.inject({ method: 'GET', url: '/api/tasks', headers: ADMIN() });
+    expect(all.json().data.map((t: any) => t.id)).not.toContain(taskId);
+    expect(JSON.stringify(all.json())).not.toContain('#keiei');
+    expect((await app.inject({ method: 'GET', url: `/api/tasks/${taskId}`, headers: MEMBER() })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: `/api/tasks/${taskId}/logs`, headers: MEMBER(), payload: { message: 'x' } })).statusCode).toBe(404);
+    const mine = await app.inject({ method: 'GET', url: '/api/tasks', headers: OWNER() });
+    expect(mine.json().data.map((t: any) => t.id)).toContain(taskId);
+    expect((await app.inject({ method: 'GET', url: `/api/tasks/${taskId}`, headers: OWNER() })).statusCode).toBe(200);
+  });
+
+  it('フローの Task は汎用の PATCH・DELETE・承認データの無い approve を 409 FLOW_MANAGED で断る（見えない人には 404）', async () => {
+    const taskId = await gated('flow-owner');
+    const patch = await app.inject({ method: 'PATCH', url: `/api/tasks/${taskId}`, headers: OWNER(), payload: { status: 'QUEUED', output: 'x' } });
+    expect(patch.statusCode).toBe(409);
+    expect(patch.json().error.code).toBe('FLOW_MANAGED');
+    expect((await app.inject({ method: 'PATCH', url: `/api/tasks/${taskId}`, headers: MEMBER(), payload: { status: 'QUEUED' } })).statusCode).toBe(404);
+    const del = await app.inject({ method: 'DELETE', url: `/api/tasks/${taskId}`, headers: OWNER() });
+    expect(del.statusCode).toBe(409);
+    expect(del.json().error.code).toBe('FLOW_MANAGED');
+    expect(taskRow(taskId)).toMatchObject({ status: 'PENDING_APPROVAL' });
+
+    const loose = 't-loose';
+    fake.rows('task').push({ id: loose, orgId: 'org-A', status: 'RUNNING', taskType: 'flow', title: 'x', department: 'GENERAL', input: '{}', createdAt: now });
+    const ap = await approveAs(loose, OWNER());
+    expect(ap.statusCode).toBe(409);
+    expect(ap.json().error.code).toBe('FLOW_MANAGED');
+    expect(taskRow(loose).status).toBe('RUNNING');
+  });
+});
+
 describe('データノードの守り（T14）', () => {
   it('原価は必ず DRAFT。他組織の工事は指せない', async () => {
     const def = {

@@ -40,6 +40,7 @@ import { describeIssues } from '../pages/upsert';
 import { FlowServiceError, type FlowRow } from './store';
 import { flowRunsThisMonth, partCallsThisMonth } from './limits';
 import { advanceRun, notifyRunSettled } from './runner';
+import { maxRole, requiredRoleOfRun } from './task-access';
 
 const log = createLogger('flows');
 
@@ -258,8 +259,27 @@ function isExpired(lockedAt: Date | null, now: Date): boolean {
 }
 
 /**
+ * 承認・却下に要る役割（レビュー指摘 1）。フローが見えない人には存在を漏らさず 404、
+ * 見えてもノードの minRole に満たなければ 403。要る役割は max(フローの minRole, ノードの minRole)。
+ * フローが消えていれば ADMIN 以上（task-access.ts）。
+ */
+async function approvalDenied(
+  db: TenantDb,
+  run: { flowId: string },
+  approval: FlowStepApprovalData,
+  role: UserRole | null,
+): Promise<ApprovalOutcome | null> {
+  const flowRole = await requiredRoleOfRun(db, run);
+  if (!role || !hasRoleAtLeast(role, flowRole)) return { ok: false, status: 404, code: 'NOT_FOUND', message: 'タスクが見つかりません' };
+  if (!hasRoleAtLeast(role, maxRole(flowRole, approval.minRole ?? 'MEMBER'))) {
+    return { ok: false, status: 403, code: 'FORBIDDEN', message: 'この確認を通す権限がありません' };
+  }
+  return null;
+}
+
+/**
  * 承認 → 続きを 1 回だけ走らせる。`POST /api/tasks/:taskId/approve` の flow_step 分岐から呼ぶ。
- * 承認できるのは `approval.minRole` 以上（既定 MEMBER）。実行した本人でも承認できる（既存のエージェントと同じ）。
+ * 承認できるのは max(フローの minRole, `approval.minRole`) 以上。実行した本人でも承認できる（既存のエージェントと同じ）。
  */
 export async function approveFlowStep(
   db: TenantDb,
@@ -267,11 +287,10 @@ export async function approveFlowStep(
   approval: FlowStepApprovalData,
   actor: { userId: string; role: UserRole | null },
 ): Promise<ApprovalOutcome> {
-  if (!actor.role || !hasRoleAtLeast(actor.role, approval.minRole ?? 'MEMBER')) {
-    return { ok: false, status: 403, code: 'FORBIDDEN', message: 'この確認を通す権限がありません' };
-  }
-  const run = await db.flowRun.findUnique({ where: { id: approval.runId }, select: { id: true, status: true, steps: true, lockedAt: true, taskId: true } });
+  const run = await db.flowRun.findUnique({ where: { id: approval.runId }, select: { id: true, flowId: true, status: true, steps: true, lockedAt: true, taskId: true } });
   if (!run || run.taskId !== task.id) return { ok: false, status: 404, code: 'NOT_FOUND', message: 'タスクが見つかりません' };
+  const denied = await approvalDenied(db, run, approval, actor.role);
+  if (denied) return denied;
   const now = new Date();
   if (run.status === 'WAITING_APPROVAL' && isExpired(run.lockedAt, now)) {
     await expireRun(db, run.id, run.taskId);
@@ -311,9 +330,17 @@ export async function approveFlowStep(
 }
 
 /** 却下 → 取り消し（CANCELED）。残りは実行しない */
-export async function rejectFlowStep(db: TenantDb, task: { id: string }, approval: FlowStepApprovalData, reason?: string): Promise<ApprovalOutcome> {
-  const run = await db.flowRun.findUnique({ where: { id: approval.runId }, select: { id: true, taskId: true } });
+export async function rejectFlowStep(
+  db: TenantDb,
+  task: { id: string },
+  approval: FlowStepApprovalData,
+  actor: { role: UserRole | null },
+  reason?: string,
+): Promise<ApprovalOutcome> {
+  const run = await db.flowRun.findUnique({ where: { id: approval.runId }, select: { id: true, flowId: true, taskId: true } });
   if (!run || run.taskId !== task.id) return { ok: false, status: 404, code: 'NOT_FOUND', message: 'タスクが見つかりません' };
+  const denied = await approvalDenied(db, run, approval, actor.role);
+  if (denied) return denied;
   const claimed = await db.flowRun.updateMany({
     where: { id: run.id, status: 'WAITING_APPROVAL' },
     data: { status: 'CANCELED', finishedAt: new Date(), lockedAt: null, error: { nodeId: approval.nodeId, code: 'REJECTED', message: '承認されませんでした' } },

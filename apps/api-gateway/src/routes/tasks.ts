@@ -8,6 +8,8 @@ import { dispatchQueuedTask } from '../services/task-executor';
 import { resumeAgentTask, parseRunState } from '../services/step-runner';
 import { tracked } from '../services/lifecycle-core';
 import { approveFlowStep, parseFlowApproval, rejectFlowStep } from '../services/flows/queue';
+import { FLOW_TASK_MANAGED_MESSAGE, FLOW_TASK_TYPE, canSeeTask, hiddenFlowTaskIds } from '../services/flows/task-access';
+import { isUserRole } from '@org-ai/shared-types';
 import { sendError } from '../utils/http-error';
 
 const createTaskSchema = z.object({
@@ -57,7 +59,9 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       include: { logs: { orderBy: { createdAt: 'asc' }, take: 20 } },
       orderBy: { createdAt: 'desc' },
     });
-    return reply.send({ success: true, data: tasks });
+    // 業務フローの Task はフローの minRole を満たす人にだけ（レビュー指摘 2）
+    const hidden = await hiddenFlowTaskIds(db, payload.role, tasks);
+    return reply.send({ success: true, data: hidden.size > 0 ? tasks.filter((t) => !hidden.has(t.id)) : tasks });
   });
 
   // タスク単体取得
@@ -69,7 +73,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       where: { id: taskId },
       include: { logs: { orderBy: { createdAt: 'asc' }, take: 50 } },
     });
-    if (!task || task.orgId !== payload.orgId) {
+    if (!task || task.orgId !== payload.orgId || !(await canSeeTask(db, payload.role, task))) {
       return sendError(reply, 404, 'NOT_FOUND', 'タスクが見つかりません');
     }
     return reply.send({ success: true, data: task });
@@ -113,8 +117,12 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     const { db } = payload;
 
     const task = await db.task.findUnique({ where: { id: taskId } });
-    if (!task || task.orgId !== payload.orgId) {
+    if (!task || task.orgId !== payload.orgId || !(await canSeeTask(db, payload.role, task))) {
       return sendError(reply, 404, 'NOT_FOUND', 'タスクが見つかりません');
+    }
+    // 業務フローの Task の状態・出力はランナーだけが書く（QUEUED にすると汎用タスクとして走ってしまう）
+    if (task.taskType === FLOW_TASK_TYPE) {
+      return sendError(reply, 409, 'FLOW_MANAGED', FLOW_TASK_MANAGED_MESSAGE);
     }
 
     const result = updateTaskSchema.safeParse(request.body);
@@ -147,7 +155,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     const { db } = payload;
 
     const task = await db.task.findUnique({ where: { id: taskId } });
-    if (!task || task.orgId !== payload.orgId) {
+    if (!task || task.orgId !== payload.orgId || !(await canSeeTask(db, payload.role, task))) {
       return sendError(reply, 404, 'NOT_FOUND', 'タスクが見つかりません');
     }
 
@@ -161,6 +169,10 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       if (!res.ok) return sendError(reply, res.status, res.code, res.message);
       const current = await db.task.findUnique({ where: { id: taskId } });
       return reply.send({ success: true, data: current });
+    }
+    // 承認データの無い業務フローの Task を汎用の承認（QUEUED → dispatchQueuedTask）に流さない
+    if (task.taskType === FLOW_TASK_TYPE) {
+      return sendError(reply, 409, 'FLOW_MANAGED', FLOW_TASK_MANAGED_MESSAGE);
     }
 
     // エージェントのステップ承認（approvalData.kind === 'agent_step'）は step-runner を再開する。
@@ -225,7 +237,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     const { db } = payload;
 
     const task = await db.task.findUnique({ where: { id: taskId } });
-    if (!task || task.orgId !== payload.orgId) {
+    if (!task || task.orgId !== payload.orgId || !(await canSeeTask(db, payload.role, task))) {
       return sendError(reply, 404, 'NOT_FOUND', 'タスクが見つかりません');
     }
     const body = rejectTaskSchema.safeParse(request.body ?? {});
@@ -233,10 +245,13 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
 
     const flowApproval = parseFlowApproval(task.approvalData);
     if (flowApproval) {
-      const res = await rejectFlowStep(db, task, flowApproval, reason);
+      const res = await rejectFlowStep(db, task, flowApproval, { role: payload.role }, reason);
       if (!res.ok) return sendError(reply, res.status, res.code, res.message);
       const updated = await db.task.findUnique({ where: { id: taskId } });
       return reply.send({ success: true, data: updated });
+    }
+    if (task.taskType === FLOW_TASK_TYPE) {
+      return sendError(reply, 409, 'FLOW_MANAGED', FLOW_TASK_MANAGED_MESSAGE);
     }
 
     // 承認待ちだったステップを REJECTED として executionResult に反映（履歴が読めるように）
@@ -272,8 +287,12 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     const { db } = payload;
 
     const task = await db.task.findUnique({ where: { id: taskId } });
-    if (!task || task.orgId !== payload.orgId) {
+    if (!task || task.orgId !== payload.orgId || !(await canSeeTask(db, payload.role, task))) {
       return sendError(reply, 404, 'NOT_FOUND', 'タスクが見つかりません');
+    }
+    // 承認待ちの Task を消すと実行が 7 日宙に浮く。実行の取り消しはフロー画面から
+    if (task.taskType === FLOW_TASK_TYPE) {
+      return sendError(reply, 409, 'FLOW_MANAGED', FLOW_TASK_MANAGED_MESSAGE);
     }
 
     await db.taskLog.deleteMany({ where: { taskId } });
@@ -288,7 +307,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     const { db } = payload;
 
     const task = await db.task.findUnique({ where: { id: taskId } });
-    if (!task || task.orgId !== payload.orgId) {
+    if (!task || task.orgId !== payload.orgId || !(await canSeeTask(db, payload.role, task))) {
       return sendError(reply, 404, 'NOT_FOUND', 'タスクが見つかりません');
     }
 
@@ -326,9 +345,11 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     }
     /* requireAuth と同じく、トークンの組織に今も所属しているかを確かめる（外された人に流し続けない）。
        ポーリングのたびにも確かめる（30 秒キャッシュなので負荷は増えない）。 */
+    let memberRole: string | null = null;
     const stillMember = async (): Promise<boolean> => {
       if (!payload.orgId || !payload.sub) return false;
       const snap = await getMembership(payload.sub, payload.orgId);
+      memberRole = snap.membership?.role ?? null;
       return snap.userStatus === 'ACTIVE' && snap.membership?.status === 'ACTIVE';
     };
     if (!(await stillMember())) {
@@ -346,7 +367,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     const interval = setInterval(async () => {
       try {
         const task = await db.task.findUnique({ where: { id: taskId } });
-        if (!task || !(await stillMember())) {
+        if (!task || !(await stillMember()) || !(await canSeeTask(db, isUserRole(memberRole) ? memberRole : null, task))) {
           clearInterval(interval);
           socket.close();
           return;
