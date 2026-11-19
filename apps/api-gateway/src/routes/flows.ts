@@ -36,6 +36,15 @@ import { isPlatformAdmin } from '../services/platform-admin';
 import { partEditorUrl } from '../services/n8n/part-editor';
 import { FlowRunInputError, acceptRun, cancelRun, flowQueueTuning, pumpOrg } from '../services/flows/queue';
 import { waitForRunSettled } from '../services/flows/runner';
+import { FlowPageInvalidError, loadFlowPage, saveFlowPage } from '../services/flows/result-page';
+import {
+  FLOW_PAGE_RUNS_MAX,
+  PAGE_DEFINITION_LIMITS,
+  defaultFlowPageDefinition,
+  flowHistoryCutoff,
+  flowPageSources,
+  flowQueryRaw,
+} from '@org-ai/shared-types';
 
 /**
  * 業務フロー（docs/design/canvas-home.md §7.1）。prefix: `/api/flows`。取得・保存（チャンク 4）と実行（チャンク 5）。
@@ -111,6 +120,22 @@ const patchSchema = z
   .refine((v) => Object.keys(v).some((k) => k !== 'baseVersion'), '変更する項目がありません')
   .refine((v) => v.node === undefined || v.baseVersion !== undefined, '版（baseVersion）が要ります');
 
+
+/** 出力ビルダーの保存（§3.5）。定義は業務ページと同じ 32KB まで（スキーマが見る）。本文はその倍 */
+const pageSaveSchema = z
+  .object({
+    definition: z.unknown(),
+    title: z
+      .string()
+      .trim()
+      .min(1)
+      .max(PAGE_DEFINITION_LIMITS.titleMax)
+      .refine((v) => !hasControlChars(v), '制御文字は使えません')
+      .optional(),
+    baseVersion: z.number().int().min(1).optional(),
+  })
+  .strict();
+const PAGE_BODY_LIMIT = 64 * 1024;
 
 const RUN_NOT_FOUND = '実行が見つかりません';
 /** web が実行ごとに作る UUID（定期は sched:<flowId>:<時刻>） */
@@ -362,6 +387,74 @@ export async function flowRoutes(app: FastifyInstance): Promise<void> {
     const deleted = await deleteFlow(db, { flow, actorId: sub });
     if (!deleted) return sendError(reply, 404, 'NOT_FOUND', NOT_FOUND_MESSAGE);
     return reply.send({ success: true, data: { deleted: true } });
+  });
+
+  // ── 出力（結果ページ。チャンク 9。§3.5・§6.3） ─────────────────────
+
+  /**
+   * 出力ビルダーが開くもの: 今の結果ページ（無ければ null と最初の案）、選べるデータ、プレビュー用の値
+   * （直近の成功した実行と履歴。/p/:slug の flow_query と同じ値）。編集できる人だけ（ADMIN 以上・minRole）。
+   */
+  app.get('/:id/page', { preHandler: requireAdmin }, async (request, reply) => {
+    const { db, role } = authOf(request);
+    const id = idOf(request.params);
+    if (!id) return sendError(reply, 404, 'NOT_FOUND', NOT_FOUND_MESSAGE);
+    const flow = await loadFlow(db, id);
+    if (!flow || !canManageFlow(flow, role)) return sendError(reply, 404, 'NOT_FOUND', NOT_FOUND_MESSAGE);
+    const parsed = flowDefinitionSchema.safeParse(flow.definition);
+    if (!parsed.success) {
+      return sendError(reply, 409, 'FLOW_INVALID_DEFINITION', 'フローの定義が古い形です。手順を直して保存してから出力を作ってください');
+    }
+    const def = parsed.data as FlowDefinition;
+    const page = await loadFlowPage(db, flow.id);
+    const since = flowHistoryCutoff(await planOf(db), new Date());
+    const [latest, runs] = await Promise.all([
+      db.flowRun.findFirst({
+        where: { flowId: flow.id, status: 'SUCCEEDED', createdAt: { gte: since } },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: { output: true },
+      }),
+      db.flowRun.findMany({
+        where: { flowId: flow.id, createdAt: { gte: since } },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: FLOW_PAGE_RUNS_MAX,
+        select: { createdAt: true, status: true, output: true },
+      }),
+    ]);
+    return reply.send({
+      success: true,
+      data: {
+        page: page
+          ? { slug: page.slug, title: page.title, status: page.status, minRole: page.minRole, version: page.version, definition: page.definition }
+          : null,
+        draft: page ? null : defaultFlowPageDefinition(def, flow.name, FLOW_PARTS),
+        sources: flowPageSources(def, FLOW_PARTS),
+        preview: { raw: flowQueryRaw(def, (latest?.output ?? null) as Record<string, unknown> | null, runs), hasRun: !!latest },
+      },
+    });
+  });
+
+  /** 出力ビルダーの保存。ページが無ければ作る（201）。版が違えば 409 FLOW_PAGE_CONFLICT。検査で落ちれば 400 FLOW_PAGE_INVALID */
+  app.put('/:id/page', { preHandler: requireAdmin, bodyLimit: PAGE_BODY_LIMIT, config: save }, async (request, reply) => {
+    const { db, role, sub } = authOf(request);
+    const id = idOf(request.params);
+    if (!id) return sendError(reply, 404, 'NOT_FOUND', NOT_FOUND_MESSAGE);
+    const flow = await loadFlow(db, id);
+    if (!flow || !canManageFlow(flow, role)) return sendError(reply, 404, 'NOT_FOUND', NOT_FOUND_MESSAGE);
+    const parsed = pageSaveSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return sendError(reply, 400, 'VALIDATION_ERROR', describeIssues(parsed.error.issues));
+    try {
+      const res = await saveFlowPage(db, { flow, ...parsed.data, definition: parsed.data.definition, actorId: sub });
+      return reply.code(res.created ? 201 : 200).send({ success: true, data: res });
+    } catch (e) {
+      if (e instanceof FlowPageInvalidError) {
+        return reply.code(400).send({
+          success: false,
+          error: { code: 'FLOW_PAGE_INVALID', message: e.message, issues: e.issues.slice(0, 20) },
+        });
+      }
+      return sendServiceError(reply, e);
+    }
   });
 
   // ── 実行（チャンク 5。§7.2） ─────────────────────────────

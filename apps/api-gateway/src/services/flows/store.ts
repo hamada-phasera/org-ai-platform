@@ -15,8 +15,8 @@
 // ■ 定期
 //   きっかけが「定期」のフローは、作成・保存と同じトランザクションで ScheduledTask を 1 行 upsert（やめたら消す。schedule.ts）。
 //   有効/無効と名前も写す。発火は schedule-dispatcher が flowId を見てランナーへ渡す。
-// ■ まだやらないこと
-//   結果ページの同期はチャンク 9。
+// ■ 結果ページ
+//   定義・役割が変わったら、同じトランザクションで結果ページ（CustomPage source='FLOW'）を写し直す（page-sync.ts）。
 //
 // ⚠️ ルートは定義・配置を shared-types のスキーマに通してから渡すこと。ここで n8n の public API は呼ばない（D9・T22）。
 
@@ -46,6 +46,7 @@ import { recordAudit } from '../audit';
 import { canonicalHashOf } from '../pages/upsert';
 import { canCreateFlow } from './limits';
 import { syncFlowSchedule } from './schedule';
+import { syncFlowPage } from './page-sync';
 
 /** ルートが sendError にそのまま渡せる失敗 */
 export class FlowServiceError extends Error {
@@ -417,6 +418,10 @@ export async function writeFlow(db: TenantDb, args: WriteFlowArgs): Promise<Writ
         { id: flow.id, name: fieldChanges.name ?? flow.name, enabled: fieldChanges.enabled ?? flow.enabled },
         def && Array.isArray((def as { nodes?: unknown }).nodes) ? def : { nodes: [] },
       );
+    }
+    // 結果ページ: フォームの項目をきっかけに合わせ、役割をフローより下にしない（§3.5）
+    if ((definitionChanged && args.definition) || fieldChanges.minRole !== undefined) {
+      await syncFlowPage(tx, flow.id, { definition: definitionChanged ? args.definition : undefined, minRole: fieldChanges.minRole });
     }
   });
 

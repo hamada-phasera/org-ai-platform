@@ -1,3 +1,4 @@
+import { flowUsageOf } from '../services/flows/limits';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { authOf } from '../tenancy';
@@ -132,9 +133,11 @@ export async function organizationRoutes(app: FastifyInstance): Promise<void> {
     const addonUnits = org?.storageAddonUnits ?? 0;
     const planLimit = PLAN_LIMITS[plan]?.aiCallsPerMonth ?? PLAN_LIMITS.STARTER.aiCallsPerMonth;
 
-    const aiCallsThisMonth = await db.aILog.count({
-      where: { orgId: payload.orgId, createdAt: { gte: startOfMonthUTC() } },
-    });
+    const [aiCallsThisMonth, flowUsage] = await Promise.all([
+      db.aILog.count({ where: { orgId: payload.orgId, createdAt: { gte: startOfMonthUTC() } } }),
+      // 業務フロー（canvas-home.md §7.6）: フロー数・月間実行数・部品の呼び出し。設定 > プラン に 3 行
+      flowUsageOf(db, plan),
+    ]);
 
     return reply.send({
       success: true,
@@ -149,6 +152,9 @@ export async function organizationRoutes(app: FastifyInstance): Promise<void> {
         storageQuotaBytes: storageQuotaBytes(plan, addonUnits),
         storageAddonUnits: addonUnits,
         maxFileBytes: (PLAN_LIMITS[plan] ?? PLAN_LIMITS.STARTER).maxFileBytes,
+        flows: flowUsage.flows,
+        flowRuns: flowUsage.runs,
+        partCalls: flowUsage.partCalls,
       },
     });
   });

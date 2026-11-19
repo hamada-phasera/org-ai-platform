@@ -24,6 +24,8 @@ import { issuePageToken, listPageTokens, revokePageToken } from '../services/pag
 import { PAGE_SUBMIT_BODY_LIMIT, runPageQuery, runPageSubmit, type ActionOutcome } from '../services/pages/action-runner';
 import { isSamplePage } from '../services/pages/sample';
 import { PAGE_ACTION_RATE_LIMIT } from '../middleware/rate-limit';
+import { flowRunsThisMonth } from '../services/flows/limits';
+import { flowRunState } from '@org-ai/shared-types';
 
 /**
  * 業務ページ（利用者向け・JWT）。prefix: `/api/pages`。docs/design/custom-pages.md §5.1
@@ -77,7 +79,9 @@ function sendOutcome<T>(reply: FastifyReply, outcome: ActionOutcome<T>): Fastify
   return reply.send({ success: true, data: outcome.data });
 }
 
-function connectionOf(page: { sampleData?: unknown }): 'ok' | 'not_configured' | 'sample' {
+function connectionOf(page: { sampleData?: unknown; source?: string }): 'ok' | 'not_configured' | 'sample' {
+  // 業務フローの結果ページは n8n を呼ばない（canvas-home.md §6.3）
+  if (page.source === 'FLOW') return 'ok';
   if (isSamplePage(page)) return 'sample';
   return config.n8nConfigured ? 'ok' : 'not_configured';
 }
@@ -93,6 +97,9 @@ function minRoleAllowed(minRole: UserRole | undefined, role: UserRole | null): b
 }
 
 const LIST_SELECT = { slug: true, title: true, icon: true, status: true, minRole: true, sortOrder: true, createdAt: true } as const;
+
+/** 業務フローの結果ページ（定義は出力ビルダーだけが書く。手動の upsert・削除は 409） */
+const FLOW_PAGE_MANAGED = 'このページは業務フローの出力です。フロー画面の「出力」で変えてください（削除はフローごと）';
 
 /** sortOrder → createdAt の順（Prisma の orderBy に加えて、ここでも並べて結果を固定する） */
 function byOrder<T extends { sortOrder: number; createdAt: Date }>(rows: T[]): T[] {
@@ -120,7 +127,7 @@ export async function pageRoutes(app: FastifyInstance): Promise<void> {
   app.get('/admin/list', { preHandler: requireAdmin }, async (request, reply) => {
     const { db, role } = authOf(request);
     const rows = await db.customPage.findMany({
-      select: { ...LIST_SELECT, version: true, source: true, updatedAt: true },
+      select: { ...LIST_SELECT, version: true, source: true, flowId: true, updatedAt: true },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
     const plan = await planOf(db);
@@ -138,10 +145,11 @@ export async function pageRoutes(app: FastifyInstance): Promise<void> {
           sortOrder: p.sortOrder,
           version: p.version,
           source: p.source,
+          flowId: p.flowId,
           updatedAt: p.updatedAt,
         })),
-        // ページ数は組織全体（見えないページも上限には数える）
-        pageCount: rows.length,
+        // ページ数は組織全体（見えないページも上限には数える）。業務フローの結果ページは数えない（canvas-home.md K15）
+        pageCount: rows.filter((p) => p.source !== 'FLOW').length,
         plan,
         usage,
         // 構築者が Webhook のパス（pages/<orgId>/<hook>）に書く組織 ID
@@ -198,6 +206,7 @@ export async function pageRoutes(app: FastifyInstance): Promise<void> {
       where: { orgId_slug: { orgId: db.orgId, slug } },
       select: {
         slug: true, title: true, icon: true, status: true, minRole: true, version: true, definition: true, sampleData: true, updatedAt: true,
+        source: true,
       },
     });
     if (!page || !canViewPage(page, role)) return sendError(reply, 404, 'NOT_FOUND', NOT_FOUND_MESSAGE);
@@ -208,7 +217,9 @@ export async function pageRoutes(app: FastifyInstance): Promise<void> {
       log.warn(`保存済みの定義がスキーマに合いません slug=${slug} version=${page.version}`);
       return sendError(reply, 500, 'PAGE_INVALID_DEFINITION', 'ページの定義が壊れています。管理者に再登録を依頼してください。');
     }
-    const usage = await pageUsageOf(db, await planOf(db));
+    const plan = await planOf(db);
+    // 結果ページの送信はフローの実行として数える（月間実行数を見せる）
+    const usage = page.source === 'FLOW' ? flowRunState(plan, await flowRunsThisMonth(db)) : await pageUsageOf(db, plan);
     return reply.send({
       success: true,
       data: {
@@ -323,9 +334,10 @@ export async function pageRoutes(app: FastifyInstance): Promise<void> {
     }
     const existing = await db.customPage.findUnique({
       where: { orgId_slug: { orgId: db.orgId, slug } },
-      select: { status: true, minRole: true },
+      select: { status: true, minRole: true, source: true },
     });
     if (existing && !canManagePage(existing, role)) return sendError(reply, 404, 'NOT_FOUND', NOT_FOUND_MESSAGE);
+    if (existing?.source === 'FLOW') return sendError(reply, 409, 'PAGE_SOURCE_CONFLICT', FLOW_PAGE_MANAGED);
 
     try {
       const result = await upsertPage(db, { slug, input: parsed.data, source: 'MANUAL', plan: await planOf(db), actorId: sub });
@@ -344,9 +356,10 @@ export async function pageRoutes(app: FastifyInstance): Promise<void> {
     if (!slug) return sendError(reply, 404, 'NOT_FOUND', NOT_FOUND_MESSAGE);
     const page = await db.customPage.findUnique({
       where: { orgId_slug: { orgId: db.orgId, slug } },
-      select: { status: true, minRole: true },
+      select: { status: true, minRole: true, source: true },
     });
     if (!page || !canManagePage(page, role)) return sendError(reply, 404, 'NOT_FOUND', NOT_FOUND_MESSAGE);
+    if (page.source === 'FLOW') return sendError(reply, 409, 'PAGE_SOURCE_CONFLICT', FLOW_PAGE_MANAGED);
     try {
       const res = await deletePage(db, { slug, source: 'MANUAL', actorId: sub });
       if (!res.deleted) return sendError(reply, 404, 'NOT_FOUND', NOT_FOUND_MESSAGE);

@@ -13,6 +13,9 @@
 //  11 記録 … submit の PageActionLog を確定。ログに入力値・応答本文は出さない（T15）
 //
 // フォールバックはしない（K8）。n8n が無ければ「未接続」を正直に返す。
+//
+// 業務フローの結果ページ（source='FLOW'）の flow_query / flow_submit は 3・4 の後で services/flows/result-page.ts に渡す
+// （n8n は呼ばない。flow_submit はフローの実行として 1 回だけ数え、PageActionLog には書かない。canvas-home.md §6.3）。
 
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
@@ -37,6 +40,8 @@ import { canViewPage, pageUsageOf, planOf } from './access';
 import { describeIssues } from './upsert';
 import { takeOrgActionSlot, type PageActionKind } from './org-throttle';
 import { SAMPLE_SUBMIT_MESSAGE, isSamplePage, sampleQueryResponse } from './sample';
+/* 結果ページの経路（flows/result-page.ts）は使うときに読む（キューと素の prisma を、業務ページだけの経路で読み込まない） */
+const flowPages = () => import('../flows/result-page');
 
 const log = createLogger('pages');
 
@@ -118,17 +123,17 @@ export interface PageActionContext {
 }
 
 interface ResolvedAction {
-  page: { id: string; slug: string; version: number; sampleData: unknown };
+  page: { id: string; slug: string; version: number; sampleData: unknown; flowId: string | null };
   definition: PageDefinition;
-  /** n8n の hook を持つアクションだけ（flow_query / flow_submit は業務フローの結果ページの経路。canvas-home.md §6.3） */
-  action: Extract<PageAction, { kind: 'query' | 'submit' }>;
+  /** n8n の hook を持つアクション（query / submit）か、業務フローの結果ページのアクション（flow_query / flow_submit） */
+  action: PageAction;
 }
 
 async function resolveAction(ctx: PageActionContext, kind: PageActionKind): Promise<ActionOutcome<ResolvedAction>> {
   if (!PAGE_SLUG_PATTERN.test(ctx.slug) || !PAGE_ACTION_ID_PATTERN.test(ctx.actionId)) return NOT_FOUND();
   const page = await ctx.db.customPage.findUnique({
     where: { orgId_slug: { orgId: ctx.db.orgId, slug: ctx.slug } },
-    select: { id: true, slug: true, status: true, minRole: true, version: true, definition: true, sampleData: true },
+    select: { id: true, slug: true, status: true, minRole: true, version: true, definition: true, sampleData: true, source: true, flowId: true },
   });
   if (!page || !canViewPage(page, ctx.role)) return NOT_FOUND();
   const def = pageDefinitionSchema.safeParse(page.definition);
@@ -138,11 +143,18 @@ async function resolveAction(ctx: PageActionContext, kind: PageActionKind): Prom
   }
   const actions = def.data.actions;
   const action = Object.prototype.hasOwnProperty.call(actions, ctx.actionId) ? actions[ctx.actionId] : undefined;
-  // flow_* はここでは扱わない（hook が無い＝n8n に送らない）
-  if (!action || (action.kind !== 'query' && action.kind !== 'submit') || action.kind !== kind) return NOT_FOUND();
+  if (!action) return NOT_FOUND();
+  // flow_* は結果ページ（source='FLOW'・flowId あり）でだけ。n8n のアクションは結果ページでは動かさない
+  const isFlowPage = page.source === 'FLOW' && !!page.flowId;
+  const wanted = isFlowPage ? (kind === 'query' ? 'flow_query' : 'flow_submit') : kind;
+  if (action.kind !== wanted) return NOT_FOUND();
   return {
     ok: true,
-    data: { page: { id: page.id, slug: page.slug, version: page.version, sampleData: page.sampleData }, definition: def.data, action },
+    data: {
+      page: { id: page.id, slug: page.slug, version: page.version, sampleData: page.sampleData, flowId: isFlowPage ? page.flowId : null },
+      definition: def.data,
+      action,
+    },
   };
 }
 
@@ -184,6 +196,15 @@ export async function runPageQuery(ctx: PageActionContext): Promise<ActionOutcom
   const { page, definition, action } = resolved.data;
 
   if (!takeOrgActionSlot(ctx.db.orgId, 'query')) return RATE_LIMITED();
+
+  if (action.kind === 'flow_query') {
+    const { runFlowPageQuery } = await flowPages();
+    const res = await runFlowPageQuery({
+      db: ctx.db, role: ctx.role, flowId: page.flowId, definition, actionId: ctx.actionId, plan: await planOf(ctx.db),
+    });
+    return res.ok ? { ok: true, data: { ...res.data, sample: false } } : fail(res.status, res.code, res.message);
+  }
+  if (action.kind !== 'query') return NOT_FOUND();
 
   if (isSamplePage(page)) {
     return { ok: true, data: { ...projectQueryResult(definition, ctx.actionId, sampleQueryResponse(page, ctx.actionId)), sample: true } };
@@ -227,6 +248,9 @@ export interface PageSubmitData {
   ok: boolean;
   message?: string;
   sample: boolean;
+  /** 結果ページ（flow_submit）のときだけ: 受け付けた実行と、その時点の状態 */
+  runId?: string;
+  status?: string;
 }
 
 function isUniqueViolation(e: unknown): boolean {
@@ -241,6 +265,27 @@ export async function runPageSubmit(ctx: PageActionContext & { body: unknown }):
 
   // 4
   if (!takeOrgActionSlot(ctx.db.orgId, 'submit')) return RATE_LIMITED();
+
+  // 結果ページ: フローの実行として受け付ける（上限はフローの月間実行数。PageActionLog には書かない）
+  if (action.kind === 'flow_submit') {
+    const body = pageSubmitBodySchema.safeParse(ctx.body ?? {});
+    if (!body.success) return fail(400, 'VALIDATION_ERROR', describeIssues(body.error.issues));
+    const { runFlowPageSubmit } = await flowPages();
+    const res = await runFlowPageSubmit({
+      db: ctx.db,
+      role: ctx.role,
+      userId: ctx.userId,
+      flowId: page.flowId,
+      definition,
+      actionId: ctx.actionId,
+      input: body.data.input,
+      requestId: body.data.requestId,
+      origin: body.data.origin,
+      plan: await planOf(ctx.db),
+    });
+    return res.ok ? { ok: true, data: res.data } : fail(res.status, res.code, res.message);
+  }
+  if (action.kind !== 'submit') return NOT_FOUND();
 
   // 5
   const plan = await planOf(ctx.db);

@@ -287,6 +287,9 @@ const IDOR_CASES: Req[] = [
   ['GET', '/api/flows/flow-B/runs'],
   ['GET', '/api/flows/runs/frun-B'],
   ['POST', '/api/flows/runs/frun-B/cancel'],
+  // 出力ビルダー（チャンク 9。結果ページの取得・保存）
+  ['GET', '/api/flows/flow-B/page'],
+  ['PUT', '/api/flows/flow-B/page', { definition: { blocks: [{ type: 'heading', text: 'x' }], actions: { result: { kind: 'flow_query' }, run: { kind: 'flow_submit' } } } }],
 ];
 
 /** I-2: 一覧。応答のどこにも B の行（id・中身）が出てこない。 */
