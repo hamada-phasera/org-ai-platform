@@ -29,6 +29,7 @@ import {
   cloneFlowTemplate,
   defaultCanvasLayout,
   emptyFlowDefinition,
+  flowMobileTextKeys,
   flowTemplateSlug,
   isFlowTemplateKey,
   type CanvasLayout,
@@ -47,6 +48,7 @@ import { canonicalHashOf } from '../pages/upsert';
 import { canCreateFlow } from './limits';
 import { syncFlowSchedule } from './schedule';
 import { syncFlowPage } from './page-sync';
+import { canViewFlow } from './access';
 
 /** ルートが sendError にそのまま渡せる失敗 */
 export class FlowServiceError extends Error {
@@ -61,6 +63,7 @@ export class FlowServiceError extends Error {
 }
 
 const LIMIT_MESSAGE = 'ご契約のプランで作れるフロー数の上限に達しています。プランを上げるか、使っていないフローを削除してください。';
+const FLOW_NOT_FOUND_MESSAGE = 'フローが見つかりません';
 const CONFLICT_MESSAGE = '別の人が先に保存しました。画面を開き直してから、もう一度変更してください。';
 
 function isUniqueViolation(e: unknown): boolean {
@@ -226,7 +229,7 @@ async function findBySlug(db: Pick<TenantTx, 'orgId' | 'flow'>, slug: string): P
  */
 export async function createFlowFromTemplate(
   db: TenantDb,
-  args: { templateKey: FlowTemplateKey; canvasNodeId?: string; plan: string; actorId: string | null },
+  args: { templateKey: FlowTemplateKey; canvasNodeId?: string; plan: string; actorId: string | null; role: UserRole | null },
   retried = false,
 ): Promise<CreateFlowResult> {
   const slug = flowTemplateSlug(args.templateKey);
@@ -237,6 +240,8 @@ export async function createFlowFromTemplate(
 
   const existing = await findBySlug(db, slug);
   if (existing) {
+    // 自分より上の役割限定のフローなら、キャンバスを書き換える前に 404（存在を漏らさない・意図しない変更をしない）
+    if (!canViewFlow(existing, args.role)) throw new FlowServiceError(404, 'NOT_FOUND', FLOW_NOT_FOUND_MESSAGE);
     let canvasUpdated = false;
     if (args.canvasNodeId) {
       canvasUpdated = await db.$transaction((tx) =>
@@ -455,10 +460,11 @@ export function applyNodeTextPatch(definition: FlowDefinition, patch: NodeTextPa
   if (!node) throw new FlowServiceError(400, 'VALIDATION_ERROR', 'ノードがありません');
   if (patch.label !== undefined) node.label = patch.label;
   const config = node.config as Record<string, unknown>;
+  // 型ごとの許可リスト（K76: AI の指示・確認の文言と見せる内容・文書の題名と本文・通知の本文だけ。宛先・式・参照は PC）
+  const allowed = flowMobileTextKeys(node);
   for (const [key, value] of Object.entries(patch.config ?? {})) {
     // 既にある文字の項目だけ（項目を足す・型を変える＝構造の変更はフロー画面で）
-    if (!Object.prototype.hasOwnProperty.call(config, key) || typeof config[key] !== 'string' || key === 'mode' || key === 'kind' ||
-        key === 'op' || key === 'part' || key === 'resource' || key === 'channel' || key === 'department' || key === 'minRole') {
+    if (!allowed.includes(key) || !Object.prototype.hasOwnProperty.call(config, key) || typeof config[key] !== 'string') {
       throw new FlowServiceError(400, 'VALIDATION_ERROR', `"${key}" はここでは変えられません`);
     }
     config[key] = value;

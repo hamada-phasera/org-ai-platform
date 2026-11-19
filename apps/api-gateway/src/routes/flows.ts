@@ -17,6 +17,7 @@ import { config } from '../config/env';
 import { FLOW_RUN_RATE_LIMIT, FLOW_SAVE_RATE_LIMIT } from '../middleware/rate-limit';
 import { sendBodyTooLargeAsError, sendError } from '../utils/http-error';
 import { createLogger } from '../utils/logger';
+import { takeOrgActionSlot } from '../services/pages/org-throttle';
 import { describeIssues } from '../services/pages/upsert';
 import { FLOW_ID_PATTERN, canManageFlow, canViewFlow, minRoleAllowed } from '../services/flows/access';
 import { flowUsageOf, planOf } from '../services/flows/limits';
@@ -138,8 +139,14 @@ const pageSaveSchema = z
 const PAGE_BODY_LIMIT = 64 * 1024;
 
 const RUN_NOT_FOUND = '実行が見つかりません';
-/** web が実行ごとに作る UUID（定期は sched:<flowId>:<時刻>） */
-const requestIdSchema = z.string().regex(/^[a-zA-Z0-9:_-]{8,100}$/, 'requestId の形ではありません');
+/**
+ * web が実行ごとに作る UUID。`sched:` で始まる値は定期の予約（sched:<flowId>:<時刻>）なので利用者からは受けない
+ * （先に送って次の時間の定期を DUPLICATE_REQUEST で潰せてしまう。レビュー指摘 6）
+ */
+const requestIdSchema = z
+  .string()
+  .regex(/^[a-zA-Z0-9:_-]{8,100}$/, 'requestId の形ではありません')
+  .refine((v) => !v.toLowerCase().startsWith('sched:'), 'requestId の形ではありません');
 const runBodySchema = z.object({ input: z.record(z.unknown()).optional(), requestId: requestIdSchema }).strict();
 const runListQuerySchema = z.object({ cursor: z.string().regex(FLOW_ID_PATTERN).optional() }).strict();
 const RUN_PAGE = 20;
@@ -217,9 +224,8 @@ export async function flowRoutes(app: FastifyInstance): Promise<void> {
     const parsed = fromTemplateSchema.safeParse(request.body ?? {});
     if (!parsed.success) return sendError(reply, 400, 'VALIDATION_ERROR', describeIssues(parsed.error.issues));
     try {
-      const res = await createFlowFromTemplate(db, { ...parsed.data, plan: await planOf(db), actorId: sub });
-      // 既にあったフローが自分より上の役割限定なら、存在を漏らさない
-      if (!res.created && !canViewFlow(res.flow, role)) return sendError(reply, 404, 'NOT_FOUND', NOT_FOUND_MESSAGE);
+      // 既にあったフローが自分より上の役割限定なら、キャンバスを書き換える前に 404（store 側で判定。存在を漏らさない）
+      const res = await createFlowFromTemplate(db, { ...parsed.data, plan: await planOf(db), actorId: sub, role });
       return reply
         .code(res.created ? 201 : 200)
         .send({ success: true, data: { flow: summaryOf(res.flow), created: res.created, canvasUpdated: res.canvasUpdated } });
@@ -471,6 +477,10 @@ export async function flowRoutes(app: FastifyInstance): Promise<void> {
     if (!flow || !canViewFlow(flow, role)) return sendError(reply, 404, 'NOT_FOUND', NOT_FOUND_MESSAGE);
     const parsed = runBodySchema.safeParse(request.body ?? {});
     if (!parsed.success) return sendError(reply, 400, 'VALIDATION_ERROR', describeIssues(parsed.error.issues));
+    // 組織ごとの窓（T11。業務ページの org-throttle を共用。IP ごとの制限とは別に 1 組織の連打・暴走を抑える）
+    if (!takeOrgActionSlot(db.orgId, 'flow_run')) {
+      return sendError(reply, 429, 'RATE_LIMITED', 'リクエストが多すぎます。しばらく待ってからもう一度お試しください。');
+    }
     const trigger = (flow.definition as { nodes?: { type?: string; config?: { mode?: string } }[] } | null)?.nodes?.find((n) => n.type === 'trigger');
     let accepted: { runId: string };
     try {

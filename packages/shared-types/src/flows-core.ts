@@ -65,6 +65,8 @@ function hasOwn(obj: object, key: string): boolean {
 /** 式 1 つ。`{{ nodeId.key }}`。関数・演算・条件・入れ子・フィルタは無い */
 const EXPR_SOURCE = '\\{\\{\\s*([a-z][a-z0-9_]{0,23})\\.([a-zA-Z][a-zA-Z0-9_]{0,31})\\s*\\}\\}';
 /** 値そのものを渡す参照（分岐の `left`・`rows`）。式 1 つだけの文字列 */
+/** 式 `{{ node.key }}` の正規表現の元（g を付けて使う。node と key を捕まえる） */
+export const FLOW_EXPR_SOURCE = EXPR_SOURCE;
 const REF_PATTERN = new RegExp(`^${EXPR_SOURCE}$`);
 
 export interface FlowTemplateRef {

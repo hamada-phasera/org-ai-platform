@@ -327,6 +327,27 @@ export type FlowEdge = z.infer<typeof flowEdgeSchema>;
 export type FlowNodeOf<T extends FlowNode['type']> = Extract<FlowNode, { type: T }>;
 
 /** 部品カタログを渡してフロー定義のスキーマを作る（グラフ・参照・部品・承認の検査込み） */
+/**
+ * スマホ（PATCH の node）で変えてよい文字の項目（K76）。宛先・参照・部品の入力・式の左右などは PC だけ。
+ * web の `mobileTextFields` と gateway の `applyNodeTextPatch` が同じ表を見る。
+ */
+export function flowMobileTextKeys(node: Pick<FlowNode, 'type' | 'config'>): readonly string[] {
+  switch (node.type) {
+    case 'ai':
+      return ['instruction'];
+    case 'approval':
+      return ['message', 'preview'];
+    case 'output': {
+      const kind = (node.config as { kind?: string }).kind;
+      if (kind === 'document') return ['title', 'body'];
+      if (kind === 'notify') return ['body'];
+      return [];
+    }
+    default:
+      return [];
+  }
+}
+
 export function buildFlowDefinitionSchema(parts: readonly FlowPartSpec[]) {
   return baseFlowDefinitionSchema.superRefine((def, ctx) => {
     if (utf8ByteLength(JSON.stringify(def)) > L.maxDefinitionBytes) {

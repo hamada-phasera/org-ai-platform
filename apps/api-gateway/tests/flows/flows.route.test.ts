@@ -240,6 +240,22 @@ describe('POST /api/flows/from-template', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('既にあるフローが自分より上の役割限定なら、キャンバスを書き換えずに 404（レビュー指摘 11）', async () => {
+    fake.rows('flow').push(flowRow({ id: 'flow-p-owner', orgId: 'org-A', slug: 'proposal', name: '提案', templateKey: 'proposal', minRole: 'OWNER' }));
+    const before = JSON.stringify(fake.rows('canvas'));
+    const r = await app.inject({
+      method: 'POST', url: '/api/flows/from-template', headers: ADMIN(), payload: { templateKey: 'proposal', canvasNodeId: 'proposal' },
+    });
+    expect(r.statusCode).toBe(404);
+    expect(JSON.stringify(fake.rows('canvas'))).toBe(before);
+    expect(audits('canvas.update')).toHaveLength(0);
+    const owner = await app.inject({
+      method: 'POST', url: '/api/flows/from-template', headers: OWNER(), payload: { templateKey: 'proposal', canvasNodeId: 'proposal' },
+    });
+    expect(owner.statusCode).toBe(200);
+    expect(owner.json().data.canvasUpdated).toBe(true);
+  });
+
   it('メンバーは 403', async () => {
     const r = await app.inject({ method: 'POST', url: '/api/flows/from-template', headers: MEMBER(), payload: { templateKey: 'proposal' } });
     expect(r.statusCode).toBe(403);
@@ -424,6 +440,8 @@ describe('PATCH /api/flows/:id', () => {
       { id: 'check', config: { nothing: 'x' } },
       { id: 'nope', label: 'x' },
       { id: 'draft', config: { instruction: '{{ doc.taskId }}' } },
+      // スマホの許可リスト（K76）の外: AI の入力（式の差し込み）は文字でも PC だけ（レビュー指摘 12）
+      { id: 'draft', config: { input: '{{form.customerName}}' } },
     ]) {
       const r = await app.inject({ method: 'PATCH', url: '/api/flows/flow-mine', headers: ADMIN(), payload: { baseVersion: 2, node: n } });
       expect(r.statusCode).toBe(400);
