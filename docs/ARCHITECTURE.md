@@ -152,6 +152,16 @@ flowchart TD
 - 開発は seed（`packages/db-schema/prisma/seed-pages.ts`）＋ `PAGES_SAMPLE_MODE=true` で n8n 無しに動く。
   設計は `docs/design/custom-pages.md`、構築手順は `docs/custom-pages-n8n.md`。
 
+### 2.8 ホームキャンバスと業務フロー
+
+- ホーム `/` は業務の地図（`Canvas`、組織に 1 枚）。ノードを押すとフロー `/flows/:id`（`Flow`。DB が正本）へ。無ければテンプレートを複製して作る（LLM を使わない）。
+- 実行は gateway 内のランナー（`services/flows/runner.ts`）。キューは `FlowRun` の表（条件付き updateMany の atomic claim）。
+  AI ノードは ai-engine `/llm/chat`、外へ送るノードは必ず承認で止まる（受信の承認タブ → `resumeFlowRun`）。
+- n8n は運営の「部品」（`parts/<key>` の Webhook、`docs/flow-parts-n8n.md`）を裏で動かすだけ。お客さんの操作で n8n のワークフローを作らない（public API を呼ばない）。
+- 結果ページは業務ページ（`CustomPage source='FLOW'`）。出力ビルダー（フロー画面の「出力」）が `PUT /api/flows/:id/page` で保存し、
+  `/p/:slug` の `flow_query` / `flow_submit` は `services/flows/result-page.ts` が扱う（n8n は呼ばない。実行はフローの実行として 1 回だけ数える）。
+- 設計は `docs/design/canvas-home.md`。
+
 ## 3. 主要ディレクトリと責務
 
 ### apps/api-gateway/src

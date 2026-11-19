@@ -1,0 +1,177 @@
+{
+  "name": "part-pdf_make",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "parts/pdf_make",
+        "responseMode": "responseNode",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "id": "part-webhook",
+      "name": "部品の呼び出し",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "part-pdf_make"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "org",
+              "leftValue": "={{ $json.body.orgId }}",
+              "rightValue": "^[A-Za-z0-9_-]{1,40}$",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            },
+            {
+              "id": "part",
+              "leftValue": "={{ $json.body.part }}",
+              "rightValue": "pdf_make",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "key",
+              "leftValue": "={{ $json.body.idempotencyKey }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "part-gate",
+      "name": "本文を確かめる",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.FLOW_PDF_SERVICE_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ title: $json.body.input.title, body: $json.body.input.body, orgId: $json.body.orgId, idempotencyKey: $json.body.idempotencyKey }) }}",
+        "options": {
+          "timeout": 15000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          }
+        }
+      },
+      "id": "part-make",
+      "name": "PDF を作る",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ url: $json.url ?? null }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "part-ok",
+      "name": "URL を返す",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"error\":\"bad request\"}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "part-bad",
+      "name": "受け付けない",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "部品の呼び出し": {
+      "main": [
+        [
+          {
+            "node": "本文を確かめる",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "本文を確かめる": {
+      "main": [
+        [
+          {
+            "node": "PDF を作る",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "受け付けない",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDF を作る": {
+      "main": [
+        [
+          {
+            "node": "URL を返す",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

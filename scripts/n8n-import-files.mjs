@@ -6,6 +6,7 @@
 //    下位のディレクトリは読まない（readdir は直下だけ）ので、pages/ の中のファイル名がどうであっても拾わない。
 
 import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
 
 /** ファイル名（直下のエントリ名）から取り込む対象を選ぶ */
 export function selectImportFiles(entries) {
@@ -21,4 +22,25 @@ export function listImportFiles(dir) {
     .filter((e) => e.isFile())
     .map((e) => e.name);
   return selectImportFiles(files);
+}
+
+/**
+ * 業務フローの部品（docs/flow-parts-n8n.md）。`parts/part-<key>.json` を取り込む（全組織共通の運営のワークフロー）。
+ * 返すのは WF_DIR からの相対パス（`parts/part-pdf_make.json`）。キーの形（英小文字始まり・英小文字・数字・_）以外は拾わない。
+ * 部品のパスは gateway が `parts/<key>` に組み立てる（canvas-home.md K6）。
+ */
+export const PART_FILE_PATTERN = /^part-([a-z][a-z0-9_]{1,39})\.json$/;
+
+export function selectPartFiles(entries) {
+  return entries.filter((f) => PART_FILE_PATTERN.test(f)).sort().map((f) => `parts/${f}`);
+}
+
+export function listPartFiles(dir) {
+  let entries;
+  try {
+    entries = readdirSync(join(dir, 'parts'), { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return selectPartFiles(entries.filter((e) => e.isFile()).map((e) => e.name));
 }

@@ -224,6 +224,17 @@ STRIPE_PRICE_STORAGE_ADDON= / STRIPE_TAX_RATE_ID= / BILLING_TRIAL_DAYS=30 / APP_
 - **開発**: seed（`packages/db-schema/prisma/seed-pages.ts` が定義の正本）＋ `PAGES_SAMPLE_MODE=true` で n8n 無しに `/p/inquiries` が動く（本番は常に無効）。
   n8n のサンプル `apps/n8n-workflows/pages/page-inquiries.json` は `__ORG_ID__` を置き換えて手で入れる（`n8n:import` は `pages/` を拾わない）。手順は `docs/custom-pages-n8n.md`。
 
+## ホームキャンバスと業務フロー — docs/design/canvas-home.md
+
+- **ホーム `/` は業務の地図**（`Canvas` は組織に 1 枚）。ノードの行き先はフロー・テンプレート・既存の画面。テンプレートは押した瞬間に複製（LLM を使わない）。
+- **フローの論理（順番・分岐・承認）は FLOW の DB**（`Flow` / `FlowVersion` / `FlowRun`）。ノードは 7 種の許可リスト（shared-types `flows.ts`）。
+  ランナーは gateway 内（`services/flows/`）、キューは `FlowRun` の表。外へ送るノードの直前で**必ず**止まる。
+- **n8n は運営の部品だけ**（`parts/<key>`。`docs/flow-parts-n8n.md`）。⚠️ お客さんの操作で n8n のワークフローを作る・変える経路を作らない
+  （`services/flows/` `routes/flows.ts` `routes/canvas.ts` は public API・`n8n-workflow-builder` を読まない。ソーステストで固定）。
+- **結果ページ**は `CustomPage(source='FLOW', flowId)`。出力ビルダー（フロー画面の「出力」）だけが定義を書き、ページ数の上限に数えない。
+  `/p/:slug` の `flow_query` / `flow_submit` は n8n を呼ばず、実行はフローの実行として 1 回だけ数える（`PageActionLog` に書かない）。
+- 上限は `FLOW_LIMITS`（flows-plan.ts）の 1 か所。設定 > プラン に フロー・実行・部品 の 3 行（`/me/usage`）。
+
 ## エージェント機能 (業務効率化エージェント)
 
 - ユーザーはチャット/フォームから再利用可能なエージェントを作成 (`POST /api/agents`)。

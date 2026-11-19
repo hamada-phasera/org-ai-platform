@@ -58,12 +58,6 @@ const usage = {
   partCalls: { used: 0, limit: 100, state: 'ok', blocked: false },
 };
 
-const PART_DEF = (() => {
-  const t = cloneFlowTemplate('proposal');
-  t.definition.nodes.push({ id: 'pdf', type: 'part', label: 'PDF', config: { part: 'pdf_make', input: { title: 'a', body: 'b' } } });
-  t.definition.edges.push({ from: 'doc', to: 'pdf' });
-  return t;
-})();
 
 function flowData(over: Record<string, unknown> = {}) {
   const t = cloneFlowTemplate('proposal');
@@ -91,13 +85,6 @@ function renderFlow(path = '/flows/flow-1?view=output') {
   );
 }
 
-/** キャンバスのノード（jsdom では大きさを測れないので @xyflow/react が visibility: hidden のまま置く。aria-label で探す） */
-const node = (name: RegExp) =>
-  waitFor(() => {
-    const el = [...document.querySelectorAll<HTMLElement>('[data-flow-node]')].find((b) => name.test(b.getAttribute('aria-label') ?? ''));
-    if (!el) throw new Error(`node ${String(name)} not found`);
-    return el;
-  });
 
 beforeEach(() => {
   api.defaults.adapter = adapter;

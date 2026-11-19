@@ -148,7 +148,7 @@ function Editor({ flow, parts }: Props) {
   const activate = useCallback((id: string) => {
     setSelected(id);
     setTab('steps');
-  }, []);
+  }, [setTab]);
 
   const insertOnEdge = useCallback(
     (from: string, to: string, when?: 'yes' | 'no') => {
