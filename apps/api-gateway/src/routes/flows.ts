@@ -14,7 +14,7 @@ import {
 import { authOf } from '../tenancy';
 import { requireAdmin, requireAuth } from '../middleware/auth';
 import { config } from '../config/env';
-import { FLOW_SAVE_RATE_LIMIT } from '../middleware/rate-limit';
+import { FLOW_RUN_RATE_LIMIT, FLOW_SAVE_RATE_LIMIT } from '../middleware/rate-limit';
 import { sendBodyTooLargeAsError, sendError } from '../utils/http-error';
 import { createLogger } from '../utils/logger';
 import { describeIssues } from '../services/pages/upsert';
@@ -31,9 +31,12 @@ import {
   type FlowRow,
 } from '../services/flows/store';
 import type { TenantDb } from '../tenancy/tenant-db';
+import { hasRoleAtLeast, isFlowRunFinal } from '@org-ai/shared-types';
+import { FlowRunInputError, acceptRun, cancelRun, flowQueueTuning, pumpOrg } from '../services/flows/queue';
+import { waitForRunSettled } from '../services/flows/runner';
 
 /**
- * 業務フロー（docs/design/canvas-home.md §7.1）。prefix: `/api/flows`。このチャンクは取得・保存まで（実行はチャンク 5）。
+ * 業務フロー（docs/design/canvas-home.md §7.1）。prefix: `/api/flows`。取得・保存（チャンク 4）と実行（チャンク 5）。
  *
  * - 見えないフロー（他組織・役割不足）は**すべて 404 `NOT_FOUND`**（存在を漏らさない。T1・T15）。
  * - 編集は ADMIN 以上かつ minRole を満たすもの。自分より上の minRole は付けられない（T15）。
@@ -105,6 +108,35 @@ const patchSchema = z
   .strict()
   .refine((v) => Object.keys(v).some((k) => k !== 'baseVersion'), '変更する項目がありません')
   .refine((v) => v.node === undefined || v.baseVersion !== undefined, '版（baseVersion）が要ります');
+
+
+const RUN_NOT_FOUND = '実行が見つかりません';
+/** web が実行ごとに作る UUID（定期は sched:<flowId>:<時刻>） */
+const requestIdSchema = z.string().regex(/^[a-zA-Z0-9:_-]{8,100}$/, 'requestId の形ではありません');
+const runBodySchema = z.object({ input: z.record(z.unknown()).optional(), requestId: requestIdSchema }).strict();
+const runListQuerySchema = z.object({ cursor: z.string().regex(FLOW_ID_PATTERN).optional() }).strict();
+const RUN_PAGE = 20;
+
+const RUN_SUMMARY_SELECT = {
+  id: true, flowId: true, flowSlug: true, flowVersion: true, trigger: true, actorId: true, status: true,
+  error: true, taskId: true, startedAt: true, finishedAt: true, durationMs: true, createdAt: true,
+} as const;
+const RUN_DETAIL_SELECT = { ...RUN_SUMMARY_SELECT, input: true, steps: true, output: true, aiCalls: true, partCalls: true } as const;
+
+interface RunSummaryRow {
+  id: string;
+  flowId: string;
+  actorId: string | null;
+  status: string;
+  taskId: string | null;
+}
+
+/** 実行を見てよいか。フローが見えること（消えたフローの実行は ADMIN 以上か実行した本人） */
+async function canSeeRun(db: TenantDb, run: RunSummaryRow, role: Parameters<typeof canViewFlow>[1], sub: string): Promise<boolean> {
+  const flow = await loadFlow(db, run.flowId);
+  if (flow) return canViewFlow(flow, role);
+  return run.actorId === sub || (!!role && hasRoleAtLeast(role, 'ADMIN'));
+}
 
 function idOf(params: unknown): string | null {
   const id = (params as { id?: unknown }).id;
@@ -289,5 +321,91 @@ export async function flowRoutes(app: FastifyInstance): Promise<void> {
     const deleted = await deleteFlow(db, { flow, actorId: sub });
     if (!deleted) return sendError(reply, 404, 'NOT_FOUND', NOT_FOUND_MESSAGE);
     return reply.send({ success: true, data: { deleted: true } });
+  });
+
+  // ── 実行（チャンク 5。§7.2） ─────────────────────────────
+
+  /**
+   * 実行。`{ input, requestId }`。受け付けたら空きがあれば着手し、最大 8 秒だけ完了を待つ（K10）。
+   * 止まった（終わった・承認待ち）なら 200 で状態、まだなら 202 で runId（web は GET /runs/:runId を取りに行く）。
+   */
+  app.post('/:id/runs', { preHandler: requireAuth, config: { rateLimit: FLOW_RUN_RATE_LIMIT } }, async (request, reply) => {
+    const { db, role, sub } = authOf(request);
+    const id = idOf(request.params);
+    if (!id) return sendError(reply, 404, 'NOT_FOUND', NOT_FOUND_MESSAGE);
+    const flow = await loadFlow(db, id);
+    if (!flow || !canViewFlow(flow, role)) return sendError(reply, 404, 'NOT_FOUND', NOT_FOUND_MESSAGE);
+    const parsed = runBodySchema.safeParse(request.body ?? {});
+    if (!parsed.success) return sendError(reply, 400, 'VALIDATION_ERROR', describeIssues(parsed.error.issues));
+    const trigger = (flow.definition as { nodes?: { type?: string; config?: { mode?: string } }[] } | null)?.nodes?.find((n) => n.type === 'trigger');
+    let accepted: { runId: string };
+    try {
+      accepted = await acceptRun(db, {
+        flow,
+        input: parsed.data.input ?? {},
+        requestId: parsed.data.requestId,
+        trigger: trigger?.config?.mode === 'form' ? 'form' : 'manual',
+        actorId: sub,
+        plan: await planOf(db),
+      });
+    } catch (e) {
+      if (e instanceof FlowRunInputError) {
+        return reply.code(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: e.message, issues: e.issues } });
+      }
+      return sendServiceError(reply, e);
+    }
+    const settled = waitForRunSettled(accepted.runId, flowQueueTuning.syncWaitMs);
+    await pumpOrg(db.orgId);
+    await settled;
+    const run = await db.flowRun.findUnique({ where: { id: accepted.runId }, select: RUN_DETAIL_SELECT });
+    const done = !!run && (isFlowRunFinal(run.status) || run.status === 'WAITING_APPROVAL');
+    return reply.code(done ? 200 : 202).send({ success: true, data: { runId: accepted.runId, run } });
+  });
+
+  /** 履歴（新しい順・20 件ずつ。`?cursor=<runId>` で続き） */
+  app.get('/:id/runs', { preHandler: requireAuth }, async (request, reply) => {
+    const { db, role } = authOf(request);
+    const id = idOf(request.params);
+    if (!id) return sendError(reply, 404, 'NOT_FOUND', NOT_FOUND_MESSAGE);
+    const flow = await loadFlow(db, id);
+    if (!flow || !canViewFlow(flow, role)) return sendError(reply, 404, 'NOT_FOUND', NOT_FOUND_MESSAGE);
+    const q = runListQuerySchema.safeParse(request.query ?? {});
+    if (!q.success) return sendError(reply, 400, 'VALIDATION_ERROR', describeIssues(q.error.issues));
+    const rows = await db.flowRun.findMany({
+      where: { flowId: flow.id },
+      select: RUN_SUMMARY_SELECT,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: RUN_PAGE + 1,
+      ...(q.data.cursor ? { cursor: { id: q.data.cursor }, skip: 1 } : {}),
+    });
+    const page = rows.slice(0, RUN_PAGE);
+    return reply.send({
+      success: true,
+      data: { runs: page, nextCursor: rows.length > RUN_PAGE ? page[page.length - 1]?.id ?? null : null },
+    });
+  });
+
+  /** 1 回分の状態とステップ結果（web が 2 秒おきに取りに行く） */
+  app.get('/runs/:runId', { preHandler: requireAuth }, async (request, reply) => {
+    const { db, role, sub } = authOf(request);
+    const runId = (request.params as { runId?: unknown }).runId;
+    if (typeof runId !== 'string' || !FLOW_ID_PATTERN.test(runId)) return sendError(reply, 404, 'NOT_FOUND', RUN_NOT_FOUND);
+    const run = await db.flowRun.findUnique({ where: { id: runId }, select: RUN_DETAIL_SELECT });
+    if (!run || !(await canSeeRun(db, run, role, sub))) return sendError(reply, 404, 'NOT_FOUND', RUN_NOT_FOUND);
+    return reply.send({ success: true, data: run });
+  });
+
+  /** 待ち・承認待ちを取り消す（実行した本人か ADMIN 以上）。走っている実行は 409 */
+  app.post('/runs/:runId/cancel', { preHandler: requireAuth, config: { rateLimit: FLOW_RUN_RATE_LIMIT } }, async (request, reply) => {
+    const { db, role, sub } = authOf(request);
+    const runId = (request.params as { runId?: unknown }).runId;
+    if (typeof runId !== 'string' || !FLOW_ID_PATTERN.test(runId)) return sendError(reply, 404, 'NOT_FOUND', RUN_NOT_FOUND);
+    const run = await db.flowRun.findUnique({ where: { id: runId }, select: RUN_SUMMARY_SELECT });
+    if (!run || !(await canSeeRun(db, run, role, sub))) return sendError(reply, 404, 'NOT_FOUND', RUN_NOT_FOUND);
+    if (run.actorId !== sub && !(role && hasRoleAtLeast(role, 'ADMIN'))) {
+      return sendError(reply, 403, 'FORBIDDEN', '実行した本人か管理者だけが取り消せます');
+    }
+    if (!(await cancelRun(db, run))) return sendError(reply, 409, 'INVALID_STATE', '待ち・承認待ちの実行だけ取り消せます');
+    return reply.send({ success: true, data: { canceled: true } });
   });
 }

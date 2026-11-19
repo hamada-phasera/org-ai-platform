@@ -376,6 +376,22 @@ export function buildPartInputSchema(part: Pick<FlowPartSpec, 'input'>): z.ZodTy
   return z.object(shape).strict();
 }
 
+/**
+ * 実行の入力スキーマ（`POST /api/flows/:id/runs` の `input`。`.strict()`）。きっかけがフォームなら項目から作り、
+ * 手動・定期は空のオブジェクトだけ。規則は業務ページのフォームと同じ（`pageFieldInputSchema`）。web も同じものでエラーを出す。
+ */
+export function buildFlowRunInputSchema(trigger: FlowNodeOf<'trigger'>['config']): z.ZodTypeAny {
+  if (trigger.mode !== 'form') return z.object({}).strict();
+  const shape: Record<string, z.ZodTypeAny> = {};
+  for (const field of trigger.fields) shape[field.key] = pageFieldInputSchema(field);
+  return z.object(shape).strict();
+}
+
+/** 形だけの検査（グラフ・参照は見ない）。ランナーが FlowRun に写した定義を読むときに使う（承認の強制停止はランナーが別に見る） */
+export const flowDefinitionShapeSchema = z
+  .object({ nodes: z.array(flowNodeSchema).min(1).max(L.maxNodes), edges: z.array(flowEdgeSchema).max(L.maxEdges) })
+  .strict();
+
 // ── キャンバスの配置（設計書 §6.6） ─────────────────────────────
 
 /** 座標は −5000〜5000 の整数に丸める */

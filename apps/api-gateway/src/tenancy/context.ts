@@ -22,7 +22,8 @@ export type TenantSource =
   | 'n8n-callback'
   | 'n8n-page'
   | 'scheduler'
-  | 'recovery';
+  | 'recovery'
+  | 'flow-runner';
 
 export interface TenantContext {
   orgId: string;

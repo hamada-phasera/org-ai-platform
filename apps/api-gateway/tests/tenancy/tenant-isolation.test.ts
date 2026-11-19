@@ -140,6 +140,10 @@ function orgData(X: 'A' | 'B') {
       templateKey: 'proposal', templateVersion: 1, version: 1, schemaVersion: 1, definition: FLOW_TEMPLATES.proposal.definition,
       definitionHash: `fh-${X}`, layout: {}, createdBy: null, updatedBy: null, createdAt: now, updatedAt: now }],
     flowVersion: [{ id: `fver-${X}`, flowId: `flow-${X}`, version: 1, definition: FLOW_TEMPLATES.proposal.definition, createdBy: null, createdAt: now }],
+    flowRun: [{ id: `frun-${X}`, orgId: org, flowId: `flow-${X}`, flowSlug: 'proposal', flowVersion: 1, definition: FLOW_TEMPLATES.proposal.definition,
+      trigger: 'form', actorId: `u-${X.toLowerCase()}`, requestId: `freq-${X}`, status: 'WAITING_APPROVAL', input: { customerName: `顧客${X}` },
+      steps: {}, output: null, error: null, partCalls: 0, aiCalls: 1, taskId: null, lockedAt: now, startedAt: now, finishedAt: null,
+      durationMs: 1, createdAt: now }],
     pageActionLog: [{ id: `plog-${X}`, orgId: org, pageId: `page-${X}`, slug: `page-${X.toLowerCase()}-only`, actionId: 'create',
       pageVersion: 1, actorId: `u-${X.toLowerCase()}`, requestId: `req-${X}`, status: 'OK', durationMs: 1, inputKeys: [], createdAt: now }],
   };
@@ -278,6 +282,11 @@ const IDOR_CASES: Req[] = [
   ['PUT', '/api/flows/flow-B', { definition: FLOW_TEMPLATES.proposal.definition, layout: {}, baseVersion: 1 }],
   ['PATCH', '/api/flows/flow-B', { enabled: false }],
   ['DELETE', '/api/flows/flow-B'],
+  // 実行（チャンク 5）
+  ['POST', '/api/flows/flow-B/runs', { requestId: 'idor-run-1', input: { customerName: 'x' } }],
+  ['GET', '/api/flows/flow-B/runs'],
+  ['GET', '/api/flows/runs/frun-B'],
+  ['POST', '/api/flows/runs/frun-B/cancel'],
 ];
 
 /** I-2: 一覧。応答のどこにも B の行（id・中身）が出てこない。 */
@@ -314,6 +323,7 @@ const LIST_CASES: string[] = [
   '/api/pages/admin/list',
   '/api/pages/tokens',
   '/api/flows',
+  '/api/flows/flow-A/runs',
   '/api/canvas',
 ];
 
@@ -323,7 +333,7 @@ const B_MARKERS = [
   'st-B', 'session-B', 'secret-B', 'conn-B', 'inbound-B', 'hello-B', 'pc-B', 'WSB', 'inv-B', 'invB@', 'risk-B',
   'prompt-B', 'file-B', 'audit-B', 'audit-meta-B', 'AgentB', '工事B', '業者B', '商談B', 'B社', 'u-b', 'b@example.com',
   'page-B', 'page-b-only', 'ページB', '見出しB', 'hook-b', 'ptok-B', 'flowpg_BBB', 'n8nB', 'plog-B',
-  'flow-B', 'フローB', 'canvas-B', '地図B', 'fver-B', 'fh-B',
+  'flow-B', 'フローB', 'canvas-B', '地図B', 'fver-B', 'fh-B', 'frun-B', 'freq-B', '顧客B',
 ];
 
 describe('I-1: 他組織のリソースを id 指定しても 404（存在を漏らさない）、書き込みは0件', () => {

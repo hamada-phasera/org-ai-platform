@@ -43,6 +43,8 @@ export const RAW_PRISMA_ALLOWLIST: Record<string, string> = {
     '業務ページの登録トークンのハッシュから組織を逆引きする resolvePageToken だけ（テナントが決まる前）。以降は runAsTenant + tenantDb',
   'services/step-runner.ts':
     '取り残された RUNNING の回収（組織をまたぐ）と、orgId 無しで呼ばれた再開の Task の逆引きだけ。以降は tenantDb',
+  'services/flows/queue.ts':
+    '業務フローの回収（全組織の FlowRun から止まった・期限切れ・待ちの行を探す）とシャットダウン時の印だけ。行ごとの更新は runAsTenant + tenantDb',
   // チャンク 10 で tenantDb に移したもの（task-executor・capability-resolver/executor・adapters・google-auth・
   // integration-sync・rag・inbox の 3 つ）はここに戻さない。組織が決まっているなら tenantDb(orgId) を使う
 };

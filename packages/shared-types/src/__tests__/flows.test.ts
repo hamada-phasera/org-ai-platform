@@ -724,3 +724,33 @@ describe('構造の固定（ソーステスト）', () => {
     expect([...FLOW_DEPARTMENTS]).toEqual(AGENT_DEPARTMENTS);
   });
 });
+
+describe('buildFlowRunInputSchema（実行の入力。チャンク 5）', () => {
+  it('フォームの項目どおり（必須・型・知らない項目の拒否）', async () => {
+    const { buildFlowRunInputSchema, FLOW_TEMPLATES } = await import('../index');
+    const trigger = FLOW_TEMPLATES.proposal.definition.nodes.find((n) => n.type === 'trigger')!;
+    const s = buildFlowRunInputSchema(trigger.config as never);
+    expect(s.safeParse({ customerName: '〇〇' }).success).toBe(true);
+    expect(s.safeParse({ background: 'x' }).success).toBe(false);
+    expect(s.safeParse({ customerName: '〇〇', extra: 1 }).success).toBe(false);
+  });
+  it('手動・定期は空のオブジェクトだけ', async () => {
+    const { buildFlowRunInputSchema } = await import('../index');
+    const s = buildFlowRunInputSchema({ mode: 'manual' });
+    expect(s.safeParse({}).success).toBe(true);
+    expect(s.safeParse({ a: 1 }).success).toBe(false);
+  });
+  it('flowDefinitionShapeSchema は形だけを見る（承認なしの送信も通る＝ランナーが止める）', async () => {
+    const { flowDefinitionShapeSchema, flowDefinitionSchema } = await import('../index');
+    const def = {
+      nodes: [
+        { id: 'go', type: 'trigger', label: '手動', config: { mode: 'manual' } },
+        { id: 'tell', type: 'output', label: '通知', config: { kind: 'notify', channel: 'slack', body: 'x' } },
+      ],
+      edges: [{ from: 'go', to: 'tell' }],
+    };
+    expect(flowDefinitionShapeSchema.safeParse(def).success).toBe(true);
+    expect(flowDefinitionSchema.safeParse(def).success).toBe(false);
+    expect(flowDefinitionShapeSchema.safeParse({ ...def, extra: 1 }).success).toBe(false);
+  });
+});

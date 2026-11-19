@@ -2,7 +2,7 @@
 
 > **一行要約**: ホームを「業務のノードが線でつながるキャンバス」に替える。キャンバスもフロー編集も実行も **FLOW 自前**（`@xyflow/react` ＋ gateway 内の軽量ランナー）で作り、n8n は**運営が作った「部品」を呼ぶだけ**の裏方に留める。お客さんが n8n のワークフローを作る・編集する形は n8n のライセンス違反になるため採らない。
 
-- 状態: チャンク 1（shared-types の定義スキーマと上限）・チャンク 2（テンプレート・既定の配置・部品カタログ・`flow_query` `flow_submit`）・チャンク 3（DB: `Canvas` / `Flow` / `FlowVersion` / `FlowRun`・`CustomPage.flowId`・`ScheduledTask.flowId`）・チャンク 4（gateway: キャンバスとフローの取得・保存 API）実装済み。2026-11-19。ブランチ `feat/canvas-home`（`feat/custom-pages` の上に積む）
+- 状態: チャンク 1（shared-types の定義スキーマと上限）・チャンク 2（テンプレート・既定の配置・部品カタログ・`flow_query` `flow_submit`）・チャンク 3（DB: `Canvas` / `Flow` / `FlowVersion` / `FlowRun`・`CustomPage.flowId`・`ScheduledTask.flowId`）・チャンク 4（gateway: キャンバスとフローの取得・保存 API）・チャンク 5（gateway: ランナーとキュー・実行の API。承認ノードの停止と再開を含む）実装済み。2026-11-19。ブランチ `feat/canvas-home`（`feat/custom-pages` の上に積む）
 - 前提にした既存の決まり: CLAUDE.md、DESIGN.md、`docs/ARCHITECTURE.md`、`docs/design/multi-tenancy.md`、`docs/design/custom-pages.md`、`docs/n8n-integration-design.md`、`docs/plan/saas-readiness-plan.md`、`docs/billing.md`
 - 変えない原則: **DB が真実の源 / n8n は加速レイヤー / ルートは `authOf(request).db` だけ / エラーは `{ success:false, error:{ code, message } }` / LLM は必ず ai-engine の LLMRouter 経由 / 外部送信は必ず人が通す**
 
@@ -446,7 +446,7 @@ DESIGN.md §4 の「TOP は最小: 指示入力＋入口 4 つ」は「指示入
 | `requestId` | String | web が実行ごとに作る UUID。定期は `sched:<flowId>:<時刻>`。`@@unique([orgId, requestId])`＝二重実行を止める |
 | `status` | String | `'QUEUED' \| 'RUNNING' \| 'WAITING_APPROVAL' \| 'SUCCEEDED' \| 'FAILED' \| 'CANCELED' \| 'EXPIRED'` |
 | `input` | Json | きっかけの入力（16KB まで） |
-| `steps` | Json | `{ [nodeId]: { status, startedAt, finishedAt, durationMs, output?, error?, attempts } }`。各 `output` は **16KB で切る**、全体 256KB まで |
+| `steps` | Json | `{ [nodeId]: { status, startedAt, finishedAt, durationMs, output?, error?, attempts } }`。各 `output` は **32KB で切る**（K51）、全体 256KB まで |
 | `output` | Json? | 出力ノードが宣言したキーの値（結果ページが読む。64KB まで） |
 | `error` | Json? | `{ nodeId, code, message }`（利用者向けの文言。上流の生のエラー本文は入れない） |
 | `partCalls` / `aiCalls` | Int | この実行で部品・AI を呼んだ回数（既定 0）。部品の月間数はこの合計 |
@@ -1089,6 +1089,14 @@ DB の大きさの目安（仮定: 1 実行 20KB）: 100 社 × 月 1,000 実行
 | K48 | `GET /api/flows/:id` は保存済みの定義がスキーマに合わなくても返す（`valid: false`）。`PUT` の検証エラーは 400 `FLOW_INVALID_DEFINITION` に `issues: { path, message }[]`（20 件まで・値は入れない）を足す | 古い形の行をフロー画面で直せる。web が該当ノードに印を付けられる（チャンク 8） | 業務ページと同じく 500 で開かせない |
 | K49 | `from-template` で既にあるフローが自分の役割より上の `minRole` なら 404（作ったことも漏らさない） | T15 と同じ「見えないものは 404」 | 既存を返す |
 
+| K50 | **確認ノードの停止と再開（`POST /api/tasks/:taskId/approve` `/reject` の `flow_step` 分岐）をチャンク 5 に前倒し**。外へ送るノードの手前の強制停止（K12）もランナーに入れた。部品と通知の実際の呼び出し・定期のきっかけ・受信ページの `flow_step` 表示は従来どおりチャンク 6・8（それまで部品・通知は承認の後も送らずに `FLOW_PART_NOT_CONNECTED` / `FLOW_NOTIFY_UNAVAILABLE` で失敗） | 提案書テンプレートが確認ノードを含み、受け入れ条件「最後まで走り成果物に出る」に要る。送る経路が無いまま止める側に倒すので安全 | 確認ノードを素通りさせる（承認なしで文書が作られる） |
+| K51 | 保存するノード出力の上限（`storedNodeOutputMaxBytes`）を 16KB → **32KB**（展開の上限と同じ） | 承認の後の再開は保存した値から続きを組む。16KB だと長い提案書（日本語 5,000 字前後）が成果物で切れる。全体の 256KB は変えない | 再開用に別の列を足す |
+| K52 | 対の `Task` は **QUEUED にしない**（RUNNING で作る）。承認待ち → `PENDING_APPROVAL`、成功 → `DONE`（文書の出力があるときだけ `output` を入れる＝成果物に出る）、失敗・期限切れ → `FAILED`、却下・取り消し → `REJECTED` | n8n の enqueue 一覧（`routes/webhooks.ts`）が QUEUED の Task を拾うため。ページだけの出力を成果物に混ぜない | Task も QUEUED から |
+| K53 | 承認待ちの「待ち始めた時刻」は `FlowRun.lockedAt` に入れる（承認待ちでは心拍を打たない）。7 日の `EXPIRED` はこれで判定し、承認の時点でも見る | `FlowRun` に `updatedAt` が無い。列を足さずに済む | 列を足す |
+| K54 | データノードの原価（`cost_entry`）の `source` は既存の値域の **`CHAT`**（AI 経由の下書き）。`status` は定義に関係なく `DRAFT` 固定 | 原価の API の値域（MANUAL / CHAT / LINE）を増やさない | `FLOW` を足す |
+| K55 | 組織の同時実行数は DB の RUNNING の件数で見て、同じプロセスでは組織ごとに着手を直列にする。複数台では短い間だけ 1〜2 件超えうる（gateway 1 台の前提＝D8）。承認の後の再開は同時実行数を見ない（止めない） | 着手そのものは条件付き updateMany なので二重には走らない。上限は負荷の目安 | 組織ごとの行ロック |
+| K56 | 部品の「未接続（503）」「上位プラン（403 `FLOW_PART_PLAN`）」は**受け付けで**断る（実行の途中で落とさない） | 実行数を数える前に分かる。途中まで走って止まる実行を作らない | 実行時に判定 |
+
 ## 15. 未確認・実装時に確かめること
 
 | # | 項目 | 影響 |
@@ -1099,3 +1107,13 @@ DB の大きさの目安（仮定: 1 実行 20KB）: 100 社 × 月 1,000 実行
 | Q4 | `@xyflow/react` の編集モードのキーボード操作（Tab・矢印・Delete）が既定でどこまで効くか | 足りない分は自前で足す（チャンク 7・8） |
 | Q5 | `FlowRun` の実際の 1 行の大きさ | 保存時の切り詰め（16KB）と保持期間 |
 | Q6 | 業務ページのチャンク 5〜7（web）が入る時期 | チャンク 9 の着手 |
+
+## 持ち越し
+
+| # | 項目 | どこで |
+|---|---|---|
+| C5-1 | 部品（n8n `parts/<key>`・capability）と通知の実際の呼び出し。いまは承認の後も送らずに失敗する（K50） | チャンク 6 |
+| C5-2 | 定期のきっかけ（`ScheduledTask.flowId` の同期と dispatcher） | チャンク 6（K45） |
+| C5-3 | 実行履歴の保持期間の日次の掃除（`flowHistoryCutoff`）。判定の関数はあるが、消す処理はまだ無い | チャンク 6 か 9 |
+| C5-4 | 受信ページ「エージェント承認」タブの `flow_step` の表示（`RunPreviewRow`）。承認 API 自体は動く | チャンク 8 |
+

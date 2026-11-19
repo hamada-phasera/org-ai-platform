@@ -105,8 +105,8 @@ export const FLOW_RUN_LIMITS = {
   approvalExpireMs: 7 * 24 * 60 * 60_000,
   /** メモリ上のノード出力 */
   nodeOutputMaxBytes: 256 * 1024,
-  /** 保存するノード出力 */
-  storedNodeOutputMaxBytes: 16 * 1024,
+  /** 保存するノード出力。承認の後の再開は保存した値から続きを組むので、展開の上限（32KB）と同じにする（§14 K51） */
+  storedNodeOutputMaxBytes: 32 * 1024,
   storedStepsMaxBytes: 256 * 1024,
   storedOutputMaxBytes: 64 * 1024,
   inputMaxBytes: 16 * 1024,
@@ -265,4 +265,42 @@ export function flowHistoryCutoff(plan: Plan | string, now: Date): Date {
   const byDays = new Date(now.getTime() - flowLimitsOf(plan).historyDays * 24 * 60 * 60_000);
   const monthStart = flowMonthStartUtc(now);
   return byDays < monthStart ? byDays : monthStart;
+}
+
+// ── 実行の状態（FlowRun.steps の 1 ノード分・承認の積み荷。設計書 §5.4・§7.4） ─────────────
+
+/** `FlowRun.steps[nodeId]`。値（output）は保存時に切り詰める */
+export interface FlowStepState {
+  status: FlowStepStatus;
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: number;
+  /** ノードの出力（次のノードが参照するキーだけ） */
+  output?: Record<string, unknown>;
+  /** 利用者向けの文言だけ（上流の生のエラー本文は入れない） */
+  error?: { code: string; message: string };
+  attempts: number;
+  /** 空だった参照など（`{{a.b}}` の形だけ。値は入れない） */
+  warnings?: string[];
+  truncated?: boolean;
+  /** 外へ送るノードの手前の強制停止を人が通したか（K12。定義に確認ノードが無くても止める） */
+  gateApproved?: boolean;
+}
+
+/** 止まった実行の `Task.approvalData`（kind で agent_step と分ける） */
+export interface FlowStepApprovalData {
+  kind: 'flow_step';
+  runId: string;
+  nodeId: string;
+  label: string;
+  message: string;
+  preview: string;
+  /** これ以上の役割だけが承認できる */
+  minRole: UserRole;
+  /** true = 確認ノードではなく、外へ送るノードの手前の強制停止 */
+  gate: boolean;
+}
+
+export function isFlowRunFinal(status: string): boolean {
+  return (FLOW_RUN_FINAL_STATUSES as readonly string[]).includes(status);
 }

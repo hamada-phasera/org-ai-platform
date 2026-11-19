@@ -7,6 +7,7 @@ import { requireAuth } from '../middleware/auth';
 import { dispatchQueuedTask } from '../services/task-executor';
 import { resumeAgentTask, parseRunState } from '../services/step-runner';
 import { tracked } from '../services/lifecycle-core';
+import { approveFlowStep, parseFlowApproval, rejectFlowStep } from '../services/flows/queue';
 import { sendError } from '../utils/http-error';
 
 const createTaskSchema = z.object({
@@ -152,6 +153,16 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
 
     const body = approveTaskSchema.safeParse(request.body);
 
+    // 業務フローの確認（approvalData.kind === 'flow_step'）は FlowRun を条件付きで取り直して続きを 1 回だけ走らせる
+    // （docs/design/canvas-home.md §7.4）。承認画面での編集は受けない（人が見た中身をそのまま通す）
+    const flowApproval = parseFlowApproval(task.approvalData);
+    if (flowApproval) {
+      const res = await approveFlowStep(db, task, flowApproval, { userId: payload.sub, role: payload.role });
+      if (!res.ok) return sendError(reply, res.status, res.code, res.message);
+      const current = await db.task.findUnique({ where: { id: taskId } });
+      return reply.send({ success: true, data: current });
+    }
+
     // エージェントのステップ承認（approvalData.kind === 'agent_step'）は step-runner を再開する。
     // 従来の承認（SNS 下書き等）は QUEUED に戻して dispatchQueuedTask。
     let isAgentStep = false;
@@ -219,6 +230,14 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     }
     const body = rejectTaskSchema.safeParse(request.body ?? {});
     const reason = body.success ? body.data.reason : undefined;
+
+    const flowApproval = parseFlowApproval(task.approvalData);
+    if (flowApproval) {
+      const res = await rejectFlowStep(db, task, flowApproval, reason);
+      if (!res.ok) return sendError(reply, res.status, res.code, res.message);
+      const updated = await db.task.findUnique({ where: { id: taskId } });
+      return reply.send({ success: true, data: updated });
+    }
 
     // 承認待ちだったステップを REJECTED として executionResult に反映（履歴が読めるように）
     const state = parseRunState(task.executionResult);
