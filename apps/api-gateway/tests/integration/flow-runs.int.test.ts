@@ -126,4 +126,21 @@ describe.skipIf(!hasTestDatabase)('業務フローの実行（実 Postgres・bui
     expect(after.orgId).toBe(b.orgId);
     expect((after.error as { code: string }).code).toBe('INTERRUPTED');
   });
+
+  it('保持期間の掃除: プランの日数を過ぎた終わった実行だけ消える。組織ごとのプラン・承認待ちは残る（指摘 5）', async () => {
+    await db!.prisma.organization.update({ where: { id: b.orgId }, data: { plan: 'MAX' } });
+    const DAY = 86_400_000;
+    const mk = (orgId: string, requestId: string, status: string, days: number) =>
+      db!.prisma.flowRun.create({
+        data: { orgId, flowId: 'x', flowSlug: 'x', flowVersion: 1, trigger: 'manual', requestId, status, definition: {}, createdAt: new Date(Date.now() - days * DAY) },
+      });
+    const aOld = await mk(a.orgId, 'int-purge-a-old', 'SUCCEEDED', 61);
+    const aWait = await mk(a.orgId, 'int-purge-a-wait', 'WAITING_APPROVAL', 61);
+    const bMid = await mk(b.orgId, 'int-purge-b-mid', 'SUCCEEDED', 200);
+    const bOld = await mk(b.orgId, 'int-purge-b-old', 'FAILED', 400);
+    const res = await queue.purgeFlowHistory();
+    expect(res.deleted).toBe(2);
+    const left = (await db!.prisma.flowRun.findMany({ where: { id: { in: [aOld.id, aWait.id, bMid.id, bOld.id] } }, select: { id: true } })).map((r) => r.id);
+    expect(left.sort()).toEqual([aWait.id, bMid.id].sort());
+  });
 });

@@ -27,7 +27,9 @@ const { registerTenantContext } = await import('../../src/tenancy/context');
 const { clearMembershipCache } = await import('../../src/tenancy/membership-cache');
 const { flowRoutes } = await import('../../src/routes/flows');
 const { taskRoutes } = await import('../../src/routes/tasks');
-const { flowQueueTuning, recoverFlowRuns, activeFlowRuns } = await import('../../src/services/flows/queue');
+const { flowQueueTuning, recoverFlowRuns, activeFlowRuns, purgeFlowHistory, maybePurgeFlowHistory, resetFlowPurgeClock } = await import(
+  '../../src/services/flows/queue'
+);
 const { advanceRun } = await import('../../src/services/flows/runner');
 const { DATA_FENCE } = await import('../../src/services/flows/nodes/ai');
 const { jobs } = await import('../../src/services/lifecycle-core');
@@ -433,6 +435,37 @@ describe('回収（§7.2 の 6）', () => {
     await vi.waitFor(() => expect(runRow('q2').status).toBe('FAILED'));
     expect(runRow('q2').error.code).toBe('SUBSCRIPTION_REQUIRED');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('保持期間の掃除（§5.4・T20・レビュー指摘 5）', () => {
+  const base = { flowId: 'flow-p', flowSlug: 'proposal', flowVersion: 1, definition: {}, trigger: 'form' };
+  const DAY = 86_400_000;
+  const NOW = new Date('2026-11-19T03:00:00Z');
+  const ago = (d: number) => new Date(NOW.getTime() - d * DAY);
+
+  it('プランの日数（梅 60・松 365）を過ぎた終わった実行だけ消す。待ち・承認待ち・当月・他のプランの期間内は残す。Task は消さない', async () => {
+    (fake.rows('organization').find((o) => o.id === 'org-B') as any).plan = 'MAX';
+    fake.rows('task').push({ id: 't-old', orgId: 'org-A', status: 'DONE', taskType: 'flow' });
+    fake.rows('flowRun').push(
+      { ...base, id: 'a-old', orgId: 'org-A', requestId: 'a1', status: 'SUCCEEDED', createdAt: ago(61), taskId: 't-old' },
+      { ...base, id: 'a-old-fail', orgId: 'org-A', requestId: 'a2', status: 'FAILED', createdAt: ago(200) },
+      { ...base, id: 'a-keep', orgId: 'org-A', requestId: 'a3', status: 'SUCCEEDED', createdAt: ago(59) },
+      { ...base, id: 'a-wait', orgId: 'org-A', requestId: 'a4', status: 'WAITING_APPROVAL', createdAt: ago(90) },
+      { ...base, id: 'b-mid', orgId: 'org-B', requestId: 'b1', status: 'SUCCEEDED', createdAt: ago(200) },
+      { ...base, id: 'b-old', orgId: 'org-B', requestId: 'b2', status: 'CANCELED', createdAt: ago(366) },
+    );
+    const res = await purgeFlowHistory(NOW);
+    expect(res).toEqual({ orgs: 2, deleted: 3 });
+    expect(fake.rows('flowRun').map((r) => r.id).sort()).toEqual(['a-keep', 'a-wait', 'b-mid']);
+    expect(taskRow('t-old')).toBeDefined();
+  });
+
+  it('掃除は 1 日 1 回だけ（回収の tick ごとには走らない）', async () => {
+    resetFlowPurgeClock();
+    expect(await maybePurgeFlowHistory(NOW)).toBe(true);
+    expect(await maybePurgeFlowHistory(new Date(NOW.getTime() + 60_000))).toBe(false);
+    expect(await maybePurgeFlowHistory(new Date(NOW.getTime() + DAY))).toBe(true);
   });
 });
 

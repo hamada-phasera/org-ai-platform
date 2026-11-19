@@ -8,7 +8,8 @@
 //   終わるたびに次の QUEUED を取りに行く（pump）。
 // ■ 承認の再開も条件付き updateMany（WAITING_APPROVAL → RUNNING）を取れた 1 回だけ（§7.3）。
 // ■ 回収（60 秒ごと・起動直後）: 30 秒以上 QUEUED → 着手、心拍が 2 分途絶えた RUNNING → FAILED、7 日過ぎた承認待ち → EXPIRED。
-//   回収の「全組織の FlowRun を引く」所だけ素の prisma（architecture.test.ts の allowlist に理由付き）。以降は tenantDb。
+// ■ 掃除（1 日 1 回・回収と同じスイッチ）: プランの保持日数を過ぎた終わった実行を消す（当月は消さない）。
+//   回収と掃除の「全組織の FlowRun を引く」所だけ素の prisma（architecture.test.ts の allowlist に理由付き）。以降は tenantDb。
 // ■ 中断した実行は自動でやり直さない（K28）。
 
 import {
@@ -17,6 +18,7 @@ import {
   buildFlowRunInputSchema,
   findFlowPart,
   flowDefinitionSchema,
+  flowHistoryCutoff,
   flowLimitsOf,
   flowRunAdmission,
   hasRoleAtLeast,
@@ -441,13 +443,63 @@ export async function markFlowRunsInterrupted(runIds: string[]): Promise<number>
   return n;
 }
 
+// ── 保持期間の掃除（§5.4・T20・C5-3。レビュー指摘 5） ──────────────────
+
+/** 終わった実行だけ消す（待ち・実行中・承認待ちは保持期間を過ぎても回収の側で終わらせてから） */
+const FINISHED_RUN_STATUSES = ['SUCCEEDED', 'FAILED', 'CANCELED', 'EXPIRED'];
+
+/**
+ * プランの保持日数を過ぎた実行履歴（FlowRun）を消す。当月の行は消さない（月間件数の正本。`flowHistoryCutoff`）。
+ * 対になる Task（成果物）は消さない（成果物の一覧の持ち物で、消すかは利用者が決める）。
+ * 全組織から「最短の保持期間（梅）より古い行のある組織」だけを素の prisma で探し、消すのは組織ごとに tenantDb。
+ */
+export async function purgeFlowHistory(now: Date = new Date()): Promise<{ orgs: number; deleted: number }> {
+  const oldest = flowHistoryCutoff('STARTER', now);
+  const rows = await prisma.flowRun.findMany({
+    where: { createdAt: { lt: oldest }, status: { in: FINISHED_RUN_STATUSES } },
+    select: { orgId: true },
+    distinct: ['orgId'],
+    take: 500,
+  });
+  const orgs = [...new Set(rows.map((r) => r.orgId))];
+  let deleted = 0;
+  for (const orgId of orgs) {
+    deleted += await inTenant(orgId, async () => {
+      const db = tenantDb(orgId);
+      const org = await db.organization.findUnique({ where: { id: orgId }, select: { plan: true } });
+      const cutoff = flowHistoryCutoff(org?.plan ?? 'STARTER', now);
+      const res = await db.flowRun.deleteMany({ where: { createdAt: { lt: cutoff }, status: { in: FINISHED_RUN_STATUSES } } });
+      return res.count;
+    });
+  }
+  if (deleted > 0) log.info(`業務フローの履歴を保持期間で掃除: ${orgs.length} 組織・${deleted} 件`);
+  return { orgs: orgs.length, deleted };
+}
+
+/** 日次の掃除の間隔。回収の tick の中で、前回からこれだけ過ぎていれば 1 回（台ごと。消すのは冪等） */
+export const FLOW_PURGE_INTERVAL_MS = 24 * 60 * 60_000;
+let lastPurgeAt = 0;
+
+/** 回収の tick から呼ぶ。1 日 1 回だけ掃除する（テスト用に now を渡せる） */
+export async function maybePurgeFlowHistory(now: Date = new Date()): Promise<boolean> {
+  if (now.getTime() - lastPurgeAt < FLOW_PURGE_INTERVAL_MS) return false;
+  lastPurgeAt = now.getTime();
+  await purgeFlowHistory(now);
+  return true;
+}
+
+export function resetFlowPurgeClock(): void {
+  lastPurgeAt = 0;
+}
+
 let recoveryTimer: NodeJS.Timeout | null = null;
 
-/** 回収の tick（INTERNAL_SCHEDULER_ENABLED と同じスイッチ）。起動直後にも 1 回 */
+/** 回収の tick（INTERNAL_SCHEDULER_ENABLED と同じスイッチ）。起動直後にも 1 回。保持期間の掃除も 1 日 1 回ここで */
 export function startFlowRecovery(): void {
   if (!config.internalSchedulerEnabled || recoveryTimer) return;
   const tick = (): void => {
     void recoverFlowRuns().catch((e: unknown) => log.error(`回収に失敗: ${e instanceof Error ? e.name : 'error'}`));
+    void maybePurgeFlowHistory().catch((e: unknown) => log.error(`履歴の掃除に失敗: ${e instanceof Error ? e.name : 'error'}`));
   };
   tick();
   recoveryTimer = setInterval(tick, flowQueueTuning.tickMs);
