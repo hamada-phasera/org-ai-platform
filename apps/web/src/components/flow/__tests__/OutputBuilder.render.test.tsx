@@ -72,8 +72,11 @@ const PARTS = [
   { key: 'pdf_make', title: 'PDF', icon: 'file-text', via: 'n8n', input: [{ key: 'title', label: '題名', type: 'text', required: true }, { key: 'body', label: '本文', type: 'textarea', required: true }], output: [{ key: 'url', type: 'text' }], sideEffect: 'none', minPlan: 'PRO', allowed: true, connection: 'not_configured' },
 ];
 
+let lastQc: QueryClient | null = null;
+
 function renderFlow(path = '/flows/flow-1?view=output') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  lastQc = qc;
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[path]}>
@@ -170,5 +173,45 @@ describe('出力ビルダー（PC・ADMIN 以上）', () => {
     await screen.findByRole('tab', { name: '手順' });
     expect(screen.queryByRole('tab', { name: '出力' })).toBeNull();
     expect(calls.some((c) => c.key === 'GET /flows/flow-1/page')).toBe(false);
+  });
+});
+
+describe('出力ビルダー: 編集中の取り直し（レビュー #4）', () => {
+  const existing = (version: number, title: string) => {
+    const t = cloneFlowTemplate('proposal');
+    return pageInfo({
+      page: { slug: 'proposal', title, status: 'PUBLISHED', minRole: 'MEMBER', version, definition: defaultFlowPageDefinition(t.definition, '提案書') },
+      draft: null,
+    });
+  };
+
+  it('編集中に版が上がっても足したブロックを消さず 1 行出す。保存は編集を始めた版で送る', async () => {
+    routes['GET /flows/flow-1/page'] = () => ({ status: 200, data: { success: true, data: existing(2, '提案書') } });
+    renderFlow();
+    const palette = await screen.findByRole('navigation', { name: '部品' });
+    fireEvent.click(within(palette).getByRole('button', { name: '文章' }));
+    fireEvent.change(within(screen.getByLabelText('ブロックの設定')).getByLabelText('文字'), { target: { value: '残す' } });
+
+    routes['GET /flows/flow-1/page'] = () => ({ status: 200, data: { success: true, data: existing(3, '別の人の題名') } });
+    await lastQc!.invalidateQueries({ queryKey: ['flow-page', 'flow-1'] });
+    expect(await screen.findByText('他の人が更新しました')).toBeTruthy();
+    expect((screen.getByLabelText('題名') as HTMLInputElement).value).toBe('提案書');
+
+    routes['PUT /flows/flow-1/page'] = () => ({ status: 409, data: { success: false, error: { code: 'PAGE_CONFLICT', message: '別の人が先に保存しました。' } } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    expect(await screen.findByText('別の人が先に保存しました。')).toBeTruthy();
+    const body = calls.find((c) => c.key === 'PUT /flows/flow-1/page')!.body as any;
+    expect(body.baseVersion).toBe(2);
+    expect(body.definition.blocks.at(-1)).toEqual({ type: 'text', text: '残す' });
+  });
+
+  it('編集していなければ取り直した版に合わせる', async () => {
+    routes['GET /flows/flow-1/page'] = () => ({ status: 200, data: { success: true, data: existing(2, '提案書') } });
+    renderFlow();
+    await screen.findByRole('navigation', { name: '部品' });
+    routes['GET /flows/flow-1/page'] = () => ({ status: 200, data: { success: true, data: existing(3, '新しい題名') } });
+    await lastQc!.invalidateQueries({ queryKey: ['flow-page', 'flow-1'] });
+    await waitFor(() => expect((screen.getByLabelText('題名') as HTMLInputElement).value).toBe('新しい題名'));
+    expect(screen.queryByText('他の人が更新しました')).toBeNull();
   });
 });

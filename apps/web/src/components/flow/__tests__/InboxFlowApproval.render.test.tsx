@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { AxiosAdapter, AxiosResponse } from 'axios';
+import { AxiosError, type AxiosAdapter, type AxiosResponse } from 'axios';
 import type { FlowStepApprovalData } from '@org-ai/shared-types';
 import { api } from '../../../services/api';
 import InboxPage from '../../../pages/InboxPage';
@@ -18,9 +18,20 @@ const originalAdapter = api.defaults.adapter;
 const approval = (over: Partial<FlowStepApprovalData>): string =>
   JSON.stringify({ kind: 'flow_step', runId: 'run-1', nodeId: 'check', label: '確認', message: '提案書を確認してください', preview: '<script>alert(1)</script>本文', minRole: 'MEMBER', gate: false, ...over });
 
+/** 個別の応答（status と本文。Promise なら返すのを待たせる） */
+type Reply = { status: number; data: unknown };
+let overrides: Record<string, () => Reply | Promise<Reply>> = {};
+
 const adapter: AxiosAdapter = async (config) => {
   const key = `${(config.method ?? 'get').toUpperCase()} ${config.url}`;
   calls.push({ key, body: config.data ? JSON.parse(config.data as string) : undefined });
+  const o = overrides[key];
+  if (o) {
+    const { status, data } = await o();
+    const res: AxiosResponse = { data, status, statusText: String(status), headers: {}, config };
+    if (status >= 400) throw new AxiosError(`HTTP ${status}`, 'ERR_BAD_REQUEST', config, null, res);
+    return res;
+  }
   let data: unknown = { success: true, data: [] };
   if (key === 'GET /tasks?status=PENDING_APPROVAL&taskType=flow') {
     data = {
@@ -52,6 +63,7 @@ function renderInbox(path = '/inbox?tab=approvals') {
 beforeEach(() => {
   api.defaults.adapter = adapter;
   calls.length = 0;
+  overrides = {};
 });
 afterEach(() => {
   cleanup();
@@ -87,5 +99,53 @@ describe('受信: 業務フローの承認', () => {
     renderInbox('/inbox');
     const tab = await screen.findByRole('tab', { name: /エージェント承認/ });
     await waitFor(() => expect(tab.textContent).toContain('2'));
+  });
+});
+
+describe('受信: 業務フローの承認の表示（レビュー #13・#14）', () => {
+  it('カードの中のプレビューは枠なし（カードを入れ子にしない）', async () => {
+    renderInbox();
+    const check = await screen.findByRole('group', { name: '実行プレビュー: 確認' });
+    expect(check.className).not.toMatch(/shadow|rounded/);
+  });
+
+  it('失敗は gateway の文言をそのカードに 1 行（402 閲覧のみ・却下の失敗も）', async () => {
+    overrides['POST /tasks/t-check/approve'] = () => ({ status: 402, data: { success: false, error: { code: 'SUBSCRIPTION_REQUIRED', message: '閲覧のみです。契約すると再開できます' } } });
+    overrides['POST /tasks/t-gate/reject'] = () => ({ status: 409, data: { success: false, error: { code: 'CONFLICT', message: 'すでに処理されています' } } });
+    renderInbox();
+    const check = await screen.findByRole('group', { name: '実行プレビュー: 確認' });
+    fireEvent.click(within(check).getByRole('button', { name: '実行する' }));
+    expect(await screen.findByText('閲覧のみです。契約すると再開できます')).toBeTruthy();
+    fireEvent.click(within(screen.getByRole('group', { name: '実行プレビュー: Slack' })).getByRole('button', { name: 'やめる' }));
+    expect(await screen.findByText('すでに処理されています')).toBeTruthy();
+    // 1 つ目の失敗はそのまま残る（別のカードを押しても消えない）
+    expect(screen.getByText('閲覧のみです。契約すると再開できます')).toBeTruthy();
+  });
+
+  it('処理中の印はカードごと（別のカードを押しても外れない）。却下も処理中は押せない', async () => {
+    let release: (r: Reply) => void = () => {};
+    overrides['POST /tasks/t-check/approve'] = () => new Promise<Reply>((res) => (release = res));
+    overrides['POST /tasks/t-gate/reject'] = () => new Promise<Reply>(() => {});
+    renderInbox();
+    const check = await screen.findByRole('group', { name: '実行プレビュー: 確認' });
+    fireEvent.click(within(check).getByRole('button', { name: '実行する' }));
+    const gate = screen.getByRole('group', { name: '実行プレビュー: Slack' });
+    fireEvent.click(within(gate).getByRole('button', { name: 'やめる' }));
+    await waitFor(() => expect((within(gate).getByRole('button', { name: 'やめる' }) as HTMLButtonElement).disabled).toBe(true));
+    expect((within(check).getByRole('button', { name: 'やめる' }) as HTMLButtonElement).disabled).toBe(true);
+    // 二重押ししても 1 回だけ
+    fireEvent.click(within(gate).getByRole('button', { name: 'やめる' }));
+    expect(calls.filter((c) => c.key === 'POST /tasks/t-gate/reject')).toHaveLength(1);
+    release({ status: 200, data: { success: true, data: {} } });
+    await waitFor(() => expect((within(check).getByRole('button', { name: 'やめる' }) as HTMLButtonElement).disabled).toBe(false));
+    expect((within(gate).getByRole('button', { name: 'やめる' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('フローの承認の取得に失敗したら「承認待ちはありません」ではなくエラーを出す', async () => {
+    overrides['GET /tasks?status=PENDING_APPROVAL&taskType=flow'] = () => ({ status: 500, data: { success: false, error: { code: 'INTERNAL', message: 'x' } } });
+    renderInbox();
+    await waitFor(() => expect(calls.some((c) => c.key === 'GET /tasks?status=PENDING_APPROVAL&taskType=flow')).toBe(true));
+    await waitFor(() => expect(screen.queryByText('承認待ちはありません')).toBeNull());
+    expect(await screen.findByRole('button', { name: /再試行|もう一度/ })).toBeTruthy();
   });
 });

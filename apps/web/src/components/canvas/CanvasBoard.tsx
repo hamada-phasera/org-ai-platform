@@ -17,6 +17,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Maximize2, Minus, Plus } from 'lucide-react';
 import type { CanvasLayout } from '@org-ai/shared-types';
 import { Button } from '../ui';
+import { READ_ONLY_REASON, useReadOnlyOrg } from '../../hooks/useReadOnlyOrg';
 import { usePrefersReducedMotion } from '../motion/springs';
 import { AddMenu } from './AddMenu';
 import { HomeNode, type HomeNodeData } from './HomeNode';
@@ -98,6 +99,12 @@ function FitOnCount({ count }: { count: number }) {
 function Board({ data, approvalsCount, canEdit, canCreate, onOpen, pendingId = null }: Props) {
   const qc = useQueryClient();
   const [draft, setDraft] = useState<CanvasLayout | null>(null);
+  /**
+   * 編集を始めた時点の配置と版（楽観ロックの基準）。保存はこの版を送る。
+   * 編集中に取り直しで `data.version` だけ新しくなっても、古い配置で他人の保存を上書きしない（409 になる）。
+   */
+  const [base, setBase] = useState<{ layout: CanvasLayout; version: number } | null>(null);
+  const readOnly = useReadOnlyOrg();
   const [selectedNodes, setSelectedNodes] = useState<string[]>([]);
   const [selectedEdges, setSelectedEdges] = useState<string[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -220,11 +227,13 @@ function Board({ data, approvalsCount, canEdit, canCreate, onOpen, pendingId = n
     setMessage(null);
     setSelectedNodes([]);
     setSelectedEdges([]);
+    setBase({ layout: data.layout, version: data.version });
     setDraft(JSON.parse(JSON.stringify(data.layout)) as CanvasLayout);
   };
 
   const cancelEdit = () => {
     setDraft(null);
+    setBase(null);
     setMenuOpen(false);
     setMessage(null);
     setSelectedNodes([]);
@@ -259,13 +268,14 @@ function Board({ data, approvalsCount, canEdit, canCreate, onOpen, pendingId = n
   };
 
   const save = async () => {
-    if (!draft || saving) return;
+    if (!draft || !base || saving) return;
     setSaving(true);
     setMessage(null);
     try {
-      await saveCanvasLayout(draft, data.version);
+      await saveCanvasLayout(draft, base.version);
       await qc.invalidateQueries({ queryKey: CANVAS_QUERY_KEY });
       setDraft(null);
+      setBase(null);
       setSelectedNodes([]);
       setSelectedEdges([]);
     } catch (e) {
@@ -290,7 +300,7 @@ function Board({ data, approvalsCount, canEdit, canCreate, onOpen, pendingId = n
     e.currentTarget.querySelector<HTMLElement>(`[data-canvas-node="${CSS.escape(nextId)}"]`)?.focus();
   };
 
-  const dirty = draft ? layoutChanged(draft, data.layout) : false;
+  const dirty = draft ? layoutChanged(draft, base?.layout ?? data.layout) : false;
   const hasSelection = selectedNodes.length > 0 || selectedEdges.length > 0;
 
   return (
@@ -316,7 +326,14 @@ function Board({ data, approvalsCount, canEdit, canCreate, onOpen, pendingId = n
               <Button size="sm" variant="ghost" onClick={cancelEdit} disabled={saving}>
                 やめる
               </Button>
-              <Button size="sm" variant={dirty ? 'primary' : 'secondary'} onClick={() => void save()} loading={saving} disabled={!dirty}>
+              <Button
+                size="sm"
+                variant={dirty ? 'primary' : 'secondary'}
+                onClick={() => void save()}
+                loading={saving}
+                disabled={!dirty || readOnly}
+                title={readOnly ? READ_ONLY_REASON : undefined}
+              >
                 保存
               </Button>
               {menuOpen && draft && (
@@ -325,7 +342,13 @@ function Board({ data, approvalsCount, canEdit, canCreate, onOpen, pendingId = n
             </>
           ) : (
             canEdit && (
-              <Button size="sm" variant="secondary" onClick={startEdit}>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={startEdit}
+                disabled={readOnly}
+                title={readOnly ? READ_ONLY_REASON : undefined}
+              >
                 編集
               </Button>
             )

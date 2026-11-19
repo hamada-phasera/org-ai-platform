@@ -45,8 +45,8 @@ export default function FlowPage() {
         </div>
       }
     >
-      {/* 保存のたびに版が変わる。版ごとに作り直して、編集中の下書きを保存済みの定義から始め直す */}
-      <FlowEditor key={`${flow.data.id}:${flow.data.version}`} flow={flow.data} parts={partList} />
+      {/* 版では作り直さない（編集中に他の人の保存・取り直しが来ても未保存の編集を消さない）。合わせ方は FlowEditor の中 */}
+      <FlowEditor key={flow.data.id} flow={flow.data} parts={partList} />
     </Suspense>
   );
 }

@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Play } from 'lucide-react';
 import type { FlowPartSpec } from '@org-ai/shared-types';
 import { Button } from '../ui';
+import { READ_ONLY_REASON, useReadOnlyOrg } from '../../hooks/useReadOnlyOrg';
 import { LiquidTabs } from '../motion/LiquidTabs';
 import { PageIconGlyph } from '../canvas/PageIconGlyph';
 import { RunForm, fieldErrorsOf } from './RunForm';
@@ -28,7 +29,9 @@ export function FlowMobile({ flow, parts }: { flow: FlowDetail; parts: PartInfo[
   const runs = useFlowRuns(flow.id, tab === 'history');
   const action = useRunAction(def, runner);
   const [toggleMsg, setToggleMsg] = useState<string | null>(null);
-  const blocked = runBlockReason({ dirty: false, enabled: flow.enabled, usage: flow.usage, valid: flow.valid });
+  const [toggling, setToggling] = useState(false);
+  const readOnly = useReadOnlyOrg();
+  const blocked = readOnly ? READ_ONLY_REASON : runBlockReason({ dirty: false, enabled: flow.enabled, usage: flow.usage, valid: flow.valid });
   const partTitle = (key: string) => (parts as Pick<FlowPartSpec, 'key' | 'title'>[]).find((p) => p.key === key)?.title ?? null;
 
   const saveText = async (change: StepTextChange): Promise<string | null> => {
@@ -42,12 +45,16 @@ export function FlowMobile({ flow, parts }: { flow: FlowDetail; parts: PartInfo[
   };
 
   const toggle = async () => {
+    if (toggling || readOnly) return;
     setToggleMsg(null);
+    setToggling(true);
     try {
       await patchFlow(flow.id, { enabled: !flow.enabled });
       await qc.invalidateQueries({ queryKey: flowKey(flow.id) });
     } catch (e) {
       setToggleMsg(apiErrorOf(e, '変更できませんでした。').message);
+    } finally {
+      setToggling(false);
     }
   };
 
@@ -89,7 +96,14 @@ export function FlowMobile({ flow, parts }: { flow: FlowDetail; parts: PartInfo[
               <StepList definition={def} steps={runner.run?.steps ?? null} partTitle={partTitle} canEdit={flow.canEdit} onSaveText={saveText} />
               {flow.canEdit && (
                 <label className="mt-4 flex min-h-11 items-center gap-3 text-sm font-semibold text-primary">
-                  <input type="checkbox" className="h-5 w-5 accent-[var(--action)]" checked={flow.enabled} onChange={() => void toggle()} />
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5 accent-[var(--action)]"
+                    checked={flow.enabled}
+                    disabled={toggling || readOnly}
+                    aria-busy={toggling || undefined}
+                    onChange={() => void toggle()}
+                  />
                   有効
                 </label>
               )}

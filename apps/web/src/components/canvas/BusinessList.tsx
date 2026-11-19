@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { ChevronRight, Loader2 } from 'lucide-react';
 import { Badge } from '../ui';
 import { PageIconGlyph } from './PageIconGlyph';
@@ -20,16 +21,23 @@ interface Props {
  * ⚠️ `@xyflow/react` を import しない（スマホで読み込まない。K20）。
  */
 export function BusinessList({ rows, approvalsCount, canCreate, onOpen, pendingId = null }: Props) {
+  const idBase = useId();
   if (rows.length === 0) {
     return <p className="py-4 text-sm text-secondary">業務はまだありません</p>;
   }
   return (
     <ul className="divide-y divide-hairline border-y border-border" aria-label="業務">
-      {rows.map((row) => {
+      {rows.map((row, i) => {
         const enabled = canOpenTarget(row.target, canCreate);
         const next = nextText(row);
         const count = isApprovalsTarget(row.target) ? approvalsCount : 0;
         const pending = pendingId === row.id;
+        const uncreated = isUncreated(row.target);
+        // 名前は「〇〇を開く」のまま（K68）。補足（次・未作成・承認待ち）は aria-describedby で読ませる
+        const rid = `${idBase}-${i}`;
+        const describedBy = [next && `${rid}-next`, uncreated && `${rid}-new`, count > 0 && `${rid}-count`]
+          .filter(Boolean)
+          .join(' ');
         return (
           <li key={row.id}>
             <button
@@ -38,6 +46,7 @@ export function BusinessList({ rows, approvalsCount, canCreate, onOpen, pendingI
               aria-disabled={!enabled || undefined}
               aria-busy={pending || undefined}
               aria-label={`${row.label}を開く`}
+              aria-describedby={describedBy || undefined}
               className={`flex min-h-14 w-full items-center gap-3 px-1 py-2.5 text-left transition-colors duration-fast ${
                 enabled ? 'hover:bg-sunken' : 'cursor-default'
               }`}
@@ -45,11 +54,21 @@ export function BusinessList({ rows, approvalsCount, canCreate, onOpen, pendingI
               <PageIconGlyph name={row.icon} size={18} strokeWidth={2} className="shrink-0 text-secondary" aria-hidden="true" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-body font-bold text-primary">{row.label}</span>
-                {next && <span className="mt-0.5 block truncate text-xs text-text-muted">次: {next}</span>}
+                {next && <span id={`${rid}-next`} className="mt-0.5 block truncate text-xs text-text-muted">
+                    次: {next}
+                  </span>}
               </span>
-              {isUncreated(row.target) && <Badge size="xs">未作成</Badge>}
+              {uncreated && (
+                <span id={`${rid}-new`}>
+                  <Badge size="xs">未作成</Badge>
+                </span>
+              )}
               {count > 0 && (
-                <span className="shrink-0 font-mono text-sm font-bold text-warning tabular" aria-label={`承認待ち ${count}件`}>
+                <span
+                  id={`${rid}-count`}
+                  className="shrink-0 font-mono text-sm font-bold text-warning tabular"
+                  aria-label={`承認待ち ${count}件`}
+                >
                   {count}
                 </span>
               )}

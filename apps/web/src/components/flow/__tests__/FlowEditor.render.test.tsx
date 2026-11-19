@@ -11,6 +11,7 @@ import { AxiosError, type AxiosAdapter, type AxiosResponse, type InternalAxiosRe
 import { cloneFlowTemplate, type UserRole } from '@org-ai/shared-types';
 import { api } from '../../../services/api';
 import { useAuthStore } from '../../../store/authStore';
+import { usePlanNoticeStore } from '../../../store/planNoticeStore';
 import FlowPage from '../../../pages/FlowPage';
 
 beforeAll(() => {
@@ -77,8 +78,11 @@ const PARTS = [
   { key: 'pdf_make', title: 'PDF', icon: 'file-text', via: 'n8n', input: [{ key: 'title', label: '題名', type: 'text', required: true }, { key: 'body', label: '本文', type: 'textarea', required: true }], output: [{ key: 'url', type: 'text' }], sideEffect: 'none', minPlan: 'PRO', allowed: true, connection: 'not_configured' },
 ];
 
+let lastQc: QueryClient | null = null;
+
 function renderFlow() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  lastQc = qc;
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={['/flows/flow-1']}>
@@ -113,7 +117,11 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   api.defaults.adapter = originalAdapter;
+  usePlanNoticeStore.getState().reset();
 });
+
+/** 取り直し（フォーカス・他の人の保存）を起こす */
+const refetchFlow = () => lastQc!.invalidateQueries({ queryKey: ['flow', 'flow-1'] });
 
 describe('フロー画面（PC）', () => {
   it('キャンバスにノードが出て、押すと右パネルにその型の設定', async () => {
@@ -224,5 +232,81 @@ describe('フロー画面（PC）', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '実行' }));
     expect(await node(/^確認（承認待ち/)).toBeTruthy();
     expect(await node(/^下書き（完了/)).toBeTruthy();
+  });
+});
+
+describe('フロー画面（PC）: 編集中の取り直し（レビュー #4）', () => {
+  it('編集中に版が上がっても下書きを消さず 1 行出す。保存は編集を始めた版で送り、409 を出す', async () => {
+    renderFlow();
+    fireEvent.click(await node(/^下書き/));
+    fireEvent.change(screen.getByLabelText('指示'), { target: { value: '短く' } });
+    routes['GET /flows/flow-1'] = () => ({ status: 200, data: { success: true, data: flowData({ version: 4, name: '提案書（別の人）' }) } });
+    await refetchFlow();
+    expect(await screen.findByText('他の人が更新しました')).toBeTruthy();
+    expect((screen.getByLabelText('指示') as HTMLInputElement).value).toBe('短く');
+    expect((screen.getByLabelText('フロー名') as HTMLInputElement).value).toBe('提案書');
+
+    routes['PUT /flows/flow-1'] = () => ({ status: 409, data: { success: false, error: { code: 'FLOW_CONFLICT', message: '別の人が先に保存しました。' } } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    expect(await screen.findByText('別の人が先に保存しました。')).toBeTruthy();
+    const put = calls.find((c) => c.key === 'PUT /flows/flow-1')?.body as { baseVersion: number };
+    expect(put.baseVersion).toBe(3);
+  });
+
+  it('編集していなければ、取り直したフローに合わせる（1 行は出さない）', async () => {
+    renderFlow();
+    await node(/^下書き/);
+    routes['GET /flows/flow-1'] = () => ({ status: 200, data: { success: true, data: flowData({ version: 4, name: '提案書２' }) } });
+    await refetchFlow();
+    await waitFor(() => expect((screen.getByLabelText('フロー名') as HTMLInputElement).value).toBe('提案書２'));
+    expect(screen.queryByText('他の人が更新しました')).toBeNull();
+  });
+
+  it('自分の保存の後は新しい版に合わせ、次の保存はその版で送る', async () => {
+    renderFlow();
+    fireEvent.click(await node(/^下書き/));
+    fireEvent.change(screen.getByLabelText('指示'), { target: { value: '短く' } });
+    const saved = cloneFlowTemplate('proposal');
+    const draft = saved.definition.nodes.find((n) => n.id === 'draft') as { config: Record<string, unknown> };
+    draft.config.instruction = '短く';
+    routes['GET /flows/flow-1'] = () => ({ status: 200, data: { success: true, data: flowData({ version: 4, definition: saved.definition }) } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(calls.filter((c) => c.key === 'GET /flows/flow-1').length).toBeGreaterThan(1));
+    await waitFor(() => expect((screen.getByRole('button', { name: '保存' }) as HTMLButtonElement).disabled).toBe(true));
+    expect(screen.queryByText('他の人が更新しました')).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('指示'), { target: { value: 'もっと短く' } });
+    calls.length = 0;
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(calls.some((c) => c.key === 'PUT /flows/flow-1')).toBe(true));
+    expect((calls.find((c) => c.key === 'PUT /flows/flow-1')?.body as { baseVersion: number }).baseVersion).toBe(4);
+  });
+
+  it('未保存のまま離れるときはブラウザの確認を出す（保存済みなら出さない）', async () => {
+    renderFlow();
+    fireEvent.click(await node(/^下書き/));
+    const clean = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(clean);
+    expect(clean.defaultPrevented).toBe(false);
+    fireEvent.change(screen.getByLabelText('指示'), { target: { value: '短く' } });
+    const dirty = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(dirty);
+    expect(dirty.defaultPrevented).toBe(true);
+  });
+});
+
+describe('フロー画面（PC）: 閲覧のみ（レビュー #15）', () => {
+  it('402 を受けた組織では 保存・実行 を押せず、理由を添える', async () => {
+    usePlanNoticeStore.getState().markReadOnly('org-1');
+    routes['GET /billing'] = () => ({ status: 200, data: { success: true, data: { configured: true, subscriptionStatus: 'canceled', trialEndsAt: null } } });
+    renderFlow();
+    fireEvent.click(await node(/^下書き/));
+    fireEvent.change(screen.getByLabelText('指示'), { target: { value: '短く' } });
+    const save = screen.getByRole('button', { name: '保存' }) as HTMLButtonElement;
+    const run = screen.getByRole('button', { name: '実行' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    expect(save.title).toBe('閲覧のみです');
+    expect(run.disabled).toBe(true);
+    expect(screen.getByText('閲覧のみです')).toBeTruthy();
   });
 });

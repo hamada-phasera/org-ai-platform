@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
@@ -67,6 +67,8 @@ export function useOpenCanvasNode() {
   const qc = useQueryClient();
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<OpenError | null>(null);
+  /** 二重押しの印。state は古いクロージャから見えないので ref で持つ */
+  const inFlight = useRef(false);
 
   const open = useCallback(
     async (row: Pick<BusinessRow, 'id' | 'target'>, canCreate: boolean) => {
@@ -79,7 +81,8 @@ export function useOpenCanvasNode() {
         setError({ nodeId: row.id, code: null, message: 'まだ用意されていません' });
         return;
       }
-      if (pendingId) return;
+      if (inFlight.current) return;
+      inFlight.current = true;
       setPendingId(row.id);
       try {
         const res = await api.post('/flows/from-template', { templateKey: t.templateKey, canvasNodeId: row.id });
@@ -90,10 +93,11 @@ export function useOpenCanvasNode() {
         const err = apiErrorOf(e, '作成できませんでした。もう一度お試しください。');
         setError({ nodeId: row.id, ...err });
       } finally {
+        inFlight.current = false;
         setPendingId(null);
       }
     },
-    [navigate, qc, pendingId],
+    [navigate, qc],
   );
 
   return { open, pendingId, error, clearError: () => setError(null) };

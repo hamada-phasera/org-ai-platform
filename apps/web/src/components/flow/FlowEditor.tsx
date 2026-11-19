@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   Background,
@@ -17,6 +17,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Play, Plus } from 'lucide-react';
 import { FLOW_PARTS, flowDefinitionSchema, topoOrder, type FlowDefinition, type FlowNode, type FlowNodeType } from '@org-ai/shared-types';
 import { Button, Spinner } from '../ui';
+import { READ_ONLY_REASON, useReadOnlyOrg } from '../../hooks/useReadOnlyOrg';
 
 /* 出力ビルダー（@dnd-kit とブロックの描画）は「出力」を開いたときだけ読む */
 const OutputBuilder = lazy(() => import('./OutputBuilder'));
@@ -97,13 +98,35 @@ export function validateDefinition(def: FlowDefinition): FlowIssueLike[] {
   return r.success ? [] : r.error.issues.map((i) => ({ path: i.path as (string | number)[], message: i.message }));
 }
 
+function savedOf(flow: FlowDetail) {
+  const def = normalizeDefinition(flow.definition);
+  return { def, layout: withPositions(def, normalizeLayout(flow.layout)), name: flow.name };
+}
+
+/** 編集する項目（定義・配置・名前・役割）が、取り直したフローで変わったか */
+export function editablesChanged(a: FlowDetail, b: FlowDetail): boolean {
+  if (a === b) return false;
+  return (
+    a.version !== b.version ||
+    a.name !== b.name ||
+    a.minRole !== b.minRole ||
+    JSON.stringify(a.definition) !== JSON.stringify(b.definition) ||
+    JSON.stringify(a.layout ?? null) !== JSON.stringify(b.layout ?? null)
+  );
+}
+
 function Editor({ flow, parts }: Props) {
   const qc = useQueryClient();
-  const saved = useMemo(() => {
-    const def = normalizeDefinition(flow.definition);
-    return { def, layout: withPositions(def, normalizeLayout(flow.layout)), name: flow.name };
-  }, [flow]);
+  /**
+   * 編集の基準にしたフロー（楽観ロックの版もこれ）。取り直しで外から変わっても、編集中（dirty）は差し替えない
+   * （作り直して未保存の編集を消さない。§3.4）。代わりに 1 行出し、保存すれば gateway が 409 を返す。
+   * 未編集のとき・自分の保存の直後は、取り直したものに合わせる。
+   */
+  const [base, setBase] = useState(flow);
+  const [ownSave, setOwnSave] = useState(false);
+  const saved = useMemo(() => savedOf(base), [base]);
   const [work, setWork] = useState(saved);
+  const readOnly = useReadOnlyOrg();
   const [selected, setSelected] = useState<string | null>(null);
   const [params, setParams] = useSearchParams();
   // 出力ビルダーは ADMIN 以上・PC だけ（§3.1。`/flows/:id?view=output`）
@@ -126,6 +149,29 @@ function Editor({ flow, parts }: Props) {
   const [enabledBusy, setEnabledBusy] = useState(false);
   const [minRole, setMinRole] = useState(flow.minRole);
 
+  const dirty = flowChanged(work, saved) || minRole !== base.minRole;
+  const external = editablesChanged(base, flow);
+  if (external && (ownSave || !dirty)) {
+    // 描画中の state 調整（props の変化に合わせる React の作法）。条件付きなので 1 回で収まる
+    setBase(flow);
+    setWork(savedOf(flow));
+    setMinRole(flow.minRole);
+    setOwnSave(false);
+    setServerIssues([]);
+  }
+  const outdated = external && !ownSave && dirty;
+
+  // 未保存のまま離れる（再読み込み・タブを閉じる）ときはブラウザの確認を出す
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [dirty]);
+
   const runner = useFlowRunner(flow.id);
   const runs = useFlowRuns(flow.id, tab === 'history');
   const action = useRunAction(saved.def, runner);
@@ -133,10 +179,9 @@ function Editor({ flow, parts }: Props) {
   // 出力キー・差し込みの候補はコードのカタログ（gateway の検証と同じもの）。表示用の接続状態は parts（API）
   const partSpecs = FLOW_PARTS;
 
-  const dirty = flowChanged(work, saved) || minRole !== flow.minRole;
   const clientIssues = useMemo(() => (checked ? validateDefinition(work.def) : []), [checked, work.def]);
   const issues = useMemo(() => issuesByNode(work.def, [...clientIssues, ...serverIssues]), [work.def, clientIssues, serverIssues]);
-  const blocked = runBlockReason({ dirty, enabled: flow.enabled, usage: flow.usage, valid: flow.valid });
+  const blocked = readOnly ? READ_ONLY_REASON : runBlockReason({ dirty, enabled: flow.enabled, usage: flow.usage, valid: flow.valid });
   const steps = runner.run?.steps ?? null;
   const partOf = useCallback((key: string) => parts.find((p) => p.key === key), [parts]);
 
@@ -270,7 +315,7 @@ function Editor({ flow, parts }: Props) {
   };
 
   const save = async () => {
-    if (!dirty || saving) return;
+    if (!dirty || saving || readOnly) return;
     setMessage(null);
     setChecked(true);
     const found = validateDefinition(work.def);
@@ -285,15 +330,17 @@ function Editor({ flow, parts }: Props) {
     }
     setSaving(true);
     try {
-      await saveFlow(flow.id, {
+      const res = await saveFlow(flow.id, {
         definition: work.def,
         layout: round(work.layout),
-        baseVersion: flow.version,
-        ...(name !== flow.name ? { name } : {}),
-        ...(minRole !== flow.minRole ? { minRole } : {}),
+        baseVersion: base.version,
+        ...(name !== base.name ? { name } : {}),
+        ...(minRole !== base.minRole ? { minRole } : {}),
       });
       setServerIssues([]);
       setWork((w) => ({ ...w, name, layout: round(w.layout) }));
+      // 取り直した定義（自分の保存）は、編集中の印に関係なく基準にする
+      if (res.changed) setOwnSave(true);
       await qc.invalidateQueries({ queryKey: flowKey(flow.id) });
     } catch (e) {
       const err = apiErrorOf(e, '保存できませんでした。もう一度お試しください。');
@@ -371,7 +418,14 @@ function Editor({ flow, parts }: Props) {
           />
         </div>
         {canEdit && tab !== 'output' && (
-          <Button size="sm" variant={dirty ? 'primary' : 'secondary'} disabled={!dirty} loading={saving} onClick={() => void save()}>
+          <Button
+            size="sm"
+            variant={dirty ? 'primary' : 'secondary'}
+            disabled={!dirty || readOnly}
+            title={readOnly ? READ_ONLY_REASON : undefined}
+            loading={saving}
+            onClick={() => void save()}
+          >
             保存
           </Button>
         )}
@@ -384,6 +438,7 @@ function Editor({ flow, parts }: Props) {
 
       <div className="px-5" aria-live="polite">
         {(message || issues.general[0]) && <p className="pt-2 text-sm text-danger">{message ?? issues.general[0]}</p>}
+        {outdated && !message && <p className="pt-2 text-sm text-warning">他の人が更新しました</p>}
         {!message && blocked && <p className="pt-2 text-sm text-text-muted">{blocked}</p>}
         <RunStatusLine run={runner.run} error={action.formOpen ? null : runner.error} onClear={runner.clear} />
       </div>

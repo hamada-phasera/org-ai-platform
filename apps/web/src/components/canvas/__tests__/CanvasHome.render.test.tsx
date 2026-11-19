@@ -129,6 +129,20 @@ describe('ホーム（スマホ幅）', () => {
     expect(body).toEqual({ templateKey: 'proposal', canvasNodeId: 'proposal' });
   });
 
+  it('ADMIN: 未作成を素早く 2 回押しても作るのは 1 回（レビュー #17）', async () => {
+    signIn('ADMIN');
+    routes['POST /flows/from-template'] = () => ({
+      status: 201,
+      data: { success: true, data: { flow: { id: 'flow_1' }, created: true, canvasUpdated: true } },
+    });
+    renderHome();
+    const row = await screen.findByRole('button', { name: '提案書を開く' });
+    fireEvent.click(row);
+    fireEvent.click(row);
+    expect(await screen.findByText('flow-page')).toBeTruthy();
+    expect(calls.filter((c) => c === 'POST /flows/from-template')).toHaveLength(1);
+  });
+
   it('MEMBER: 未作成は押せない（aria-disabled）。押しても作らず 1 行だけ', async () => {
     signIn('MEMBER');
     renderHome();
@@ -194,6 +208,22 @@ describe('BusinessList', () => {
     render(<BusinessList rows={canvasToList(defaultCanvasLayout(), [])} approvalsCount={0} canCreate onOpen={() => {}} />);
     expect(within(screen.getByRole('button', { name: '提案書を開く' })).getByText('次: 見積・承認')).toBeTruthy();
     expect(within(screen.getByRole('button', { name: '数字を開く' })).queryByText(/^次:/)).toBeNull();
+  });
+
+  it('名前は「〇〇を開く」のまま、次・未作成・承認待ちは説明として読まれる（レビュー #16）', () => {
+    render(<BusinessList rows={canvasToList(defaultCanvasLayout(), [])} approvalsCount={3} canCreate onOpen={() => {}} />);
+    const description = (el: HTMLElement) =>
+      (el.getAttribute('aria-describedby') ?? '')
+        .split(' ')
+        .filter(Boolean)
+        .map((id) => {
+          const ref = document.getElementById(id);
+          return ref?.getAttribute('aria-label') ?? ref?.textContent ?? '';
+        })
+        .join(' ');
+    expect(description(screen.getByRole('button', { name: '提案書を開く' }))).toBe('次: 見積・承認 未作成');
+    expect(description(screen.getByRole('button', { name: '承認を開く' }))).toContain('承認待ち 3件');
+    expect(screen.getByRole('button', { name: '数字を開く' }).getAttribute('aria-describedby')).toBeNull();
   });
 
   it('未作成の印はテンプレートのノードだけ', () => {

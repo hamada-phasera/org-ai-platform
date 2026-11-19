@@ -8,6 +8,7 @@ import { api } from '../services/api';
 import { Button, EmptyState, ErrorState, Input, PageHeader, SkeletonList } from '../components/ui';
 import { LiquidTabs } from '../components/motion/LiquidTabs';
 import { RunPreviewRow } from '../components/exec-kernel/RunPreviewRow';
+import { apiErrorOf } from '../components/canvas/canvasApi';
 
 /**
  * 受信（LINE受信箱 + エージェント承認）。
@@ -168,6 +169,35 @@ export default function InboxPage() {
     onSuccess: invalidateApprovals,
   });
 
+  /*
+   * フローの承認・却下はカードごとに処理中と失敗を持つ（mutation を共有すると、別のカードを押したとき
+   * 処理中の印が外れる）。失敗は gateway の文言（402 閲覧のみ・409 処理済み など）をそのまま 1 行出す。
+   */
+  const [flowBusy, setFlowBusy] = useState<ReadonlySet<string>>(() => new Set());
+  const [flowErrors, setFlowErrors] = useState<Record<string, string>>({});
+  const actOnFlow = async (id: string, kind: 'approve' | 'reject') => {
+    if (flowBusy.has(id)) return;
+    setFlowBusy((cur) => new Set(cur).add(id));
+    setFlowErrors((cur) => {
+      const next = { ...cur };
+      delete next[id];
+      return next;
+    });
+    try {
+      await api.post(`/tasks/${id}/${kind}`, {});
+      invalidateApprovals();
+    } catch (e) {
+      const fallback = kind === 'approve' ? '承認できませんでした' : '却下できませんでした';
+      setFlowErrors((cur) => ({ ...cur, [id]: apiErrorOf(e, fallback).message }));
+    } finally {
+      setFlowBusy((cur) => {
+        const next = new Set(cur);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
   const approveMut = useMutation({
     mutationFn: ({ id, replyText }: { id: string; replyText: string }) =>
       api.post(`/inbox/messages/${id}/approve`, { replyText }),
@@ -253,8 +283,13 @@ export default function InboxPage() {
       {view === 'AGENT' ? (
         approvalsQ.isLoading || flowApprovalsQ.isLoading ? (
           <SkeletonList count={2} />
-        ) : approvalsQ.isError ? (
-          <ErrorState onRetry={() => approvalsQ.refetch()} />
+        ) : approvalsQ.isError || flowApprovalsQ.isError ? (
+          <ErrorState
+            onRetry={() => {
+              if (approvalsQ.isError) void approvalsQ.refetch();
+              if (flowApprovalsQ.isError) void flowApprovalsQ.refetch();
+            }}
+          />
         ) : approvals.length + flowApprovals.length === 0 ? (
           <EmptyState
             icon={<Bot size={22} />}
@@ -286,15 +321,17 @@ export default function InboxPage() {
                       {approval.gate ? '送信前' : '確認'}
                     </span>
                   </div>
+                  {/* 外側のカードの中は枠なし（カードの入れ子にしない。DESIGN.md） */}
                   <RunPreviewRow
+                    plain
                     preview={{ capabilityLabel: approval.label, args }}
-                    busy={stepApproveMut.isPending && stepApproveMut.variables?.id === task.id}
-                    onApprove={() => stepApproveMut.mutate({ id: task.id })}
-                    onCancel={() => stepRejectMut.mutate(task.id)}
+                    busy={flowBusy.has(task.id)}
+                    onApprove={() => void actOnFlow(task.id, 'approve')}
+                    onCancel={() => void actOnFlow(task.id, 'reject')}
                   />
-                  {stepApproveMut.isError && stepApproveMut.variables?.id === task.id && (
-                    <p className="mt-2 text-xs text-danger" aria-live="polite">
-                      承認できませんでした。権限か期限をご確認ください。
+                  {flowErrors[task.id] && (
+                    <p className="mt-2 text-xs text-danger" role="alert">
+                      {flowErrors[task.id]}
                     </p>
                   )}
                 </motion.article>

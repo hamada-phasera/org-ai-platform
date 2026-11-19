@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, GripVertical, Plus, Trash2 } from 'lucide-react';
@@ -28,6 +28,7 @@ import {
   type PageDefinition,
 } from '@org-ai/shared-types';
 import { Button, ErrorState, Spinner } from '../ui';
+import { READ_ONLY_REASON, useReadOnlyOrg } from '../../hooks/useReadOnlyOrg';
 import { BlockRenderer } from '../pages/BlockRenderer';
 import { PageCtx, type PageContextValue } from '../pages/PageContext';
 import type { PageQueryData } from '../pages/pagesApi';
@@ -72,14 +73,25 @@ export default function OutputBuilder({ flow }: { flow: FlowDetail }) {
       </div>
     );
   }
-  return <Builder key={q.data.page?.version ?? 0} flow={flow} info={q.data} />;
+  // 版では作り直さない（編集中に他の人の保存・取り直しが来ても未保存の編集を消さない）。合わせ方は Builder の中
+  return <Builder key={flow.id} flow={flow} info={q.data} />;
 }
+
+const EMPTY_DEFINITION: PageDefinition = { blocks: [], actions: {} };
+const itemsOf = (blocks: PageBlock[]): Item[] => blocks.map((block) => ({ id: nextId(), block }));
 
 function Builder({ flow, info }: { flow: FlowDetail; info: FlowPageInfo }) {
   const qc = useQueryClient();
-  const initial = info.page?.definition ?? info.draft ?? { blocks: [], actions: {} };
-  const initialTitle = info.page?.title ?? flow.name;
-  const [items, setItems] = useState<Item[]>(() => initial.blocks.map((block) => ({ id: nextId(), block })));
+  const readOnly = useReadOnlyOrg();
+  /**
+   * 編集の基準にした結果ページ（楽観ロックの版もこれ）。取り直しで版が変わっても、編集中は差し替えない
+   * （未保存の編集を消さない。1 行出し、保存すれば gateway が 409 を返す）。未編集・自分の保存の直後は合わせる。
+   */
+  const [base, setBase] = useState(info);
+  const [ownSave, setOwnSave] = useState(false);
+  const initial = base.page?.definition ?? base.draft ?? EMPTY_DEFINITION;
+  const initialTitle = base.page?.title ?? flow.name;
+  const [items, setItems] = useState<Item[]>(() => itemsOf(initial.blocks));
   const [title, setTitle] = useState(initialTitle);
   const [selected, setSelected] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -88,7 +100,30 @@ function Builder({ flow, info }: { flow: FlowDetail; info: FlowPageInfo }) {
   const initialJson = useMemo(() => JSON.stringify(initial.blocks), [initial.blocks]);
 
   const blocks = items.map((i) => i.block);
-  const dirty = !info.page || title !== initialTitle || JSON.stringify(blocks) !== initialJson;
+  const edited = title !== initialTitle || JSON.stringify(blocks) !== initialJson;
+  const dirty = !base.page || edited;
+
+  const external = (info.page?.version ?? null) !== (base.page?.version ?? null);
+  if (external && (ownSave || !edited)) {
+    // 描画中の state 調整（props の変化に合わせる React の作法）。条件付きなので 1 回で収まる
+    setBase(info);
+    setItems(itemsOf((info.page?.definition ?? info.draft ?? EMPTY_DEFINITION).blocks));
+    setTitle(info.page?.title ?? flow.name);
+    setSelected(null);
+    setOwnSave(false);
+  }
+  const outdated = external && !ownSave && edited;
+
+  // 未保存のまま離れる（再読み込み・タブを閉じる）ときはブラウザの確認を出す
+  useEffect(() => {
+    if (!edited) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [edited]);
   const triggerIsForm = !!flowTriggerFields(flow.definition as FlowDefinition);
   const addable = addableBlocks(info.sources, triggerIsForm);
   const index = items.findIndex((i) => i.id === selected);
@@ -113,11 +148,13 @@ function Builder({ flow, info }: { flow: FlowDetail; info: FlowPageInfo }) {
   const definition: PageDefinition = { blocks, actions: FLOW_ACTIONS };
 
   const save = async () => {
+    if (readOnly) return;
     setSaving(true);
     setMessage(null);
     try {
-      const res = await saveFlowPage(flow.id, { definition, title: title.trim(), ...(info.page ? { baseVersion: info.page.version } : {}) });
+      const res = await saveFlowPage(flow.id, { definition, title: title.trim(), ...(base.page ? { baseVersion: base.page.version } : {}) });
       setIssues({ blocks: {}, general: [] });
+      if (res.created || res.changed) setOwnSave(true);
       setMessage(res.created ? '作りました' : '保存しました');
       await Promise.all([qc.invalidateQueries({ queryKey: flowPageKey(flow.id) }), qc.invalidateQueries({ queryKey: ['page', res.slug] })]);
     } catch (e) {
@@ -147,7 +184,7 @@ function Builder({ flow, info }: { flow: FlowDetail; info: FlowPageInfo }) {
       refetch: async () => undefined,
     } as unknown as UseQueryResult<PageQueryData>;
     const ctx: PageContextValue = {
-      slug: info.page?.slug ?? flow.slug,
+      slug: base.page?.slug ?? flow.slug,
       definition: toPublicPageDefinition(def),
       isAdmin: true,
       connection: 'ok',
@@ -155,7 +192,7 @@ function Builder({ flow, info }: { flow: FlowDetail; info: FlowPageInfo }) {
     };
     return { ctx, blocks: def.blocks };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- definition は blocks から作る
-  }, [blocks, flow.definition, flow.slug, info]);
+  }, [blocks, flow.definition, flow.slug, info, base.page?.slug]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -170,15 +207,22 @@ function Builder({ flow, info }: { flow: FlowDetail; info: FlowPageInfo }) {
           onChange={(e) => setTitle(e.target.value)}
           className={`${FIELD_CLASS} w-56`}
         />
-        {info.page && (
-          <Link to={`/p/${encodeURIComponent(info.page.slug)}`} className="text-sm font-semibold text-accent underline">
+        {base.page && (
+          <Link to={`/p/${encodeURIComponent(base.page.slug)}`} className="text-sm font-semibold text-accent underline">
             開く
           </Link>
         )}
-        <span className="ml-auto text-sm text-text-muted" aria-live="polite">
-          {message}
+        <span className={`ml-auto text-sm ${outdated && !message ? 'text-warning' : 'text-text-muted'}`} aria-live="polite">
+          {message ?? (outdated ? '他の人が更新しました' : null)}
         </span>
-        <Button size="sm" variant={dirty ? 'primary' : 'secondary'} disabled={!dirty || title.trim() === ''} loading={saving} onClick={() => void save()}>
+        <Button
+          size="sm"
+          variant={dirty ? 'primary' : 'secondary'}
+          disabled={!dirty || title.trim() === '' || readOnly}
+          title={readOnly ? READ_ONLY_REASON : undefined}
+          loading={saving}
+          onClick={() => void save()}
+        >
           保存
         </Button>
       </div>
