@@ -378,6 +378,8 @@ describe('履歴・取り消し・分離', () => {
     const list = await app.inject({ method: 'GET', url: '/api/flows/flow-p/runs', headers: MEMBER() });
     expect(list.json().data.runs.map((x: any) => x.id)).toEqual([runId]);
     expect(list.json().data.runs[0].steps).toBeUndefined();
+    // 誰が（同じ組織の所属の名前だけ）
+    expect(list.json().data.runs[0].actorName).toBe('u-member');
     expect((await app.inject({ method: 'GET', url: `/api/flows/runs/${runId}`, headers: B() })).statusCode).toBe(404);
     expect((await app.inject({ method: 'POST', url: `/api/flows/runs/${runId}/cancel`, headers: B() })).statusCode).toBe(404);
     expect((await app.inject({ method: 'GET', url: '/api/flows/flow-p/runs', headers: B() })).statusCode).toBe(404);

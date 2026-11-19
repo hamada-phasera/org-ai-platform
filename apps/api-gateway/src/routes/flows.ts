@@ -420,9 +420,21 @@ export async function flowRoutes(app: FastifyInstance): Promise<void> {
       ...(q.data.cursor ? { cursor: { id: q.data.cursor }, skip: 1 } : {}),
     });
     const page = rows.slice(0, RUN_PAGE);
+    // 「誰が」（§3.4 の履歴）。同じ組織の所属からだけ名前を引く（他組織の人の名前は出ない。定期は null）
+    const actorIds = [...new Set(page.map((r) => r.actorId).filter((x): x is string => !!x))];
+    const members = actorIds.length
+      ? await db.membership.findMany({
+          where: { orgId: db.orgId, userId: { in: actorIds } },
+          select: { userId: true, user: { select: { name: true } } },
+        })
+      : [];
+    const names = new Map(members.map((m) => [m.userId, m.user.name]));
     return reply.send({
       success: true,
-      data: { runs: page, nextCursor: rows.length > RUN_PAGE ? page[page.length - 1]?.id ?? null : null },
+      data: {
+        runs: page.map((r) => ({ ...r, actorName: r.actorId ? (names.get(r.actorId) ?? null) : null })),
+        nextCursor: rows.length > RUN_PAGE ? page[page.length - 1]?.id ?? null : null,
+      },
     });
   });
 
